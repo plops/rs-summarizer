@@ -7,26 +7,26 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
 ## Tasks
 
 - [ ] 1. Project scaffolding and core setup
-  - [ ] 1.1 Initialize Cargo project and configure dependencies
+  - [x] 1.1 Initialize Cargo project and configure dependencies
     - Run `cargo init` in the `rs-summarizer/` directory
     - Set up `Cargo.toml` with all dependencies: tokio, axum, sqlx (sqlite, runtime-tokio, macros), yt-dlp, gemini-rust, serde, askama, regex, tracing, tracing-subscriber, thiserror, anyhow, chrono, tower-http, proptest (dev)
     - Create directory structure: `src/`, `src/services/`, `src/utils/`, `src/routes/`, `src/templates/`, `migrations/`, `tests/`, `tests/fixtures/`, `static/`
     - _Requirements: 11.1, 11.2, 11.5_
 
-  - [ ] 1.2 Create SQLite migration file
+  - [x] 1.2 Create SQLite migration file
     - Write `migrations/001_initial.sql` with the full `summaries` table schema matching the `Summary` struct from the design
     - Include composite index on `(original_source_link, model, summary_timestamp_start)`
     - Configure WAL journal mode in the migration or connection options
     - _Requirements: 11.1, 11.4, 11.5_
 
-  - [ ] 1.3 Define core data models and AppState
+  - [-] 1.3 Define core data models and AppState
     - Create `src/models.rs` with `Summary`, `SubmitForm`, `SearchForm`, `BrowseParams` structs
     - Create `src/state.rs` with `AppState` struct and `ModelOption` configuration
     - Define error types with `thiserror` for each service module
     - _Requirements: 11.3, 13.1_
 
 - [ ] 2. Utility modules with ground-truth tests
-  - [ ] 2.1 Implement YouTube URL validator
+  - [~] 2.1 Implement YouTube URL validator
     - Create `src/utils/url_validator.rs` with `validate_youtube_url(url: &str) -> Option<String>`
     - Support all URL patterns: watch, live, shorts, youtu.be, mobile
     - Enforce HTTPS-only and 11-character ID constraint
@@ -38,7 +38,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 2: URL Validator Rejects Invalid URLs** — For any non-HTTPS or non-YouTube URL, returns None
     - **Validates: Requirements 1.1–1.9**
 
-  - [ ] 2.3 Implement VTT parser
+  - [~] 2.3 Implement VTT parser
     - Create `src/utils/vtt_parser.rs` with `parse_vtt(vtt_content: &str) -> String`
     - Implement timestamp truncation to second granularity
     - Implement consecutive duplicate line deduplication
@@ -52,7 +52,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 4: VTT Parser Deduplication** — No consecutive lines have identical caption text
     - **Validates: Requirements 2.1, 2.2, 2.3**
 
-  - [ ] 2.5 Implement markdown to YouTube format converter
+  - [~] 2.5 Implement markdown to YouTube format converter
     - Create `src/utils/markdown_converter.rs` with `convert_markdown_to_youtube_format(text: &str) -> String`
     - Convert `**word**` to `*word*`, `## Heading` to `*Heading*`
     - Replace dots in URLs with `-dot-`
@@ -65,7 +65,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 6: Markdown Converter URL Dot Replacement** — URLs with dots have them replaced with `-dot-`
     - **Validates: Requirements 3.1, 3.2, 3.3, 3.5**
 
-  - [ ] 2.7 Implement HTML timestamp to YouTube link converter
+  - [~] 2.7 Implement HTML timestamp to YouTube link converter
     - Create `src/utils/timestamp_linker.rs` with `replace_timestamps_in_html(html: &str, youtube_url: &str) -> String`
     - Parse MM:SS and HH:MM:SS timestamps, compute seconds offset
     - Generate anchor tags with canonical `watch?v=ID&t=Ns` form
@@ -79,21 +79,21 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 9: Timestamp Linker Canonical URL Form** — Generated links use `watch?v=ID` without extra params
     - **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
 
-  - [ ] 2.9 Create `src/utils/mod.rs` to export all utility modules
+  - [~] 2.9 Create `src/utils/mod.rs` to export all utility modules
     - Wire up url_validator, vtt_parser, markdown_converter, timestamp_linker as public modules
     - _Requirements: 1.1–4.5_
 
-- [ ] 3. Checkpoint - Verify utility modules
+- [~] 3. Checkpoint - Verify utility modules
   - Ensure all tests pass (`cargo test`), ask the user if questions arise.
 
 - [ ] 4. Database layer
-  - [ ] 4.1 Implement database initialization and connection pool
+  - [~] 4.1 Implement database initialization and connection pool
     - Create `src/db.rs` with pool initialization function
     - Configure WAL mode, connection pool (default 5 connections)
     - Run migrations at startup via `sqlx::migrate!()`
     - _Requirements: 11.1, 11.2, 11.5_
 
-  - [ ] 4.2 Implement CRUD operations for summaries
+  - [~] 4.2 Implement CRUD operations for summaries
     - Add `insert_new_summary()` function with parameterized bindings
     - Add `fetch_summary()` by identifier
     - Add `update_transcript()`, `update_summary_chunk()`, `mark_summary_done()`, `mark_timestamps_done()`
@@ -110,7 +110,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Validates: Requirements 7.2, 10.5, 11.3**
 
 - [ ] 5. Service layer
-  - [ ] 5.1 Implement deduplication service
+  - [~] 5.1 Implement deduplication service
     - Create `src/services/deduplication.rs` with `DeduplicationService` struct
     - Implement `check_duplicate()` by URL + model within 5-minute window
     - Implement `check_duplicate_by_transcript()` by transcript + model within window
@@ -121,7 +121,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 15: Deduplication Within Window** — Matching entries within window return Some, outside return None
     - **Validates: Requirements 8.1, 8.2, 8.3**
 
-  - [ ] 5.3 Implement transcript service
+  - [~] 5.3 Implement transcript service
     - Create `src/services/transcript.rs` with `TranscriptService` struct
     - Implement `download_transcript()` using yt-dlp crate
     - Implement `pick_best_language()` with priority ordering
@@ -134,7 +134,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 10: Language Selection Priority** — Test priority ordering with various subtitle listings
     - **Validates: Requirement 5.2**
 
-  - [ ] 5.5 Implement summary service
+  - [~] 5.5 Implement summary service
     - Create `src/services/summary.rs` with `SummaryService` struct
     - Implement `generate_summary()` with Gemini streaming, persisting chunks to DB progressively
     - Implement `build_prompt()` with transcript input
@@ -148,7 +148,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Test cost computation formula
     - **Validates: Requirements 6.5, 6.6**
 
-  - [ ] 5.7 Implement embedding service
+  - [~] 5.7 Implement embedding service
     - Create `src/services/embedding.rs` with `EmbeddingService` struct
     - Implement `embed_text()` via Gemini embedding model
     - Implement `cosine_similarity()` with Matryoshka truncation
@@ -162,21 +162,21 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 14: Similarity Search Ranking** — Results ordered by descending similarity, top-k respected
     - **Validates: Requirements 7.3, 7.4, 7.5, 7.6**
 
-  - [ ] 5.9 Implement rate limiting and daily counter reset
+  - [~] 5.9 Implement rate limiting and daily counter reset
     - Create `src/services/rate_limiter.rs` with per-model request counters
     - Implement daily reset logic using America/Los_Angeles timezone
     - Integrate with AppState's `model_counts` and `last_reset_day`
     - _Requirements: 13.1, 13.2, 13.3_
 
-  - [ ] 5.10 Create `src/services/mod.rs` to export all service modules
+  - [~] 5.10 Create `src/services/mod.rs` to export all service modules
     - Wire up deduplication, transcript, summary, embedding, rate_limiter as public modules
     - _Requirements: 5.1–8.4, 13.1–13.3_
 
-- [ ] 6. Checkpoint - Verify service layer
+- [~] 6. Checkpoint - Verify service layer
   - Ensure all tests pass (`cargo test`), ask the user if questions arise.
 
 - [ ] 7. Background task processing
-  - [ ] 7.1 Implement the background task orchestrator
+  - [~] 7.1 Implement the background task orchestrator
     - Create `src/tasks.rs` with `process_summary()` async function
     - Implement `wait_until_row_exists()` with retry/backoff (100ms interval, 400 max attempts)
     - Wire together: transcript download → validation → summary generation → YouTube format conversion → embedding
@@ -185,7 +185,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
 - [ ] 8. Web layer and templates
-  - [ ] 8.1 Create HTML templates with askama
+  - [~] 8.1 Create HTML templates with askama
     - Create `src/templates/` directory with askama template files
     - `index.html` — main page with submission form (URL input, model selector)
     - `generation_partial.html` — HTMX polling div for progressive summary display
@@ -195,7 +195,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Enable auto-escaping for XSS prevention
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 14.3_
 
-  - [ ] 8.2 Implement route handlers
+  - [~] 8.2 Implement route handlers
     - Create `src/routes/mod.rs` with all route handler functions
     - `GET /` → index page with form
     - `POST /process_transcript` → accept submission, check dedup, spawn background task, return HTMX polling partial
@@ -205,7 +205,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Integrate rate limiting check before spawning tasks
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 14.1, 14.2, 14.4_
 
-  - [ ] 8.3 Implement in-memory metadata cache
+  - [~] 8.3 Implement in-memory metadata cache
     - Create `src/cache.rs` with metadata cache struct
     - Load all summary metadata at startup
     - Refresh cache when new summaries complete
@@ -216,7 +216,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 19: Metadata Cache Duplicate Grouping** — Consecutive entries with identical summaries are collapsed into single groups
     - **Validates: Requirement 12.4**
 
-  - [ ] 8.5 Wire up the axum router and main entry point
+  - [~] 8.5 Wire up the axum router and main entry point
     - Create `src/main.rs` with tokio main function
     - Initialize database pool with WAL mode
     - Run migrations
@@ -226,13 +226,13 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Load Gemini API key from environment variable
     - _Requirements: 11.1, 11.2, 11.5, 14.1_
 
-  - [ ] 8.6 Add static assets
+  - [~] 8.6 Add static assets
     - Add `static/pico.min.css` for styling
     - Add `static/htmx.min.js` for HTMX functionality
     - Configure tower-http to serve the `static/` directory
     - _Requirements: 10.1, 10.4_
 
-- [ ] 9. Checkpoint - Verify compilation and basic routes
+- [~] 9. Checkpoint - Verify compilation and basic routes
   - Ensure `cargo build` succeeds and all tests pass, ask the user if questions arise.
 
 - [ ] 10. Integration and remaining property tests
@@ -255,7 +255,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Test error handling stores error in summary field
     - _Requirements: 9.1–9.5, 10.1–10.3_
 
-- [ ] 11. Final checkpoint - Ensure all tests pass
+- [~] 11. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass (`cargo test`), ask the user if questions arise.
 
 ## Notes
