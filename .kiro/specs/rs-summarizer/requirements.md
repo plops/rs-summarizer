@@ -18,6 +18,7 @@ rs-summarizer is a Rust port of the Python-based RocketRecap YouTube video trans
 - **Background_Task**: A tokio-spawned async task that processes a summarization pipeline
 - **Metadata_Cache**: An in-memory cache of summary metadata for fast browse and filter operations
 - **Matryoshka_Embedding**: An embedding vector that retains semantic meaning when truncated to fewer dimensions
+- **uv**: The Python package manager used for installing any Python dependencies needed during development or testing (preferred over pip)
 
 ## Requirements
 
