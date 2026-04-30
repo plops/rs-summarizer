@@ -91,8 +91,8 @@ impl TranscriptService {
 
     /// Invokes yt-dlp --list-subs to get available subtitle languages.
     async fn list_subtitles(&self, url: &str) -> Result<String, TranscriptError> {
-        let output = Command::new("yt-dlp")
-            .args(["--list-subs", url])
+        let output = Command::new("uvx")
+            .args(["yt-dlp", "--list-subs", url])
             .output()
             .await
             .map_err(|e| TranscriptError::YtDlpFailed(format!("Failed to execute yt-dlp: {}", e)))?;
@@ -120,8 +120,9 @@ impl TranscriptService {
         lang: &str,
         output_template: &str,
     ) -> Result<(), TranscriptError> {
-        let output = Command::new("yt-dlp")
+        let output = Command::new("uvx")
             .args([
+                "yt-dlp",
                 "--write-sub",
                 "--sub-lang",
                 lang,
