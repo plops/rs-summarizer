@@ -124,6 +124,7 @@ impl TranscriptService {
             .args([
                 "yt-dlp",
                 "--write-sub",
+                "--write-auto-sub",
                 "--sub-lang",
                 lang,
                 "--sub-format",
