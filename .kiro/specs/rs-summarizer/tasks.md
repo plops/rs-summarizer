@@ -170,15 +170,15 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Integrate with AppState's `model_counts` and `last_reset_day`
     - _Requirements: 13.1, 13.2, 13.3_
 
-  - [-] 5.10 Create `src/services/mod.rs` to export all service modules
+  - [x] 5.10 Create `src/services/mod.rs` to export all service modules
     - Wire up deduplication, transcript, summary, embedding, rate_limiter as public modules
     - _Requirements: 5.1–8.4, 13.1–13.3_
 
-- [ ] 6. Checkpoint - Verify service layer
+- [x] 6. Checkpoint - Verify service layer
   - Ensure all tests pass (`cargo test`), ask the user if questions arise.
 
 - [ ] 7. Background task processing
-  - [ ] 7.1 Implement the background task orchestrator
+  - [x] 7.1 Implement the background task orchestrator
     - Create `src/tasks.rs` with `process_summary()` async function
     - Implement `wait_until_row_exists()` with retry/backoff (100ms interval, 400 max attempts)
     - Wire together: transcript download → validation → summary generation → YouTube format conversion → embedding
@@ -187,7 +187,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - _Requirements: 9.1, 9.2, 9.3, 9.4, 9.5_
 
 - [ ] 8. Web layer and templates
-  - [ ] 8.1 Create HTML templates with askama
+  - [x] 8.1 Create HTML templates with askama
     - Create `src/templates/` directory with askama template files
     - `index.html` — main page with submission form (URL input, model selector)
     - `generation_partial.html` — HTMX polling div for progressive summary display
@@ -197,7 +197,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Enable auto-escaping for XSS prevention
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 14.3_
 
-  - [ ] 8.2 Implement route handlers
+  - [x] 8.2 Implement route handlers
     - Create `src/routes/mod.rs` with all route handler functions
     - `GET /` → index page with form
     - `POST /process_transcript` → accept submission, check dedup, spawn background task, return HTMX polling partial
@@ -207,7 +207,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Integrate rate limiting check before spawning tasks
     - _Requirements: 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 14.1, 14.2, 14.4_
 
-  - [ ] 8.3 Implement in-memory metadata cache
+  - [x] 8.3 Implement in-memory metadata cache
     - Create `src/cache.rs` with metadata cache struct
     - Load all summary metadata at startup
     - Refresh cache when new summaries complete
@@ -218,7 +218,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 19: Metadata Cache Duplicate Grouping** — Consecutive entries with identical summaries are collapsed into single groups
     - **Validates: Requirement 12.4**
 
-  - [ ] 8.5 Wire up the axum router and main entry point
+  - [x] 8.5 Wire up the axum router and main entry point
     - Create `src/main.rs` with tokio main function
     - Initialize database pool with WAL mode
     - Run migrations
@@ -228,13 +228,13 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Load Gemini API key from environment variable
     - _Requirements: 11.1, 11.2, 11.5, 14.1_
 
-  - [ ] 8.6 Add static assets
+  - [x] 8.6 Add static assets
     - Add `static/pico.min.css` for styling
     - Add `static/htmx.min.js` for HTMX functionality
     - Configure tower-http to serve the `static/` directory
     - _Requirements: 10.1, 10.4_
 
-- [ ] 9. Checkpoint - Verify compilation and basic routes
+- [-] 9. Checkpoint - Verify compilation and basic routes
   - Ensure `cargo build` succeeds and all tests pass, ask the user if questions arise.
 
 - [ ] 10. Integration and remaining property tests
