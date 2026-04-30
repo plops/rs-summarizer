@@ -1,9 +1,12 @@
+mod cache;
 mod db;
 mod errors;
 mod models;
+mod routes;
 mod services;
 mod state;
 mod tasks;
+mod templates;
 mod utils;
 
 use tracing_subscriber;

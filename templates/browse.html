@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Browse - rs-summarizer</title>
+    <link rel="stylesheet" href="/static/pico.min.css">
+</head>
+<body>
+    <main class="container">
+        <h1>Browse Summaries</h1>
+        <a href="/">← Back to Home</a>
+        
+        {% for item in summaries %}
+        <article>
+            <header>
+                <strong>#{{ item.identifier }}</strong> — {{ item.model }}
+                {% if item.cost > 0.0 %}
+                <small>(cost: ${{ "{:.6}"|format(item.cost) }})</small>
+                {% endif %}
+            </header>
+            <p>{{ item.summary|truncate(200) }}</p>
+            {% if !item.original_source_link.is_empty() %}
+            <footer><a href="{{ item.original_source_link }}">Source</a></footer>
+            {% endif %}
+        </article>
+        {% endfor %}
+        
+        <nav>
+            {% if page > 0 %}
+            <a href="/browse?page={{ page - 1 }}">← Previous</a>
+            {% endif %}
+            {% if has_next %}
+            <a href="/browse?page={{ page + 1 }}">Next →</a>
+            {% endif %}
+        </nav>
+    </main>
+</body>
+</html>

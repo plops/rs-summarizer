@@ -1,0 +1,14 @@
+<div id="generation" 
+     {% if !summary_done %}hx-post="/generations/{{ identifier }}" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}>
+    <article>
+        {% if summary_done %}
+        <header>Summary Complete</header>
+        {% else %}
+        <header>Generating summary... <span aria-busy="true"></span></header>
+        {% endif %}
+        <div>{{ summary|safe }}</div>
+        {% if summary_done && !timestamps.is_empty() %}
+        <footer>{{ timestamps|safe }}</footer>
+        {% endif %}
+    </article>
+</div>
