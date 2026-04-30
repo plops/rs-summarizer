@@ -234,7 +234,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Configure tower-http to serve the `static/` directory
     - _Requirements: 10.1, 10.4_
 
-- [-] 9. Checkpoint - Verify compilation and basic routes
+- [x] 9. Checkpoint - Verify compilation and basic routes
   - Ensure `cargo build` succeeds and all tests pass, ask the user if questions arise.
 
 - [ ] 10. Integration and remaining property tests
@@ -257,7 +257,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Test error handling stores error in summary field
     - _Requirements: 9.1–9.5, 10.1–10.3_
 
-- [ ] 11. Final checkpoint - Ensure all tests pass
+- [x] 11. Final checkpoint - Ensure all tests pass
   - Ensure all tests pass (`cargo test`), ask the user if questions arise.
 
 ## Notes
