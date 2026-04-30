@@ -3,6 +3,7 @@ mod errors;
 mod models;
 mod services;
 mod state;
+mod tasks;
 mod utils;
 
 use tracing_subscriber;
