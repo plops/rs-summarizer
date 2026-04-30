@@ -1,6 +1,7 @@
 mod db;
 mod errors;
 mod models;
+mod services;
 mod state;
 mod utils;
 
