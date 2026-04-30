@@ -40,9 +40,11 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
 
   - [ ] 2.3 Implement VTT parser
     - Create `src/utils/vtt_parser.rs` with `parse_vtt(vtt_content: &str) -> String`
-    - Implement timestamp truncation to second granularity
+    - Use the `vtt` crate (v1.0) to parse WebVTT content via `WebVtt::from_str()`
+    - Extract cue start timestamps and payload text from parsed `VttCue` structs
+    - Implement timestamp truncation to second granularity (strip milliseconds from `VttTimestamp`)
     - Implement consecutive duplicate line deduplication
-    - Handle multi-line cues (use last line only)
+    - Handle multi-line cues (use last line only from `cue.payload`)
     - Copy `cW3tzRzTHKI.en.vtt` fixture to `tests/fixtures/`
     - Add unit test verifying byte-for-byte match with Python output from `t02_parse_vtt_file.py`
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
@@ -268,3 +270,4 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
 - The VTT test fixture `cW3tzRzTHKI.en.vtt` must be copied from the source04 project into `tests/fixtures/`
 - All code uses Rust with the crates specified in the design document's dependency table
 - **Python dependency management**: Use `uv` (not pip) to install any Python dependencies needed during development or testing (e.g., for running Python ground-truth test scripts). Use `uv pip install` or `uvx` for one-off tool execution.
+- **VTT parsing**: Use the `vtt` crate (v1.0, https://github.com/Govcraft/vtt) for parsing WebVTT files instead of manual regex-based parsing. Parse via `WebVtt::from_str()`, iterate `cues` for `VttCue` structs with `start: VttTimestamp`, `end: VttTimestamp`, and `payload: String`.

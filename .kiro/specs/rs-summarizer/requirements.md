@@ -8,7 +8,7 @@ rs-summarizer is a Rust port of the Python-based RocketRecap YouTube video trans
 
 - **System**: The rs-summarizer web application as a whole
 - **URL_Validator**: The module responsible for validating YouTube URLs and extracting video IDs
-- **VTT_Parser**: The module responsible for parsing WebVTT subtitle files into plain text with timestamps
+- **VTT_Parser**: The module responsible for parsing WebVTT subtitle files into plain text with timestamps, using the `vtt` crate (v1.0) for parsing
 - **Transcript_Service**: The service that downloads and parses YouTube video transcripts using yt-dlp
 - **Summary_Service**: The service that orchestrates AI summary generation via Gemini with streaming support
 - **Embedding_Service**: The service that computes vector embeddings and performs similarity search
