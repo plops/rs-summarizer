@@ -15,6 +15,7 @@ use crate::services::rate_limiter::RateLimiter;
 use crate::state::AppState;
 use crate::tasks;
 use crate::templates::{BrowseTemplate, GenerationPartialTemplate, IndexTemplate, SearchResultsTemplate};
+use crate::utils::markdown_renderer::render_markdown_to_html;
 use crate::utils::timestamp_linker::replace_timestamps_in_html;
 
 /// GET / — renders the index page with the submission form.
@@ -171,9 +172,12 @@ async fn render_generation_partial(app: &AppState, identifier: i64) -> Html<Stri
                 String::new()
             };
 
+            // Render markdown summary as HTML
+            let summary_html = render_markdown_to_html(&s.summary);
+
             let template = GenerationPartialTemplate {
                 identifier: s.identifier,
-                summary: s.summary.clone(),
+                summary: summary_html,
                 summary_done: s.summary_done,
                 timestamps: timestamps_html,
             };

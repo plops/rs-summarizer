@@ -61,12 +61,17 @@ impl SummaryService {
         );
 
         // Use streaming to persist chunks progressively (Req 6.1, 6.2)
-        let mut stream = client
-            .generate_content()
-            .with_system_prompt(
+        let mut builder = client.generate_content();
+
+        // Gemma models don't support system prompts (developer instructions)
+        if !model.name.starts_with("gemma") {
+            builder = builder.with_system_prompt(
                 "You are a helpful assistant that summarizes YouTube video transcripts. \
                  Provide a comprehensive summary with key points and timestamps where relevant.",
-            )
+            );
+        }
+
+        let mut stream = builder
             .with_user_message(&prompt)
             .execute_stream()
             .await
@@ -163,7 +168,7 @@ impl SummaryService {
     /// Builds the prompt from the transcript text.
     pub fn build_prompt(&self, transcript: &str) -> String {
         format!(
-            "Please summarize the following YouTube video transcript. \
+            "Summarize the following YouTube video transcript. \
              Include key points, timestamps where relevant, and a brief overview.\n\n\
              Transcript:\n{}",
             transcript
@@ -247,7 +252,7 @@ mod tests {
         let transcript = "00:00:00 Hello world\n00:01:00 This is a test";
         let prompt = svc.build_prompt(transcript);
 
-        assert!(prompt.contains("summarize"));
+        assert!(prompt.contains("Summarize"));
         assert!(prompt.contains(transcript));
         assert!(prompt.contains("Transcript:"));
     }
