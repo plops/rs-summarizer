@@ -865,37 +865,127 @@ async fn search_similar(
 
 ## Correctness Properties
 
-The following properties must hold for the system to be correct:
+*A property is a characteristic or behavior that should hold true across all valid executions of a system—essentially, a formal statement about what the system should do. Properties serve as the bridge between human-readable specifications and machine-verifiable correctness guarantees.*
 
-1. **∀ url: validate_youtube_url(url) = Some(id) ⟹ id.len() == 11 ∧ id ∈ [A-Za-z0-9_-]***
-   - Every validated URL produces exactly an 11-character alphanumeric+dash+underscore ID.
+### Property 1: URL Validator Output Invariant
 
-2. **∀ vtt: parse_vtt(vtt) contains no consecutive duplicate lines**
-   - The VTT parser always deduplicates adjacent identical captions.
+*For any* input string where `validate_youtube_url` returns `Some(id)`, the returned `id` SHALL consist of exactly 11 characters from the set `[A-Za-z0-9_-]`.
 
-3. **∀ vtt: every line in parse_vtt(vtt) matches format "HH:MM:SS text\n"**
-   - Output timestamps always have second granularity, no milliseconds.
+**Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.9**
 
-4. **∀ submission within 5min window with same (url, model): only one background task runs**
-   - Deduplication prevents duplicate processing.
+### Property 2: URL Validator Rejects Invalid URLs
 
-5. **∀ id where summary generation succeeds: summary_done == true ∧ timestamps_done == true ∧ cost > 0**
-   - Successful completion always sets all done flags and computes cost.
+*For any* URL string that does not use HTTPS or does not match a recognized YouTube domain/path pattern, `validate_youtube_url` SHALL return `None`.
 
-6. **∀ streaming generation: at any point during streaming, DB.summary == concatenation of all chunks received so far**
-   - Progressive updates are monotonically appending, never losing data.
+**Validates: Requirements 1.7, 1.8**
 
-7. **∀ a, b non-empty vectors: -1.0 ≤ cosine_similarity(a, b) ≤ 1.0**
-   - Cosine similarity is bounded, even with mismatched dimensions (Matryoshka truncation).
+### Property 3: VTT Parser Output Format
 
-8. **∀ html, url where validate_youtube_url(url) = None: replace_timestamps_in_html(html, url) == html**
-   - Invalid YouTube URLs cause no modification to HTML.
+*For any* valid WebVTT input, every line in the output of `parse_vtt` SHALL match the format `HH:MM:SS caption_text\n` with no millisecond components.
 
-9. **∀ model_count reset: happens exactly once per calendar day (America/Los_Angeles timezone)**
-   - Daily quota counters reset deterministically.
+**Validates: Requirements 2.1, 2.3**
 
-10. **∀ embedding stored: embedding.len() == dimensions * 4 bytes (f32)**
-    - Stored embeddings always have the expected byte length.
+### Property 4: VTT Parser Deduplication
+
+*For any* valid WebVTT input, the output of `parse_vtt` SHALL contain no consecutive lines with identical caption text.
+
+**Validates: Requirement 2.2**
+
+### Property 5: Markdown Converter Eliminates Bold Markers
+
+*For any* input string, the output of `convert_markdown_to_youtube_format` SHALL contain no double-asterisk (`**`) markdown bold markers.
+
+**Validates: Requirements 3.1, 3.2, 3.5**
+
+### Property 6: Markdown Converter URL Dot Replacement
+
+*For any* input string containing URLs with dots in the domain, the output of `convert_markdown_to_youtube_format` SHALL have those dots replaced with `-dot-`.
+
+**Validates: Requirement 3.3**
+
+### Property 7: Timestamp Linker Correct Time Offset
+
+*For any* valid YouTube URL and HTML string containing timestamps in MM:SS or HH:MM:SS format, `replace_timestamps_in_html` SHALL produce anchor tags where the `t` parameter equals `H*3600 + M*60 + S` seconds.
+
+**Validates: Requirements 4.1, 4.2, 4.5**
+
+### Property 8: Timestamp Linker Invalid URL Passthrough
+
+*For any* invalid YouTube URL and any HTML string, `replace_timestamps_in_html` SHALL return the HTML unchanged.
+
+**Validates: Requirement 4.4**
+
+### Property 9: Timestamp Linker Canonical URL Form
+
+*For any* valid YouTube URL (including those with extra query parameters) and HTML with timestamps, the generated anchor links SHALL use the canonical `watch?v=ID` form without extraneous parameters.
+
+**Validates: Requirement 4.3**
+
+### Property 10: Language Selection Priority
+
+*For any* yt-dlp subtitle listing output containing multiple language codes, `pick_best_language` SHALL return a language following the priority order: (1) `-orig` matching preferred base, (2) any `-orig` sorted, (3) non-orig matching preferred base, (4) any `en*` prefix, (5) first sorted.
+
+**Validates: Requirement 5.2**
+
+### Property 11: Cosine Similarity Bounded Output
+
+*For any* two non-empty f32 vectors, `cosine_similarity` SHALL return a value in the range `[-1.0, 1.0]`, and SHALL return `0.0` when either vector has zero magnitude.
+
+**Validates: Requirements 7.4, 7.5**
+
+### Property 12: Cosine Similarity Matryoshka Truncation
+
+*For any* two non-empty f32 vectors of different lengths, `cosine_similarity` SHALL truncate both to `min(a.len(), b.len())` dimensions before computation, producing the same result as if both vectors were pre-truncated.
+
+**Validates: Requirement 7.3**
+
+### Property 13: Embedding Storage Size Invariant
+
+*For any* embedding stored in the database with a configured dimension count N, the stored blob SHALL have byte length exactly `N * 4`.
+
+**Validates: Requirement 7.2**
+
+### Property 14: Similarity Search Ranking
+
+*For any* set of stored embeddings and a query embedding, `find_similar` SHALL return results ordered by descending cosine similarity score, with the top-k constraint respected.
+
+**Validates: Requirement 7.6**
+
+### Property 15: Deduplication Within Window
+
+*For any* (url, model) pair where a matching entry exists with `summary_timestamp_start` within the configured time window, `check_duplicate` SHALL return `Some(identifier)`. For entries outside the window, it SHALL return `None`.
+
+**Validates: Requirements 8.1, 8.2, 8.3**
+
+### Property 16: Streaming Monotonicity
+
+*For any* sequence of N text chunks received during streaming, after persisting chunk K (1 ≤ K ≤ N), the database summary field SHALL equal the concatenation of chunks 1 through K.
+
+**Validates: Requirement 6.2**
+
+### Property 17: Transcript Length Validation
+
+*For any* transcript string with fewer than 30 whitespace-separated words, the Summary_Service SHALL reject it with a TranscriptTooShort error.
+
+**Validates: Requirement 6.5**
+
+### Property 18: Browse Pagination
+
+*For any* set of N summaries and page number P, the browse endpoint SHALL return at most 20 summaries starting at offset `P * 20`, ordered by identifier descending.
+
+**Validates: Requirement 10.5**
+
+### Property 19: Metadata Cache Duplicate Grouping
+
+*For any* ordered list of summaries, the Metadata_Cache grouping logic SHALL collapse consecutive entries with identical summary text into a single group.
+
+**Validates: Requirement 12.4**
+
+### Property 20: Daily Counter Reset
+
+*For any* pair of timestamps (current_time, last_reset_time) where `current_time` falls on a different calendar day (America/Los_Angeles) than `last_reset_time`, the System SHALL trigger exactly one counter reset.
+
+**Validates: Requirement 13.2**
 
 ## Error Handling
 
