@@ -153,6 +153,8 @@ impl TranscriptService {
                 "--sub-format",
                 "vtt",
                 "--skip-download",
+                "--format",
+                "mhtml",
                 "-o",
                 output_template,
                 url,

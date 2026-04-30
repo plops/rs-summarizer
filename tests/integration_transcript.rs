@@ -12,7 +12,7 @@ use tokio::process::Command;
 #[ignore] // requires network
 async fn test_list_subtitles_real_video() {
     let output = Command::new("uvx")
-        .args(["yt-dlp", "--list-subs", "https://www.youtube.com/watch?v=LlzXCE02swU"])
+        .args(["yt-dlp", "--cookies-from-browser", "firefox", "--list-subs", "https://www.youtube.com/watch?v=LlzXCE02swU"])
         .output()
         .await
         .expect("Failed to run uvx yt-dlp");
@@ -42,11 +42,13 @@ async fn test_download_auto_subtitles() {
     let output = Command::new("uvx")
         .args([
             "yt-dlp",
+            "--cookies-from-browser", "firefox",
             "--write-sub",
             "--write-auto-sub",
             "--sub-lang", "en",
             "--sub-format", "vtt",
             "--skip-download",
+            "--format", "mhtml",
             "-o", &output_template,
             "https://www.youtube.com/watch?v=LlzXCE02swU",
         ])
@@ -99,11 +101,13 @@ async fn test_full_transcript_pipeline() {
     let dl_output = Command::new("uvx")
         .args([
             "yt-dlp",
+            "--cookies-from-browser", "firefox",
             "--write-sub",
             "--write-auto-sub",
             "--sub-lang", "en",
             "--sub-format", "vtt",
             "--skip-download",
+            "--format", "mhtml",
             "-o", &output_template,
             "https://www.youtube.com/watch?v=LlzXCE02swU",
         ])
