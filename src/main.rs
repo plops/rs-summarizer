@@ -1,6 +1,7 @@
 mod errors;
 mod models;
 mod state;
+mod utils;
 
 use tracing_subscriber;
 
