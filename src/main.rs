@@ -1,22 +1,10 @@
-mod cache;
-mod db;
-mod errors;
-mod models;
-mod routes;
-mod services;
-mod state;
-mod tasks;
-mod templates;
-mod utils;
-
-use axum::{routing::{get, post}, Router};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tower_http::services::ServeDir;
 
-use crate::state::{AppState, ModelOption};
+use rs_summarizer::state::{AppState, ModelOption};
+use rs_summarizer::{build_router, db};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -127,14 +115,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Build router
-    let app = Router::new()
-        .route("/", get(routes::index))
-        .route("/process_transcript", post(routes::process_transcript))
-        .route("/generations/{identifier}", post(routes::get_generation))
-        .route("/browse", get(routes::browse_summaries))
-        .route("/search", post(routes::search_similar))
-        .nest_service("/static", ServeDir::new("static"))
-        .with_state(state);
+    let app = build_router(state);
 
     // Start server
     let addr = SocketAddr::from(([0, 0, 0, 0], 5001));
