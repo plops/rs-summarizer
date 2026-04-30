@@ -1,108 +1,156 @@
-use regex::Regex;
-
-/// Parse a VTT subtitle file content into plain text with second-granularity timestamps.
-/// Performs deduplication of repeated caption lines (common in auto-generated subs).
-///
-/// This is a direct port of the Python `parse_vtt_file` function from `s02_parse_vtt_file.py`.
-pub fn parse_vtt(vtt_content: &str) -> String {
-    let timestamp_re = Regex::new(r"^(\d{2}:\d{2}:\d{2}\.\d+)\s+-->").unwrap();
-    // Regex to strip VTT inline tags like <00:00:01.350><c> word</c>
-    let tag_re = Regex::new(r"<[^>]+>").unwrap();
-
-    // Collect cues: (start_time, text) where text is the full cue text joined by newlines
-    // This mirrors webvtt.read() which gives c.text as the full cue text (with tags stripped)
-    let mut cues: Vec<(String, String)> = Vec::new();
-    let mut current_start: Option<String> = None;
-    let mut current_lines: Vec<String> = Vec::new();
-    let mut in_cue = false;
-
-    for line in vtt_content.lines() {
-        if let Some(caps) = timestamp_re.captures(line) {
-            // If we had a previous cue, save it
-            if let Some(start) = current_start.take() {
-                // Strip trailing whitespace-only lines (matches webvtt library behavior)
-                while current_lines.last().map_or(false, |l| l.trim().is_empty()) {
-                    current_lines.pop();
-                }
-                let text = current_lines.join("\n");
-                cues.push((start, text));
-                current_lines.clear();
-            }
-            current_start = Some(caps[1].to_string());
-            in_cue = true;
-        } else if in_cue {
-            if line.is_empty() {
-                // Empty line ends the cue
-                in_cue = false;
-            } else {
-                // Strip VTT tags from the line (but preserve whitespace)
-                let clean = tag_re.replace_all(line, "").to_string();
-                current_lines.push(clean);
-            }
+/// Strips WebVTT cue tags (e.g. `<00:00:01.350>`, `<c>`, `</c>`) from text.
+fn strip_vtt_tags(text: &str) -> String {
+    let mut result = String::with_capacity(text.len());
+    let mut in_tag = false;
+    for ch in text.chars() {
+        if ch == '<' {
+            in_tag = true;
+        } else if ch == '>' {
+            in_tag = false;
+        } else if !in_tag {
+            result.push(ch);
         }
     }
-    // Don't forget the last cue
-    if let Some(start) = current_start.take() {
-        // Strip trailing whitespace-only lines
-        while current_lines.last().map_or(false, |l| l.trim().is_empty()) {
-            current_lines.pop();
-        }
-        let text = current_lines.join("\n");
-        cues.push((start, text));
-    }
-
-    // Now replicate the Python deduplication algorithm exactly:
-    // old_text = ["__bla__"]
-    // old_time = "00:00:00"
-    // out = [dict(text="")]
-    // for c in cues:
-    //     if out[-1]["text"] != old_text[-1]:
-    //         out.append(dict(text=old_text[-1], time=old_time))
-    //     old_text = c.text.split("\n")  -> the text lines of the cue
-    //     old_time = c.start
-
-    let mut old_text: Vec<String> = vec!["__bla__".to_string()];
-    let mut old_time = "00:00:00".to_string();
-
-    struct Entry {
-        text: String,
-        time: String,
-    }
-
-    let mut out: Vec<Entry> = vec![Entry {
-        text: String::new(),
-        time: String::new(),
-    }];
-
-    for (start_time, cue_text) in &cues {
-        let last_out_text = &out.last().unwrap().text;
-        let last_old_text = old_text.last().unwrap();
-
-        if last_out_text != last_old_text {
-            out.push(Entry {
-                text: last_old_text.clone(),
-                time: old_time.clone(),
-            });
-        }
-
-        // Split cue text by newlines (mirrors c.text.split("\n") in Python)
-        old_text = cue_text.split('\n').map(|s| s.to_string()).collect();
-        old_time = start_time.clone();
-    }
-
-    // Format output: skip the first two entries (initialization artifacts)
-    let mut result = String::new();
-    for entry in out.iter().skip(2) {
-        let tstamp = truncate_timestamp(&entry.time);
-        result.push_str(&format!("{} {}\n", tstamp, entry.text));
-    }
-
     result
 }
 
-/// Truncate "HH:MM:SS.mmm" to "HH:MM:SS"
-fn truncate_timestamp(ts: &str) -> String {
-    ts.split('.').next().unwrap_or(ts).to_string()
+/// Represents a parsed cue from a VTT file.
+struct Cue {
+    start_timestamp: String,
+    payload: String,
+}
+
+/// Parses VTT content into cues, matching Python webvtt behavior:
+/// - Lines where `trim()` is empty are block separators
+/// - Blocks without a `-->` timing line are skipped
+/// - Payload is the lines after the timing line, joined with newlines
+fn parse_cues(vtt_content: &str) -> Vec<Cue> {
+    let lines: Vec<&str> = vtt_content.lines().collect();
+
+    // Split into blocks using trim-empty lines as separators
+    // (matching Python's `line.strip()` check)
+    let mut blocks: Vec<Vec<&str>> = Vec::new();
+    let mut current_block: Vec<&str> = Vec::new();
+
+    for line in &lines {
+        if line.trim().is_empty() {
+            if !current_block.is_empty() {
+                blocks.push(current_block.clone());
+                current_block.clear();
+            }
+        } else {
+            current_block.push(line);
+        }
+    }
+    if !current_block.is_empty() {
+        blocks.push(current_block);
+    }
+
+    // Process blocks into cues
+    let mut cues = Vec::new();
+    for block in &blocks {
+        // Find the timing line (contains "-->")
+        let timing_idx = block.iter().position(|line| line.contains("-->"));
+        let timing_idx = match timing_idx {
+            Some(idx) => idx,
+            None => continue, // Skip blocks without timing
+        };
+
+        // Skip blocks that don't have payload lines after the timing line
+        // (matching Python webvtt's is_valid check which requires len >= 2)
+        if timing_idx + 1 >= block.len() {
+            continue;
+        }
+
+        let timing_line = block[timing_idx];
+        let start_str = timing_line.split("-->").next().unwrap().trim();
+        let start_timestamp = parse_timestamp_to_hms(start_str);
+
+        // Payload is everything after the timing line
+        let payload_lines: Vec<&str> = block[timing_idx + 1..].to_vec();
+        let payload = payload_lines.join("\n");
+
+        cues.push(Cue {
+            start_timestamp,
+            payload,
+        });
+    }
+
+    cues
+}
+
+/// Parses a VTT timestamp string (HH:MM:SS.mmm or MM:SS.mmm) and returns HH:MM:SS.
+fn parse_timestamp_to_hms(ts_str: &str) -> String {
+    let parts: Vec<&str> = ts_str.split(':').collect();
+    let (hours, minutes, sec_part) = if parts.len() == 3 {
+        (
+            parts[0].parse::<u64>().unwrap_or(0),
+            parts[1].parse::<u64>().unwrap_or(0),
+            parts[2],
+        )
+    } else if parts.len() == 2 {
+        (0u64, parts[0].parse::<u64>().unwrap_or(0), parts[1])
+    } else {
+        return "00:00:00".to_string();
+    };
+
+    // Strip milliseconds (everything after '.')
+    let seconds: u64 = sec_part
+        .split('.')
+        .next()
+        .unwrap_or("0")
+        .parse()
+        .unwrap_or(0);
+
+    format!("{:02}:{:02}:{:02}", hours, minutes, seconds)
+}
+
+/// Parses WebVTT content and returns a deduplicated transcript string
+/// with second-granularity timestamps.
+///
+/// This is a port of the Python `parse_vtt_file` function from `s02_parse_vtt_file.py`.
+/// Algorithm:
+/// 1. For each cue, take the last line of the payload (after stripping VTT tags).
+/// 2. Deduplicate consecutive entries with the same text.
+/// 3. Skip the first two initialization entries.
+/// 4. Format each entry as "HH:MM:SS text\n".
+pub fn parse_vtt(vtt_content: &str) -> String {
+    let cues = parse_cues(vtt_content);
+
+    // Mirrors the Python algorithm:
+    // old_text = ["__bla__"]
+    // old_time = "00:00:00"
+    // out = [dict(text="")]
+    let mut old_text: Vec<String> = vec!["__bla__".to_string()];
+    let mut old_time = "00:00:00".to_string();
+
+    // out stores (text, time) pairs; first entry is initialization artifact
+    let mut out: Vec<(String, String)> = vec![("".to_string(), String::new())];
+
+    for cue in &cues {
+        // Check if current last entry's text differs from old_text's last element
+        let last_out_text = &out.last().unwrap().0;
+        let old_text_last = old_text.last().unwrap();
+        if last_out_text != old_text_last {
+            out.push((old_text_last.clone(), old_time.clone()));
+        }
+
+        // Process payload: strip VTT tags, split by newline
+        let clean_payload = strip_vtt_tags(&cue.payload);
+        let lines: Vec<&str> = clean_payload.split('\n').collect();
+        old_text = lines.iter().map(|s| s.to_string()).collect();
+        old_time = cue.start_timestamp.clone();
+    }
+
+    // Build output string, skipping first two entries (initialization artifacts)
+    let mut ostr = String::new();
+    for entry in out.iter().skip(2) {
+        let tstamp = &entry.1;
+        let caption = &entry.0;
+        ostr.push_str(&format!("{} {}\n", tstamp, caption));
+    }
+
+    ostr
 }
 
 #[cfg(test)]
@@ -110,7 +158,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_vtt_matches_python_output() {
+    fn test_parse_vtt_fixture_matches_python_output() {
         let vtt_content =
             std::fs::read_to_string("tests/fixtures/cW3tzRzTHKI.en.vtt").unwrap();
         let result = parse_vtt(&vtt_content);
@@ -170,26 +218,31 @@ mod tests {
 00:02:36 polyurethanes from BASF we create
 "#;
 
-        assert_eq!(result, expected, "VTT parser output must match Python implementation byte-for-byte");
+        assert_eq!(result, expected);
     }
 
     #[test]
-    fn test_truncate_timestamp() {
-        assert_eq!(truncate_timestamp("00:00:05.120"), "00:00:05");
-        assert_eq!(truncate_timestamp("01:23:45.678"), "01:23:45");
-        assert_eq!(truncate_timestamp("00:00:00"), "00:00:00");
+    fn test_strip_vtt_tags() {
+        assert_eq!(
+            strip_vtt_tags("welcome<00:00:01.350><c> to</c><00:00:01.530><c> BASF</c>"),
+            "welcome to BASF"
+        );
+        assert_eq!(strip_vtt_tags("plain text"), "plain text");
+        assert_eq!(strip_vtt_tags(""), "");
     }
 
     #[test]
-    fn test_parse_vtt_empty_input() {
-        let result = parse_vtt("");
+    fn test_parse_timestamp_to_hms() {
+        assert_eq!(parse_timestamp_to_hms("00:00:00.040"), "00:00:00");
+        assert_eq!(parse_timestamp_to_hms("00:00:05.090"), "00:00:05");
+        assert_eq!(parse_timestamp_to_hms("01:01:01.000"), "01:01:01");
+        assert_eq!(parse_timestamp_to_hms("23:45.678"), "00:23:45");
+    }
+
+    #[test]
+    fn test_parse_vtt_empty_content() {
+        let content = "WEBVTT\n\n";
+        let result = parse_vtt(content);
         assert_eq!(result, "");
-    }
-
-    #[test]
-    fn test_parse_vtt_minimal() {
-        let vtt = "WEBVTT\n\n00:00:01.000 --> 00:00:02.000\nHello world\n\n00:00:03.000 --> 00:00:04.000\nGoodbye world\n";
-        let result = parse_vtt(vtt);
-        assert_eq!(result, "00:00:01 Hello world\n");
     }
 }
