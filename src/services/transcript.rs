@@ -286,11 +286,11 @@ impl TranscriptService {
 }
 
 /// Checks if a string looks like a valid language code.
-/// Language codes are lowercase letters, digits, and hyphens (e.g., "en", "en-orig", "zh-Hans").
+/// Language codes are letters, digits, and hyphens (e.g., "en", "en-orig", "zh-Hans", "en-US").
 fn is_language_code(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '-')
         && s.chars().next().map_or(false, |c| c.is_ascii_lowercase())
 }
 
@@ -414,11 +414,12 @@ ru       Russian                 vtt, ttml, srv3, srv2, srv1, json3
         assert!(is_language_code("en-orig"));
         assert!(is_language_code("zh-hans"));
         assert!(is_language_code("en-us"));
+        assert!(is_language_code("en-US"));
+        assert!(is_language_code("zh-Hans"));
         assert!(!is_language_code(""));
-        assert!(!is_language_code("EN"));
         assert!(!is_language_code("123"));
         assert!(!is_language_code("-en"));
-        assert!(!is_language_code("Language"));
+        assert!(!is_language_code("Language")); // starts with uppercase
     }
 
     #[test]
