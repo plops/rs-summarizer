@@ -38,7 +38,7 @@ async fn process_summary_inner(
     let summary_svc = SummaryService::new(app.gemini_api_key.clone());
     let embedding_svc = EmbeddingService::new(
         app.gemini_api_key.clone(),
-        "text-embedding-004",
+        "gemini-embedding-001",
         3072,
     );
 
@@ -78,7 +78,7 @@ async fn process_summary_inner(
     match embedding_svc.embed_text(&result.summary_text).await {
         Ok(embedding) => {
             let bytes = embedding_to_bytes(&embedding);
-            if let Err(e) = db::store_embedding(db_pool, identifier, &bytes, "text-embedding-004").await {
+            if let Err(e) = db::store_embedding(db_pool, identifier, &bytes, "gemini-embedding-001").await {
                 tracing::warn!(identifier = identifier, error = %e, "Failed to store embedding");
             }
         }

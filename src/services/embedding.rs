@@ -27,7 +27,7 @@ impl EmbeddingService {
             return Err(EmbeddingError::EmptyText);
         }
 
-        let client = Gemini::with_model(&self.api_key, Model::TextEmbedding004)
+        let client = Gemini::with_model(&self.api_key, Model::Custom(format!("models/{}", self.model)))
             .map_err(|e| EmbeddingError::ApiError(e.to_string()))?;
 
         let response = client

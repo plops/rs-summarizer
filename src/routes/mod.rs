@@ -126,7 +126,7 @@ pub async fn search_similar(
 ) -> impl IntoResponse {
     let embedding_svc = EmbeddingService::new(
         app.gemini_api_key.clone(),
-        "text-embedding-004",
+        "gemini-embedding-001",
         3072,
     );
 

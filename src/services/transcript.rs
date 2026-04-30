@@ -110,6 +110,27 @@ impl TranscriptService {
             ));
         }
 
+        // Check for known error patterns that indicate failure (not just missing subs)
+        if !output.status.success() {
+            // Check if it's a bot/rate-limit issue vs genuinely no subtitles
+            if combined.contains("Sign in to confirm") || combined.contains("bot") {
+                return Err(TranscriptError::YtDlpFailed(
+                    "YouTube requires authentication. Try again later or use --cookies.".to_string(),
+                ));
+            }
+            if combined.contains("429") || combined.contains("Too Many Requests") {
+                return Err(TranscriptError::YtDlpFailed(
+                    "YouTube rate limited (429 Too Many Requests). Try again later.".to_string(),
+                ));
+            }
+            // If it failed but has subtitle info in the output, continue parsing
+            if !combined.contains("Available subtitles") && !combined.contains("Available automatic captions") {
+                return Err(TranscriptError::YtDlpFailed(
+                    format!("yt-dlp failed: {}", stderr.trim()),
+                ));
+            }
+        }
+
         Ok(combined)
     }
 
