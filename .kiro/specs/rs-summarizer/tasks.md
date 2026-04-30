@@ -89,13 +89,13 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
   - Ensure all tests pass (`cargo test`), ask the user if questions arise.
 
 - [ ] 4. Database layer
-  - [-] 4.1 Implement database initialization and connection pool
+  - [x] 4.1 Implement database initialization and connection pool
     - Create `src/db.rs` with pool initialization function
     - Configure WAL mode, connection pool (default 5 connections)
     - Run migrations at startup via `sqlx::migrate!()`
     - _Requirements: 11.1, 11.2, 11.5_
 
-  - [ ] 4.2 Implement CRUD operations for summaries
+  - [x] 4.2 Implement CRUD operations for summaries
     - Add `insert_new_summary()` function with parameterized bindings
     - Add `fetch_summary()` by identifier
     - Add `update_transcript()`, `update_summary_chunk()`, `mark_summary_done()`, `mark_timestamps_done()`
@@ -112,7 +112,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Validates: Requirements 7.2, 10.5, 11.3**
 
 - [ ] 5. Service layer
-  - [ ] 5.1 Implement deduplication service
+  - [x] 5.1 Implement deduplication service
     - Create `src/services/deduplication.rs` with `DeduplicationService` struct
     - Implement `check_duplicate()` by URL + model within 5-minute window
     - Implement `check_duplicate_by_transcript()` by transcript + model within window
@@ -123,7 +123,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 15: Deduplication Within Window** — Matching entries within window return Some, outside return None
     - **Validates: Requirements 8.1, 8.2, 8.3**
 
-  - [ ] 5.3 Implement transcript service
+  - [-] 5.3 Implement transcript service
     - Create `src/services/transcript.rs` with `TranscriptService` struct
     - Implement `download_transcript()` using yt-dlp crate
     - Implement `pick_best_language()` with priority ordering
