@@ -123,7 +123,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 15: Deduplication Within Window** — Matching entries within window return Some, outside return None
     - **Validates: Requirements 8.1, 8.2, 8.3**
 
-  - [-] 5.3 Implement transcript service
+  - [x] 5.3 Implement transcript service
     - Create `src/services/transcript.rs` with `TranscriptService` struct
     - Implement `download_transcript()` using yt-dlp crate
     - Implement `pick_best_language()` with priority ordering
@@ -136,7 +136,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 10: Language Selection Priority** — Test priority ordering with various subtitle listings
     - **Validates: Requirement 5.2**
 
-  - [ ] 5.5 Implement summary service
+  - [x] 5.5 Implement summary service
     - Create `src/services/summary.rs` with `SummaryService` struct
     - Implement `generate_summary()` with Gemini streaming, persisting chunks to DB progressively
     - Implement `build_prompt()` with transcript input
@@ -150,7 +150,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - Test cost computation formula
     - **Validates: Requirements 6.5, 6.6**
 
-  - [ ] 5.7 Implement embedding service
+  - [x] 5.7 Implement embedding service
     - Create `src/services/embedding.rs` with `EmbeddingService` struct
     - Implement `embed_text()` via Gemini embedding model
     - Implement `cosine_similarity()` with Matryoshka truncation
@@ -164,13 +164,13 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 14: Similarity Search Ranking** — Results ordered by descending similarity, top-k respected
     - **Validates: Requirements 7.3, 7.4, 7.5, 7.6**
 
-  - [ ] 5.9 Implement rate limiting and daily counter reset
+  - [x] 5.9 Implement rate limiting and daily counter reset
     - Create `src/services/rate_limiter.rs` with per-model request counters
     - Implement daily reset logic using America/Los_Angeles timezone
     - Integrate with AppState's `model_counts` and `last_reset_day`
     - _Requirements: 13.1, 13.2, 13.3_
 
-  - [ ] 5.10 Create `src/services/mod.rs` to export all service modules
+  - [-] 5.10 Create `src/services/mod.rs` to export all service modules
     - Wire up deduplication, transcript, summary, embedding, rate_limiter as public modules
     - _Requirements: 5.1–8.4, 13.1–13.3_
 
