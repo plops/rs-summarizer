@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     // Configure model options
     let model_options = vec![
         ModelOption {
-            name: "gemini-3-flash".to_string(),
+            name: "gemini-3-flash-preview".to_string(),
             input_price_per_mtoken: 0.10,
             output_price_per_mtoken: 0.40,
             context_window: 1_000_000,
@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
             rpd_limit: 20,
         },
         ModelOption {
-            name: "gemini-3.1-flash-lite".to_string(),
+            name: "gemini-3.1-flash-lite-preview".to_string(),
             input_price_per_mtoken: 0.075,
             output_price_per_mtoken: 0.30,
             context_window: 1_000_000,
@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
             rpd_limit: 20,
         },
         ModelOption {
-            name: "gemma-4-31b".to_string(),
+            name: "gemma-4-31b-it".to_string(),
             input_price_per_mtoken: 0.0,
             output_price_per_mtoken: 0.0,
             context_window: 128_000,
@@ -76,7 +76,7 @@ async fn main() -> anyhow::Result<()> {
             rpd_limit: 1500,
         },
         ModelOption {
-            name: "gemma-4-26b".to_string(),
+            name: "gemma-4-26b-a4b-it".to_string(),
             input_price_per_mtoken: 0.0,
             output_price_per_mtoken: 0.0,
             context_window: 128_000,
@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
             rpd_limit: 1500,
         },
         ModelOption {
-            name: "gemma-3-27b".to_string(),
+            name: "gemma-3-27b-it".to_string(),
             input_price_per_mtoken: 0.0,
             output_price_per_mtoken: 0.0,
             context_window: 128_000,
@@ -92,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
             rpd_limit: 14400,
         },
         ModelOption {
-            name: "gemma-3-12b".to_string(),
+            name: "gemma-3-12b-it".to_string(),
             input_price_per_mtoken: 0.0,
             output_price_per_mtoken: 0.0,
             context_window: 128_000,
@@ -100,7 +100,7 @@ async fn main() -> anyhow::Result<()> {
             rpd_limit: 14400,
         },
         ModelOption {
-            name: "gemma-3-4b".to_string(),
+            name: "gemma-3-4b-it".to_string(),
             input_price_per_mtoken: 0.0,
             output_price_per_mtoken: 0.0,
             context_window: 128_000,
@@ -108,15 +108,7 @@ async fn main() -> anyhow::Result<()> {
             rpd_limit: 14400,
         },
         ModelOption {
-            name: "gemma-3-2b".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 128_000,
-            rpm_limit: 30,
-            rpd_limit: 14400,
-        },
-        ModelOption {
-            name: "gemma-3-1b".to_string(),
+            name: "gemma-3-1b-it".to_string(),
             input_price_per_mtoken: 0.0,
             output_price_per_mtoken: 0.0,
             context_window: 128_000,
