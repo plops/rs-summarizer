@@ -38,7 +38,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 2: URL Validator Rejects Invalid URLs** — For any non-HTTPS or non-YouTube URL, returns None
     - **Validates: Requirements 1.1–1.9**
 
-  - [ ] 2.3 Implement VTT parser
+  - [x] 2.3 Implement VTT parser
     - Create `src/utils/vtt_parser.rs` with `parse_vtt(vtt_content: &str) -> String`
     - Use the `vtt` crate (v1.0) to parse WebVTT content via `WebVtt::from_str()`
     - Extract cue start timestamps and payload text from parsed `VttCue` structs
@@ -54,7 +54,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 4: VTT Parser Deduplication** — No consecutive lines have identical caption text
     - **Validates: Requirements 2.1, 2.2, 2.3**
 
-  - [ ] 2.5 Implement markdown to YouTube format converter
+  - [x] 2.5 Implement markdown to YouTube format converter
     - Create `src/utils/markdown_converter.rs` with `convert_markdown_to_youtube_format(text: &str) -> String`
     - Convert `**word**` to `*word*`, `## Heading` to `*Heading*`
     - Replace dots in URLs with `-dot-`
@@ -67,7 +67,7 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 6: Markdown Converter URL Dot Replacement** — URLs with dots have them replaced with `-dot-`
     - **Validates: Requirements 3.1, 3.2, 3.3, 3.5**
 
-  - [ ] 2.7 Implement HTML timestamp to YouTube link converter
+  - [x] 2.7 Implement HTML timestamp to YouTube link converter
     - Create `src/utils/timestamp_linker.rs` with `replace_timestamps_in_html(html: &str, youtube_url: &str) -> String`
     - Parse MM:SS and HH:MM:SS timestamps, compute seconds offset
     - Generate anchor tags with canonical `watch?v=ID&t=Ns` form
@@ -81,15 +81,15 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 9: Timestamp Linker Canonical URL Form** — Generated links use `watch?v=ID` without extra params
     - **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
 
-  - [ ] 2.9 Create `src/utils/mod.rs` to export all utility modules
+  - [x] 2.9 Create `src/utils/mod.rs` to export all utility modules
     - Wire up url_validator, vtt_parser, markdown_converter, timestamp_linker as public modules
     - _Requirements: 1.1–4.5_
 
-- [ ] 3. Checkpoint - Verify utility modules
+- [x] 3. Checkpoint - Verify utility modules
   - Ensure all tests pass (`cargo test`), ask the user if questions arise.
 
 - [ ] 4. Database layer
-  - [ ] 4.1 Implement database initialization and connection pool
+  - [-] 4.1 Implement database initialization and connection pool
     - Create `src/db.rs` with pool initialization function
     - Configure WAL mode, connection pool (default 5 connections)
     - Run migrations at startup via `sqlx::migrate!()`
