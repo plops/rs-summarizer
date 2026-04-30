@@ -43,6 +43,55 @@ cargo run --release
 cargo test
 ```
 
+## Testing
+
+### Unit tests
+
+Unit tests run offline with no external dependencies. They cover the utility modules (URL validator, VTT parser, markdown converter, timestamp linker), service logic (cosine similarity, cost computation, rate limiting, language selection, metadata cache grouping), and are ported from the original Python test suite for byte-for-byte compatibility.
+
+```bash
+# Run all unit tests
+cargo test
+
+# Run tests for a specific module
+cargo test utils::url_validator
+cargo test services::embedding
+cargo test cache
+```
+
+### Integration tests
+
+Integration tests exercise the real external services (YouTube via yt-dlp, Gemini API). They require network access and a valid `GEMINI_API_KEY`. They are marked `#[ignore]` so they don't run by default.
+
+```bash
+# Run transcript download tests (requires network + yt-dlp)
+cargo test --test integration_transcript -- --ignored
+
+# Run summarization and embedding tests (requires network + GEMINI_API_KEY)
+GEMINI_API_KEY=$(cat ~/api_key.txt) cargo test --test integration_pipeline -- --ignored
+
+# Run a specific integration test with output
+GEMINI_API_KEY=$(cat ~/api_key.txt) cargo test --test integration_pipeline test_summary_generation -- --ignored --nocapture
+
+# Run all tests including integration
+GEMINI_API_KEY=$(cat ~/api_key.txt) cargo test -- --include-ignored
+```
+
+**Integration test coverage:**
+
+| Test | What it verifies |
+|------|-----------------|
+| `test_list_subtitles_real_video` | yt-dlp can list available subtitles |
+| `test_download_auto_subtitles` | VTT file is created for auto-generated captions |
+| `test_full_transcript_pipeline` | List → download → parse produces valid transcript |
+| `test_transcript_download` | TranscriptService end-to-end download |
+| `test_summary_generation` | Gemini generates a summary from transcript text |
+| `test_embedding_computation` | Gemini embedding API returns correct dimensions |
+| `test_cosine_similarity_integration` | Similarity math works correctly |
+| `test_full_pipeline_end_to_end` | Transcript → summary → YouTube format → embedding |
+
+Note: Integration tests gracefully skip (instead of failing) when YouTube rate-limits or the Gemini API returns 429.
+
 ## Environment variables
 
 | Variable | Required | Description |
@@ -105,5 +154,13 @@ rs-summarizer/
 
 ## Available models
 
-- `gemini-2.0-flash` — fast, cost-effective (1500 requests/day)
-- `gemini-2.5-flash-preview-04-17` — higher quality (500 requests/day)
+- `gemini-3-flash-preview` — best quality (5 RPM, 20 RPD)
+- `gemini-3.1-flash-lite-preview` — best quota for bulk use (15 RPM, 500 RPD)
+- `gemini-2.5-flash` — solid all-rounder (5 RPM, 20 RPD)
+- `gemini-2.5-flash-lite` — lightweight (10 RPM, 20 RPD)
+- `gemma-4-31b-it` — free, large open model (15 RPM, 1500 RPD)
+- `gemma-4-26b-a4b-it` — free, efficient (15 RPM, 1500 RPD)
+- `gemma-3-27b-it` — free, massive daily quota (30 RPM, 14400 RPD)
+- `gemma-3-12b-it` — free, mid-size (30 RPM, 14400 RPD)
+- `gemma-3-4b-it` — free, small (30 RPM, 14400 RPD)
+- `gemma-3-1b-it` — free, tiny (30 RPM, 14400 RPD)
