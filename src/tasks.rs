@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use chrono::Utc;
 use sqlx::SqlitePool;
 use tokio::time::sleep;
 use tracing;
@@ -69,6 +70,18 @@ async fn process_summary_inner(
     let result = summary_svc
         .generate_summary(db_pool, identifier, &summary.transcript, &model)
         .await?;
+
+    // Step 5b: Mark summary as done (stops HTMX polling on the frontend)
+    let timestamp_end = Utc::now().to_rfc3339();
+    db::mark_summary_done(
+        db_pool,
+        identifier,
+        result.input_tokens as i64,
+        result.output_tokens as i64,
+        result.cost,
+        &timestamp_end,
+    )
+    .await?;
 
     // Step 6: Convert to YouTube format and mark timestamps_done
     let youtube_text = convert_markdown_to_youtube_format(&result.summary_text);

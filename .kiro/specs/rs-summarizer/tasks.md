@@ -250,11 +250,13 @@ Incremental implementation of the rs-summarizer Rust web application, a port of 
     - **Property 20: Daily Counter Reset** — Counter resets exactly once when calendar day changes (America/Los_Angeles)
     - **Validates: Requirement 13.2**
 
-  - [ ]* 10.4 Write integration tests for full pipeline
-    - Test end-to-end flow with mocked yt-dlp and Gemini API
+  - [x] 10.4 Write integration tests for full pipeline
+    - Test end-to-end flow with real Gemini API and in-memory SQLite
+    - Test `summary_done` flag transitions (false → true) after `process_summary` completes
+    - Test `timestamps_done` is set and YouTube format is populated after pipeline
+    - Test error handling (short transcript, invalid model) stores error and sets `summary_done=true`
+    - Test HTMX polling lifecycle simulation (spawn task, poll DB, verify termination)
     - Test deduplication prevents duplicate processing
-    - Test HTMX polling returns progressive updates
-    - Test error handling stores error in summary field
     - _Requirements: 9.1–9.5, 10.1–10.3_
 
 - [x] 11. Final checkpoint - Ensure all tests pass

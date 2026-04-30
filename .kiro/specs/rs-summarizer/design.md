@@ -492,6 +492,10 @@ async fn process_summary(db: SqlitePool, identifier: i64, app: AppState) -> Resu
         .generate_summary(&db, identifier, &summary.transcript, &model)
         .await?;
 
+    // Step 5b: Mark summary as done (stops HTMX polling on the frontend)
+    let timestamp_end = Utc::now().to_rfc3339();
+    mark_summary_done(&db, identifier, result.input_tokens, result.output_tokens, result.cost, &timestamp_end).await?;
+
     // Step 6: Convert to YouTube format and mark timestamps_done
     let youtube_text = convert_markdown_to_youtube_format(&result.summary_text);
     mark_timestamps_done(&db, identifier, &youtube_text).await?;
@@ -512,11 +516,12 @@ async fn process_summary(db: SqlitePool, identifier: i64, app: AppState) -> Resu
 - yt-dlp binary is available on PATH
 
 **Postconditions:**
-- `summary_done` = true
+- `summary_done` = true (critical: stops HTMX polling)
 - `timestamps_done` = true
 - `summary`, `timestamped_summary_in_youtube_format` are populated
-- `cost`, token counts, and timestamps are recorded
+- `cost`, token counts, and `summary_timestamp_end` are recorded
 - `embedding` is populated (best-effort, non-fatal if it fails)
+- On error: `summary_done` = true and `summary` contains error message (ensures polling always stops)
 
 **Loop Invariants:**
 - During streaming: `summary` field in DB always contains all chunks received so far (monotonically growing)

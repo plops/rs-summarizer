@@ -89,8 +89,13 @@ GEMINI_API_KEY=$(cat ~/api_key.txt) cargo test -- --include-ignored
 | `test_embedding_computation` | Gemini embedding API returns correct dimensions |
 | `test_cosine_similarity_integration` | Similarity math works correctly |
 | `test_full_pipeline_end_to_end` | Transcript → summary → YouTube format → embedding |
+| `test_summary_done_flag_transitions` | `summary_done` transitions false→true after pipeline |
+| `test_timestamps_done_after_pipeline` | `timestamps_done` set, YouTube format populated |
+| `test_error_sets_summary_done` | Error path still sets `summary_done=true` (spinner stops) |
+| `test_invalid_model_sets_summary_done` | Invalid model error sets `summary_done=true` |
+| `test_polling_lifecycle_simulation` | Simulates HTMX polling loop, verifies it terminates |
 
-Note: Integration tests gracefully skip (instead of failing) when YouTube rate-limits or the Gemini API returns 429.
+Note: Integration tests gracefully skip (instead of failing) when YouTube rate-limits or the Gemini API returns 429. Tests marked "No API" (`test_error_sets_summary_done`, `test_invalid_model_sets_summary_done`, `test_cosine_similarity_integration`) can run without `GEMINI_API_KEY`.
 
 ## Environment variables
 
