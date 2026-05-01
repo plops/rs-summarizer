@@ -97,6 +97,38 @@ GEMINI_API_KEY=$(cat ~/api_key.txt) cargo test -- --include-ignored
 
 Note: Integration tests gracefully skip (instead of failing) when YouTube rate-limits or the Gemini API returns 429. Tests marked "No API" (`test_error_sets_summary_done`, `test_invalid_model_sets_summary_done`, `test_cosine_similarity_integration`) can run without `GEMINI_API_KEY`.
 
+### Browser integration tests
+
+Browser tests drive a real headless Firefox browser against the application server using fantoccini (WebDriver) + geckodriver. They verify end-to-end user-facing behavior including HTMX interactions, form validation, pagination, search, concurrency, and accessibility.
+
+**Prerequisites:** geckodriver in PATH (or `~/bin/geckodriver`) + Firefox installed.
+
+```bash
+# Run all browser integration tests
+cargo test --test integration_browser -- --ignored
+
+# Run a specific browser test
+cargo test --test integration_browser test_browse_pagination_page_0 -- --ignored
+
+# With output for debugging
+cargo test --test integration_browser -- --ignored --nocapture
+```
+
+**Browser test coverage (24 tests):**
+
+| Category | Tests | What they verify |
+|----------|-------|-----------------|
+| Page loading | 3 | Index, browse, navigation render correctly |
+| HTMX behavior | 5 | Form submission, deduplication, rate limiting, error handling, validation |
+| Browse pagination | 3 | 20-per-page pagination, Next/Previous links |
+| Content rendering | 2 | Markdown → HTML, timestamps → YouTube links |
+| Search | 3 | HTMX search form, results with embeddings, empty results |
+| Concurrency | 2 | Concurrent submissions isolated, server restart recovery |
+| Accessibility | 3 | aria-busy states, form labels, keyboard navigation |
+| End-to-end | 1 | Full summarization lifecycle (requires GEMINI_API_KEY) |
+
+Note: Search tests (`test_search_returns_results`, `test_search_empty_results`) and the full e2e test require `GEMINI_API_KEY`. All other browser tests run without API keys.
+
 ## Environment variables
 
 | Variable | Required | Description |
@@ -144,7 +176,9 @@ rs-summarizer/
 │       └── vtt_parser.rs
 ├── static/              # CSS and JS assets
 ├── templates/           # Askama HTML templates
-└── tests/fixtures/      # Test fixture files
+└── tests/
+    ├── fixtures/        # Test fixture files
+    └── integration_browser.rs  # Browser tests (fantoccini + geckodriver)
 ```
 
 ## How it works

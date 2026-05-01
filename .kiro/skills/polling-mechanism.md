@@ -105,3 +105,16 @@ On error at any step:
 - `src/tasks.rs` — `process_summary()` background task, `mark_error()` error handler
 - `src/db.rs` — `mark_summary_done()`, `update_summary_chunk()`, `mark_timestamps_done()`
 - `src/services/summary.rs` — Streaming chunk generation via Gemini
+
+## Browser Tests Covering Polling
+
+The following browser integration tests verify polling behavior end-to-end:
+
+- `test_form_submission_shows_processing` — Verifies `#generation` div appears with `hx-post` after form submission
+- `test_polling_stops_on_error` — Verifies no `hx-trigger` attribute when error occurs (polling doesn't start)
+- `test_deduplication_returns_same_id` — Verifies duplicate submissions return existing generation partial
+- `test_aria_busy_during_generation` — Verifies `aria-busy="true"` present during generation, absent when done
+- `test_server_restart_recovery` — Verifies browser recovers when server restarts mid-poll
+- `test_full_summarization_e2e` — Verifies polling terminates and `hx-trigger` is removed after completion
+
+Run with: `cargo test --test integration_browser -- --ignored`

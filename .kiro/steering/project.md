@@ -53,6 +53,7 @@ rs-summarizer/
 ├── migrations/          # SQLite schema (001_initial.sql)
 ├── tests/
 │   ├── fixtures/        # cW3tzRzTHKI.en.vtt test fixture
+│   ├── integration_browser.rs    # Browser tests (fantoccini + geckodriver)
 │   ├── integration_transcript.rs  # yt-dlp download tests
 │   └── integration_pipeline.rs    # Full pipeline tests (summary + embedding)
 └── data/                # SQLite database (gitignored)

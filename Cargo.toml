@@ -26,3 +26,4 @@ pulldown-cmark = "0.13.3"
 proptest = "1.0"
 fantoccini = "0.22"
 serde_json = "1.0"
+tokio-util = { version = "0.7", features = ["rt"] }

@@ -89,3 +89,7 @@ current_count < model.rpd_limit  // true = allowed
 - `src/services/rate_limiter.rs` — Rate limiter implementation
 - `src/state.rs` — `ModelOption.rpd_limit` field
 - `src/routes/mod.rs` — Check + increment in `process_transcript()`
+
+## Browser Test
+
+`test_rate_limit_error_display` (port 4453) verifies the rate limit UI end-to-end: creates a model with `rpd_limit=1`, submits once (exhausts limit), submits again, and asserts "Rate limit exceeded" is shown with no polling partial. Run with: `cargo test --test integration_browser test_rate_limit_error_display -- --ignored`
