@@ -7,6 +7,18 @@ use crate::db;
 use crate::errors::SummaryError;
 use crate::state::ModelOption;
 
+/// The "adaptive knowledge synthesis engine" persona prompt.
+const SYSTEM_INSTRUCTION: &str = include_str!("../../prompts/system_instruction.txt");
+
+/// Example input: title, description, comments, and transcript of a demo video.
+const EXAMPLE_INPUT: &str = include_str!("../../prompts/example_input.txt");
+
+/// Example output: the expected abstract for the demo video.
+const EXAMPLE_OUTPUT_ABSTRACT: &str = include_str!("../../prompts/example_output_abstract.txt");
+
+/// Example output: the expected bullet-point summary for the demo video.
+const EXAMPLE_OUTPUT: &str = include_str!("../../prompts/example_output.txt");
+
 /// Result of a successful summary generation.
 pub struct SummaryResult {
     pub summary_text: String,
@@ -46,7 +58,6 @@ impl SummaryService {
         }
 
         let start = std::time::Instant::now();
-        let prompt = self.build_prompt(transcript);
 
         // Create Gemini client with the specified model
         let gemini_model = Model::Custom(format!("models/{}", model.name));
@@ -63,13 +74,15 @@ impl SummaryService {
         // Use streaming to persist chunks progressively (Req 6.1, 6.2)
         let mut builder = client.generate_content();
 
-        // Gemma models don't support system prompts (developer instructions)
-        if !model.name.starts_with("gemma") {
-            builder = builder.with_system_prompt(
-                "You are a helpful assistant that summarizes YouTube video transcripts. \
-                 Provide a comprehensive summary with key points and timestamps where relevant.",
-            );
-        }
+        // Model-aware prompt routing (Req 2.3, 3.1, 3.2):
+        // - Gemini models: system instruction as API parameter, standard user prompt
+        // - Gemma models: no system prompt param, system instruction prepended to user prompt
+        let prompt = if !model.name.starts_with("gemma") {
+            builder = builder.with_system_prompt(SYSTEM_INSTRUCTION);
+            self.build_prompt(transcript)
+        } else {
+            self.build_prompt_for_gemma(transcript)
+        };
 
         let mut stream = builder
             .with_user_message(&prompt)
@@ -166,12 +179,45 @@ impl SummaryService {
     }
 
     /// Builds the prompt from the transcript text.
+    ///
+    /// Produces the full few-shot template matching the Python `get_prompt()` function:
+    /// instruction paragraph → bold formatting instruction → example input → example output →
+    /// real transcript framing → transcript.
     pub fn build_prompt(&self, transcript: &str) -> String {
         format!(
-            "Summarize the following YouTube video transcript. \
-             Include key points, timestamps where relevant, and a brief overview.\n\n\
-             Transcript:\n{}",
-            transcript
+            "Below, I will provide input for an example video (comprising of title, description, \
+and transcript, in this order) and the corresponding abstract and summary I expect. Afterward, \
+I will provide a new transcript that I want a summarization in the same format. \n\
+\n\
+**Please give an abstract of the transcript and then summarize the transcript in a self-contained \
+bullet list format.** Include starting timestamps, important details and key takeaways. \n\
+\n\
+Example Input: \n\
+{example_input}\n\
+Example Output:\n\
+{example_output_abstract}\n\
+{example_output}\n\
+Here is the real transcript. What would be a good group of people to review this topic? \
+Please summarize provide a summary like they would: \n\
+{transcript}",
+            example_input = EXAMPLE_INPUT,
+            example_output_abstract = EXAMPLE_OUTPUT_ABSTRACT,
+            example_output = EXAMPLE_OUTPUT,
+            transcript = transcript,
+        )
+    }
+
+    /// Builds the prompt for Gemma models by prepending the system instruction.
+    ///
+    /// Gemma models don't support a separate system prompt parameter, so the
+    /// system instruction is prepended to the user prompt with a `---` delimiter.
+    ///
+    /// Requirements: 3.1, 3.3
+    pub fn build_prompt_for_gemma(&self, transcript: &str) -> String {
+        format!(
+            "{}\n\n---\n\n{}",
+            SYSTEM_INSTRUCTION,
+            self.build_prompt(transcript)
         )
     }
 
@@ -252,9 +298,23 @@ mod tests {
         let transcript = "00:00:00 Hello world\n00:01:00 This is a test";
         let prompt = svc.build_prompt(transcript);
 
-        assert!(prompt.contains("Summarize"));
+        // Verify transcript is present
         assert!(prompt.contains(transcript));
-        assert!(prompt.contains("Transcript:"));
+        // Verify few-shot example markers
+        assert!(prompt.contains("Example Input:"));
+        assert!(prompt.contains("Example Output:"));
+        // Verify instruction paragraph
+        assert!(
+            prompt.contains("Below, I will provide input"),
+            "Prompt should contain the instruction paragraph"
+        );
+        // Verify bold formatting instruction
+        assert!(
+            prompt.contains("**Please give an abstract"),
+            "Prompt should contain the bold formatting instruction"
+        );
+        // Verify real transcript framing
+        assert!(prompt.contains("Here is the real transcript"));
     }
 
     #[test]
@@ -262,6 +322,23 @@ mod tests {
         let svc = SummaryService::new("test-key".to_string());
         let prompt = svc.build_prompt("some text");
         assert!(!prompt.is_empty());
+        // Verify the prompt contains the few-shot template structure
+        assert!(
+            prompt.contains("Example Input:"),
+            "Prompt should contain 'Example Input:' marker"
+        );
+        assert!(
+            prompt.contains("Example Output:"),
+            "Prompt should contain 'Example Output:' marker"
+        );
+        assert!(
+            prompt.contains("Below, I will provide input"),
+            "Prompt should contain the instruction paragraph"
+        );
+        assert!(
+            prompt.contains("**Please give an abstract"),
+            "Prompt should contain the bold formatting instruction"
+        );
     }
 
     #[test]
@@ -303,5 +380,67 @@ mod tests {
         assert!(is_rate_limit_error("RESOURCE_EXHAUSTED"));
         assert!(!is_rate_limit_error("some other error"));
         assert!(!is_rate_limit_error("network timeout"));
+    }
+
+    #[test]
+    fn test_system_instruction_non_empty_and_contains_core_instruction() {
+        assert!(!SYSTEM_INSTRUCTION.is_empty());
+        assert!(
+            SYSTEM_INSTRUCTION.contains("CORE INSTRUCTION"),
+            "SYSTEM_INSTRUCTION should contain 'CORE INSTRUCTION'"
+        );
+    }
+
+    #[test]
+    fn test_example_input_non_empty_and_contains_expected_content() {
+        assert!(!EXAMPLE_INPUT.is_empty());
+        assert!(
+            EXAMPLE_INPUT.contains("Fluidigm Polaris"),
+            "EXAMPLE_INPUT should contain 'Fluidigm Polaris'"
+        );
+    }
+
+    #[test]
+    fn test_example_output_non_empty() {
+        assert!(!EXAMPLE_OUTPUT.is_empty());
+    }
+
+    #[test]
+    fn test_example_output_abstract_non_empty_and_contains_abstract() {
+        assert!(!EXAMPLE_OUTPUT_ABSTRACT.is_empty());
+        assert!(
+            EXAMPLE_OUTPUT_ABSTRACT.contains("Abstract"),
+            "EXAMPLE_OUTPUT_ABSTRACT should contain 'Abstract'"
+        );
+    }
+
+    #[test]
+    fn test_build_prompt_for_gemma() {
+        let svc = SummaryService::new("test-key".to_string());
+        let transcript = "test transcript";
+
+        let gemma_prompt = svc.build_prompt_for_gemma(transcript);
+
+        // Verify the output starts with system instruction content (Req 3.1)
+        assert!(
+            gemma_prompt.starts_with("### CORE INSTRUCTION"),
+            "Gemma prompt should start with the beginning of SYSTEM_INSTRUCTION"
+        );
+
+        // Verify the `---` delimiter separates system instruction from the template (Req 3.3)
+        assert!(
+            gemma_prompt.contains("\n\n---\n\n"),
+            "Gemma prompt should contain the '---' delimiter"
+        );
+
+        // Verify the template portion after the delimiter matches build_prompt() output
+        let delimiter = "\n\n---\n\n";
+        let delimiter_pos = gemma_prompt.find(delimiter).unwrap();
+        let template_portion = &gemma_prompt[delimiter_pos + delimiter.len()..];
+        let expected_template = svc.build_prompt(transcript);
+        assert_eq!(
+            template_portion, expected_template,
+            "The portion after the delimiter should match build_prompt() output"
+        );
     }
 }
