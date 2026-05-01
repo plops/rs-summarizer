@@ -1,7 +1,6 @@
 ---
 name: background-tasks
 description: Use when working with tokio::spawn background tasks, the summarization pipeline, task state transitions, or the mark_error/mark_summary_done pattern.
-inclusion: manual
 ---
 
 # Background Task Orchestration

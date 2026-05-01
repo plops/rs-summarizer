@@ -1,7 +1,6 @@
 ---
 name: testing
 description: Use when adding unit tests, running cargo test, checking test coverage, or matching Python ground truth fixtures for utils.
-inclusion: manual
 ---
 
 # Unit and Integration Tests
@@ -138,45 +137,6 @@ Err(e) => {
 ```
 
 **Lifecycle simulation**: The `test_polling_lifecycle_simulation` test spawns the background task and polls the DB in a loop (like HTMX would), asserting that `summary_done` eventually becomes true within a timeout.
-
-### tests/integration_browser.rs
-
-Browser integration tests using fantoccini (WebDriver) + geckodriver + headless Firefox. They verify end-to-end user-facing behavior including HTMX interactions, form submissions, pagination, and accessibility. Requires geckodriver + Firefox installed.
-
-```bash
-# Run all browser tests
-cargo test --test integration_browser -- --ignored
-
-# Run a specific browser test
-cargo test --test integration_browser test_browse_pagination_page_0 -- --ignored
-```
-
-| Test | Port | What it verifies | Needs API? |
-|------|------|-----------------|------------|
-| `test_index_page_loads` | 4444 | Index page renders form correctly | No |
-| `test_browse_page_empty` | 4445 | Browse page loads with empty DB | No |
-| `test_form_submission_shows_processing` | 4446 | Form submission triggers HTMX polling | No |
-| `test_invalid_model_shows_error` | 4447 | Invalid model shows error message | No |
-| `test_navigation_between_pages` | 4448 | Navigation links work | No |
-| `test_static_assets_loaded` | 4449 | CSS and JS served correctly | No |
-| `test_search_form_htmx` | 4450 | Search form submits via HTMX | No |
-| `test_full_summarization_e2e` | 4451 | Full summarization lifecycle | Yes |
-| `test_deduplication_returns_same_id` | 4452 | Duplicate URL returns same identifier | No |
-| `test_rate_limit_error_display` | 4453 | Rate limit shows error, no polling | No |
-| `test_polling_stops_on_error` | 4454 | Error stops HTMX polling | No |
-| `test_form_required_validation` | 4455 | Empty URL blocked by validation | No |
-| `test_browse_pagination_page_0` | 4456 | 20 articles on page 0, Next link | No |
-| `test_browse_pagination_page_1` | 4457 | 5 articles on page 1, Previous link | No |
-| `test_browse_no_next_on_last_page` | 4458 | No Next link on last page | No |
-| `test_summary_markdown_rendering` | 4459 | Markdown → HTML (strong, li, h2) | No |
-| `test_timestamp_links_rendered` | 4460 | Timestamps → YouTube links with &t= | No |
-| `test_search_returns_results` | 4461 | Search with embeddings returns results | Yes |
-| `test_search_empty_results` | 4462 | Empty DB shows "No results found" | Yes |
-| `test_concurrent_submissions` | 4463–4464 | Two browsers get distinct IDs | No |
-| `test_server_restart_recovery` | 4465 | Browser recovers after server restart | No |
-| `test_aria_busy_during_generation` | 4466 | aria-busy present/absent correctly | No |
-| `test_form_input_labels` | 4467 | Labels for URL, model, search inputs | No |
-| `test_keyboard_navigation` | 4468 | Tab order and Enter submission | No |
 
 ## Adding New Tests
 

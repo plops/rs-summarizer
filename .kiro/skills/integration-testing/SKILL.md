@@ -1,7 +1,6 @@
 ---
 name: integration-testing
 description: Use when writing or running integration tests that call the Gemini API, yt-dlp, or browser tests with geckodriver and fantoccini.
-inclusion: manual
 ---
 
 # Integration Testing Approach
@@ -131,59 +130,6 @@ Each browser test:
 |---|---|
 | 4444–4451 | Original tests (index, browse, form, navigation, assets, search, e2e) |
 | 4452–4468 | Extended tests (HTMX behavior, pagination, search, concurrency, accessibility) |
-
-### Test Categories
-
-**HTMX Behavior (ports 4452–4455)**
-
-| Test | What it verifies |
-|------|-----------------|
-| `test_deduplication_returns_same_id` | Same URL returns same generation identifier |
-| `test_rate_limit_error_display` | Rate limit shows error, no polling partial |
-| `test_polling_stops_on_error` | Invalid model error stops HTMX polling |
-| `test_form_required_validation` | Empty URL blocked by browser validation |
-
-**Browse Page (ports 4456–4460)**
-
-| Test | What it verifies |
-|------|-----------------|
-| `test_browse_pagination_page_0` | 20 articles on page 0, "Next →" link present |
-| `test_browse_pagination_page_1` | 5 articles on page 1, "← Previous" link present |
-| `test_browse_no_next_on_last_page` | No "Next →" on last page |
-| `test_summary_markdown_rendering` | Markdown rendered as HTML (strong, li, h2) |
-| `test_timestamp_links_rendered` | Timestamps become clickable YouTube links with `&t=` |
-
-**Search (ports 4461–4462)**
-
-| Test | What it verifies | Needs API? |
-|------|-----------------|------------|
-| `test_search_returns_results` | Search with embeddings returns articles | Yes |
-| `test_search_empty_results` | Empty DB shows "No results found" | Yes |
-
-**Concurrency & Resilience (ports 4463–4465)**
-
-| Test | What it verifies |
-|------|-----------------|
-| `test_concurrent_submissions` | Two browsers get distinct identifiers |
-| `test_server_restart_recovery` | Browser recovers after server restart mid-poll |
-
-**Accessibility (ports 4466–4468)**
-
-| Test | What it verifies |
-|------|-----------------|
-| `test_aria_busy_during_generation` | aria-busy present during generation, absent when done |
-| `test_form_input_labels` | Labels exist for URL, model, and search inputs |
-| `test_keyboard_navigation` | Tab order and Enter key submission work |
-
-### Database Seeding Pattern
-
-Tests that need pre-existing data seed the in-memory DB before starting the server:
-
-```rust
-let state = test_app_state().await;
-seed_summaries(&state.db, 25).await;
-let base_url = start_test_server_with_state(state).await;
-```
 
 ### JavaScript Fetch Pattern
 

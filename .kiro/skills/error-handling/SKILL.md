@@ -1,7 +1,6 @@
 ---
 name: error-handling
 description: Use when adding new error variants, propagating errors between service layers, or working with the thiserror error hierarchy and the mark_error pattern.
-inclusion: manual
 ---
 
 # Error Handling Architecture

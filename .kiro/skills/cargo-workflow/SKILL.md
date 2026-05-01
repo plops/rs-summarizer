@@ -1,7 +1,6 @@
 ---
 name: cargo-workflow
 description: Use when building, running, linting with clippy, formatting with rustfmt, or running cargo commands for the rs-summarizer project.
-inclusion: manual
 ---
 
 # Cargo Workflow

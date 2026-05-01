@@ -1,7 +1,6 @@
 ---
 name: polling-mechanism
 description: Use when modifying HTMX polling behavior, generation status responses, the hx-trigger stop pattern, or debugging infinite spinner issues.
-inclusion: manual
 ---
 
 # HTMX Polling Mechanism

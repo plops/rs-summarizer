@@ -1,7 +1,6 @@
 ---
 name: environment-setup
 description: Use when setting up the development environment, installing prerequisites, configuring API keys, or troubleshooting missing dependencies like uvx, geckodriver, or Firefox cookies.
-inclusion: manual
 ---
 
 # Environment Setup

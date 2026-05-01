@@ -1,7 +1,6 @@
 ---
 name: sqlite-sqlx-patterns
 description: Use when writing sqlx queries, working with SQLite WAL mode, storing or loading embedding blobs, or modifying the database schema.
-inclusion: manual
 ---
 
 # SQLite WAL Mode + sqlx Patterns
