@@ -19,9 +19,12 @@
                 <small>(cost: ${{ "{:.6}"|format(item.cost) }})</small>
                 {% endif %}
             </header>
-            <p>{{ item.summary|truncate(200) }}</p>
+            <div>{{ item.summary_html|safe }}</div>
+            {% if !item.timestamps_html.is_empty() %}
+            <footer>{{ item.timestamps_html|safe }}</footer>
+            {% endif %}
             {% if !item.original_source_link.is_empty() %}
-            <footer><a href="{{ item.original_source_link }}">Source</a></footer>
+            <p><a href="{{ item.original_source_link }}">Source</a></p>
             {% endif %}
         </article>
         {% endfor %}

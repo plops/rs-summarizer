@@ -14,7 +14,7 @@ use crate::services::embedding::EmbeddingService;
 use crate::services::rate_limiter::RateLimiter;
 use crate::state::AppState;
 use crate::tasks;
-use crate::templates::{BrowseTemplate, GenerationPartialTemplate, IndexTemplate, SearchResultsTemplate};
+use crate::templates::{BrowseTemplate, BrowseSummaryItem, GenerationPartialTemplate, IndexTemplate, SearchResultsTemplate, SearchResultItem};
 use crate::utils::markdown_renderer::render_markdown_to_html;
 use crate::utils::timestamp_linker::replace_timestamps_in_html;
 
@@ -112,8 +112,29 @@ pub async fn browse_summaries(
         .unwrap_or_default();
     let has_next = summaries.len() == 20;
 
+    let items: Vec<BrowseSummaryItem> = summaries
+        .into_iter()
+        .map(|s| {
+            let summary_html = render_markdown_to_html(&s.summary);
+            let timestamps_html = if s.timestamps_done {
+                let html = render_markdown_to_html(&s.timestamped_summary_in_youtube_format);
+                replace_timestamps_in_html(&html, &s.original_source_link)
+            } else {
+                String::new()
+            };
+            BrowseSummaryItem {
+                identifier: s.identifier,
+                model: s.model,
+                cost: s.cost,
+                original_source_link: s.original_source_link,
+                summary_html,
+                timestamps_html,
+            }
+        })
+        .collect();
+
     let template = BrowseTemplate {
-        summaries,
+        summaries: items,
         page,
         has_next,
     };
@@ -138,11 +159,17 @@ pub async fn search_similar(
                 .await
             {
                 Ok(similar) => {
-                    // Fetch full summaries for results
                     let mut full_results = Vec::new();
                     for (id, score) in similar {
                         if let Ok(Some(summary)) = db::fetch_summary(&app.db, id).await {
-                            full_results.push((score, summary));
+                            let summary_html = render_markdown_to_html(&summary.summary);
+                            full_results.push(SearchResultItem {
+                                identifier: summary.identifier,
+                                model: summary.model,
+                                score,
+                                summary_html,
+                                original_source_link: summary.original_source_link,
+                            });
                         }
                     }
                     full_results
@@ -164,8 +191,11 @@ async fn render_generation_partial(app: &AppState, identifier: i64) -> Html<Stri
     match summary {
         Some(s) => {
             let timestamps_html = if s.timestamps_done {
-                replace_timestamps_in_html(
+                let html = render_markdown_to_html(
                     &s.timestamped_summary_in_youtube_format,
+                );
+                replace_timestamps_in_html(
+                    &html,
                     &s.original_source_link,
                 )
             } else {

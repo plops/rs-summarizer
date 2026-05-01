@@ -2,13 +2,16 @@
 <p>No results found.</p>
 {% else %}
 <h3>Search Results</h3>
-{% for (score, item) in results %}
+{% for item in results %}
 <article>
     <header>
         <strong>#{{ item.identifier }}</strong> — {{ item.model }}
-        <small>(similarity: {{ "{:.3}"|format(score) }})</small>
+        <small>(similarity: {{ "{:.3}"|format(item.score) }})</small>
     </header>
-    <p>{{ item.summary|truncate(200) }}</p>
+    <div>{{ item.summary_html|safe }}</div>
+    {% if !item.original_source_link.is_empty() %}
+    <p><a href="{{ item.original_source_link }}">Source</a></p>
+    {% endif %}
 </article>
 {% endfor %}
 {% endif %}
