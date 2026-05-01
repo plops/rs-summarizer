@@ -1,4 +1,6 @@
 ---
+name: vtt-parsing
+description: Use when modifying the WebVTT parser, debugging timestamp truncation, matching Python webvtt library behavior, or working with subtitle files.
 inclusion: manual
 ---
 

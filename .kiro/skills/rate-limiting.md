@@ -1,4 +1,6 @@
 ---
+name: rate-limiting
+description: Use when working with per-model daily request counters, rate limit errors, the America/Los_Angeles reset logic, or RPD quota enforcement.
 inclusion: manual
 ---
 

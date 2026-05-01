@@ -1,4 +1,6 @@
 ---
+name: testing
+description: Use when adding unit tests, running cargo test, checking test coverage, or matching Python ground truth fixtures for utils.
 inclusion: manual
 ---
 

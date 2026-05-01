@@ -1,4 +1,6 @@
 ---
+name: integration-testing
+description: Use when writing or running integration tests that call the Gemini API, yt-dlp, or browser tests with geckodriver and fantoccini.
 inclusion: manual
 ---
 

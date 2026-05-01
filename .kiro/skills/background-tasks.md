@@ -1,4 +1,6 @@
 ---
+name: background-tasks
+description: Use when working with tokio::spawn background tasks, the summarization pipeline, task state transitions, or the mark_error/mark_summary_done pattern.
 inclusion: manual
 ---
 
@@ -98,6 +100,7 @@ Services are created on-the-fly from `AppState` (not stored as Arc in state):
 ```rust
 let transcript_svc = TranscriptService::new("/dev/shm");
 let summary_svc = SummaryService::new(app.gemini_api_key.clone());
+// 3072 = full output dimensionality of gemini-embedding-001 (Matryoshka model)
 let embedding_svc = EmbeddingService::new(app.gemini_api_key.clone(), "gemini-embedding-001", 3072);
 ```
 

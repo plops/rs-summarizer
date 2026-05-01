@@ -1,4 +1,6 @@
 ---
+name: gemini-api-models
+description: Use when selecting a Gemini model, checking rate limits or quotas, configuring the gemini-rust crate, or debugging model name mismatches.
 inclusion: manual
 ---
 

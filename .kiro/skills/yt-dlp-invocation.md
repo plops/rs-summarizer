@@ -1,4 +1,6 @@
 ---
+name: yt-dlp-invocation
+description: Use when invoking yt-dlp via uvx, handling subtitle download failures, working with Firefox cookie authentication, or debugging format resolution errors.
 inclusion: manual
 ---
 

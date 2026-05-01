@@ -1,4 +1,6 @@
 ---
+name: markdown-processing
+description: Use when working with the markdown converter, YouTube format text, timestamp links, or the pulldown-cmark HTML renderer.
 inclusion: manual
 ---
 

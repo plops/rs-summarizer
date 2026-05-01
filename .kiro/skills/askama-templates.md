@@ -1,4 +1,6 @@
 ---
+name: askama-templates
+description: Use when editing or creating Askama HTML templates, adding template variables, fixing compile-time template errors, or working with HTMX attributes in templates.
 inclusion: manual
 ---
 

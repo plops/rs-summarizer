@@ -1,3 +1,9 @@
+---
+name: dependency-updates
+description: Use when updating Cargo dependencies, checking for new crate versions, evaluating semver bumps, or deciding whether to upgrade a specific crate.
+inclusion: manual
+---
+
 # Updating Dependencies
 
 ## Checking for Updates
