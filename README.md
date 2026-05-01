@@ -1,3 +1,5 @@
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/plops/rs-summarizer)
+
 # rs-summarizer
 
 A Rust web application that summarizes YouTube video transcripts using Google Gemini AI. It downloads captions via yt-dlp, generates streaming summaries, computes vector embeddings for similarity search, and stores everything in SQLite. The frontend uses HTMX for real-time progressive updates.
