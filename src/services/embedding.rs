@@ -33,7 +33,7 @@ impl EmbeddingService {
         let response = client
             .embed_content()
             .with_text(text)
-            .with_task_type(TaskType::RetrievalDocument)
+            .with_task_type(TaskType::Clustering)
             .with_output_dimensionality(self.dimensions as i32)
             .execute()
             .await
