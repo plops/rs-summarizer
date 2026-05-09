@@ -151,7 +151,7 @@ make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-v
     - `test_project_dimension_mismatch` — falsches Embedding → `VizError::DimensionMismatch`
     - _Requirements: 9.8_
 
-- [ ] 10. Viz_Tool — VizApp (egui GUI)
+- [X] 10. Viz_Tool — VizApp (egui GUI)
 make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies listed in /home/kiel/stage/rs-summarizer/viz-tool/deps.md
   - [ ] 10.1 Erstelle `viz-tool/src/app.rs` mit `VizApp`-Struct, `AppStatus`-Enum, `ComputeResult`-Enum und `eframe::App`-Implementierung
     - Implementiere alle State-Felder aus dem Design: `db_path`, `points`, `embedding_dim`, UMAP-Parameter, DBSCAN-Parameter, `cluster_titles`, `nn_mapper`, `status`, `error_message`, `skipped_blobs`, `compute_tx`/`compute_rx`

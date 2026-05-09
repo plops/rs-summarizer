@@ -85,3 +85,7 @@ Sobald dieses Programm fertig ist, möchte ich Visualisierungscode zur Website h
 
 
 Wir wollen, dass das umap mapping (und die cluster) für einige Zeit stabil bleiben. Das heißt, wir sollten das Umap mapping in ein NN trainieren, sodass neue Punkte hineingesteckt werden können, die wir bei der ursprünglichen Erzeugungen des UMAP-Mappings nicht hatten. Die verschiedenen Umap Rust Libraries, die ich verglichen habe, hatte nur eine dieser Funktionen. generell war diese Library auch die schnellste, deswegen werden wir die verwenden.
+
+
+ich habe die arbeit mit kiro geplant, es hatte deepwiki zugriff (hat etwa 40 credits gekostet)
+dann habe ich den plan mit windsurf swe 1.5 umgesetzt (jeden task geplant und rigoros bei deepwiki mcp nachfragen lassen)
