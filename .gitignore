@@ -3,3 +3,24 @@
 *.db
 *.db-wal
 *.db-shm
+
+# Backup files
+*~
+*.bak
+*.tmp
+
+# Rust
+Cargo.lock
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log

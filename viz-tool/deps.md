@@ -7,7 +7,6 @@ rust-ml/linfa
 rust-ml/linfa
 rust-ndarray/ndarray
 launchbadge/sqlx
-tokio-rs/tokio
 flachesis/gemini-rust
 serde-rs/serde
 serde-rs/json

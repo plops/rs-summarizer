@@ -9,9 +9,8 @@ egui_plot = "0.35.0"
 fast-umap = { version = "1.6.0", features = ["gpu"] }
 linfa-clustering = "0.8.1"
 linfa = "0.8.1"
-ndarray = "0.16"
-sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "macros"] }
-tokio = { version = "1.52", features = ["full"] }
+ndarray = "0.17"
+sqlx = { version = "0.8", features = ["sqlite", "macros"] }
 gemini-rust = "1.7.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -19,4 +18,4 @@ thiserror = "2.0"
 anyhow = "1.0"
 
 [dev-dependencies]
-proptest = "1.0"
+proptest = "1.11"
