@@ -1,0 +1,87 @@
+Im folgenden Verzeichnis befindet sich ein Prototyp, um Embeddings aus einer Datenbank mit zusammengefassten Texten zu clustern und zu visualisieren: /home/kiel/stage/gemini-summary-embedding
+
+
+
+Die wesentlichen Libraries dabei sind dbscan und umap.
+
+
+
+In /home/kiel/stage/rust-datalib-benchmark Habe ich recherchiert, welche Rust Libraries diese Funktionen am besten übernehmen können. 
+
+
+
+Erzeuge einen Plan, um die Visualisierung der Embeddings im folgenden Projekt einzubinden: /home/kiel/stage/rs-summarizer
+
+
+
+Zunächst möchte ich ein Skill erstellen, wie man rust mit rust projekten arbeitet. 
+
+Etwaige Dependencies müssen in Cargo.toml geschrieben werden.  Da LLM oft nicht wissen welche version gerade aktuell ist soll als naechstes
+
+
+
+ `cargo upgrade --incompatible allow`
+
+
+
+ausgefuehrt werden. Dieses Kommando setzt die neueste Versionsnummer im Cargo.toml.
+
+Das Upgrade-Kommando ist in einer frischen Rust installation nicht da und muss mit dem folgenden Kommando erst installiert werden:
+
+
+
+ `cargo install cargo-edit`
+
+
+
+Bevor eigentlicher Code implementiert wird, sollte das Deepwiki MCP verwendet werden, um Informationen über die Dependencies (sofern diese auf github sind) zu bekommen. Der Lookup im Deep Wiki erfordert eine bestimmte Namensgebung bei der Abfrage für die Dependencies. 
+
+Ich muss noch die GitHub-Organisation angeben:
+
+<github-organization>/<projekt>
+
+
+
+Die Tokyo Library findet man auf https://github.com/tokio-rs/tokio. Deshalb Wollte man dem Diebwiki sagen: "Finde informationen zu tokio-rs/tokio". 
+
+Um diese Anfragen zu vereinfachen, Für jede Dependency eine Zeile mit diesen Informationen in eine deps.md Datei geschrieben werden.
+
+
+
+Beispeilinhalt deps.md:
+
+```
+
+tokio-rs/tokio
+
+tracel-ai / burn
+
+```
+
+
+
+Beim ersten Schritt der implementierung sollte das rs-summarizer programm So erweitert werden, dass es mit einer Command Line Option eine bestehende Datenbank exportieren kann. Für die Embedding Visualisierung die vollständigen Transkripte nicht notwendig sind, Aber erheblich viel Platz wegnehmen, sollte die exportierte Datenbank nur die zusammenfassungen und die embeddings enthalten. Normalerweise sollten auch die Columns enthalten sein, die nur geringfügig Platz bedürfen, wie zum Beispiel die ursprüngliche URL oder das verwendete Modell Welche Metadaten wie die Zeiten oder das Erstellungsdatum. 
+
+
+
+Ich erwarte, dass die ursprüngliche Zwei Gigabyte Datenbank nach dem Export vielleicht 50 Megabyte hat. Es ist Wichtig, dass die Zwei Gigabyte Datenbank dabei nicht manipuliert oder zerstört wird. 
+
+
+
+Als naechstes moechte ich ein subprojekt in rs-summarizer einfuegen. Dieses neue Projekt soll die kleinere Datenbank einlesen Und dann wie im Python Code UMAP mit 4D und 2D mit verschiedenen Parametern ausführen und dann das Clustering durchführen. egui soll verwendet werden um Parameter in einem Magui variieren zu können und die Plots darzustellen. Der code in /home/kiel/stage/las-ctl/rs_las_ctl kann dabei als Beispiel dienen.
+
+
+
+Wenn wir dann Cluster haben, möchte ich Clustertitel für Mittels Gemini oder Gemma ermitteln. Dabei möchte ich per Default Modelle benutzen, die viele Requests pro Tag erlauben.
+
+
+
+
+
+
+
+Sobald dieses Programm fertig ist, möchte ich Visualisierungscode zur Website hinzufügen. Das heißt, wenn ein Summary angezeigt wird, soll auch die Nachbarschaft des zweidimensionalen Embeddingraums mit angezeigt werden. Mit Links zu ähnlichen Videos. Auch wenn eine Suche erfolgt, sollen die Suchergebnisse im umap reduzierten Embedding visualisiert werden. 
+
+
+
+Wir wollen, dass das umap mapping (und die cluster) für einige Zeit stabil bleiben. Das heißt, wir sollten das Umap mapping in ein NN trainieren, sodass neue Punkte hineingesteckt werden können, die wir bei der ursprünglichen Erzeugungen des UMAP-Mappings nicht hatten. Die verschiedenen Umap Rust Libraries, die ich verglichen habe, hatte nur eine dieser Funktionen. generell war diese Library auch die schnellste, deswegen werden wir die verwenden.
