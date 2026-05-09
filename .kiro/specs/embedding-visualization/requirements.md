@@ -76,7 +76,7 @@ Das Feature umfasst sechs Teilbereiche:
 1. THE Viz_Tool SHALL als Cargo-Workspace-Member in `rs-summarizer/Cargo.toml` eingetragen sein, sodass `[workspace]` den Eintrag `members = [".", "viz-tool"]` enthält und der bestehende `[package]`-Abschnitt erhalten bleibt.
 2. THE Viz_Tool SHALL im Verzeichnis `rs-summarizer/viz-tool/` liegen und eine eigene `Cargo.toml` mit einem `[package]`-Abschnitt enthalten.
 3. THE Viz_Tool SHALL `eframe` und `egui_plot` als Dependencies verwenden.
-4. THE Viz_Tool SHALL `fast-umap` als Dependency verwenden (ohne GPU-Features, um CPU-only-Backend zu erzwingen).
+4. THE Viz_Tool SHALL `fast-umap` mit `features = ["gpu"]` als Dependency verwenden (WGPU-Backend für parametric UMAP mit Out-of-Sample-Projektion; läuft auch ohne dedizierte GPU via Software-Rendering).
 5. THE Viz_Tool SHALL `linfa-clustering` als Dependency verwenden; die Version SHALL mit der transitiven `ndarray`-Version von `fast-umap` kompatibel sein.
 6. THE Viz_Tool SHALL `sqlx` mit SQLite-Feature als Dependency verwenden, um die Compact_DB zu lesen.
 7. THE Viz_Tool SHALL über eine `deps.md`-Datei verfügen, die alle GitHub-Repositories der Dependencies im Format `<github-organisation>/<projekt>` (eine Zeile pro Dependency) auflistet.
