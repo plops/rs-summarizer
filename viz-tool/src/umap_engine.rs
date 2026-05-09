@@ -1,10 +1,24 @@
 use crate::errors::VizError;
-use cubecl::wgpu::WgpuRuntime;
 use fast_umap::prelude::*;
-use burn_autodiff::Autodiff;
-use burn_cubecl::CubeBackend;
 
+#[cfg(feature = "gpu")]
+use burn_autodiff::Autodiff;
+#[cfg(feature = "cpu")]
+use burn_autodiff::Autodiff;
+
+#[cfg(feature = "gpu")]
+use cubecl::wgpu::WgpuRuntime;
+#[cfg(feature = "gpu")]
+use burn_cubecl::CubeBackend;
+#[cfg(feature = "cpu")]
+use burn_autodiff::AutodiffBackend;
+#[cfg(feature = "cpu")]
+use burn::backend::NdArray;
+
+#[cfg(feature = "gpu")]
 type MyBackend = CubeBackend<WgpuRuntime, f32, i32, u32>;
+#[cfg(feature = "cpu")]
+type MyBackend = NdArray<f32>;
 type MyAutodiffBackend = Autodiff<MyBackend>;
 
 /// UMAP computation parameters

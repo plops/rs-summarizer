@@ -1,13 +1,25 @@
 use crate::errors::VizError;
 use crate::umap_engine::{fit_parametric_umap, UmapParams};
 use fast_umap::prelude::*;
-use cubecl::wgpu::WgpuRuntime;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
-use burn_autodiff::Autodiff;
-use burn_cubecl::CubeBackend;
 
+#[cfg(feature = "gpu")]
+use burn_autodiff::Autodiff;
+
+#[cfg(feature = "gpu")]
+use cubecl::wgpu::WgpuRuntime;
+#[cfg(feature = "gpu")]
+use burn_cubecl::CubeBackend;
+#[cfg(feature = "cpu")]
+use burn_autodiff::Autodiff;
+#[cfg(feature = "cpu")]
+use burn::backend::{AutodiffBackend, NdArray};
+
+#[cfg(feature = "gpu")]
 type MyBackend = CubeBackend<WgpuRuntime, f32, i32, u32>;
+#[cfg(feature = "cpu")]
+type MyBackend = NdArray<f32>;
 type MyAutodiffBackend = Autodiff<MyBackend>;
 
 /// Sidecar configuration for NN Mapper model persistence

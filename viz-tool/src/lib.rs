@@ -6,3 +6,5 @@ pub mod dbscan_engine;
 pub mod cluster_titler;
 pub mod nn_mapper;
 pub mod viz_app;
+pub mod cli;
+pub mod cli_runner;
