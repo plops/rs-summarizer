@@ -197,7 +197,7 @@ make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-v
     - Wenn kein Pfad: nativen Datei-Öffnen-Dialog anzeigen (gefiltert auf `.db`)
     - _Requirements: 4.1, 4.2_
 
-- [ ] 11. Checkpoint — Viz_Tool kompiliert und Basis-Tests bestehen
+- [X] 11. Checkpoint — Viz_Tool kompiliert und Basis-Tests bestehen
   - Führe `cargo check --workspace` aus.
   - Führe `cargo test --package viz-tool` aus, stelle sicher dass alle Unit- und Property-Tests bestehen.
 

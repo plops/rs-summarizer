@@ -44,3 +44,11 @@ pub struct SearchForm {
 pub struct BrowseParams {
     pub page: Option<u32>,
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct VizData {
+    pub points_2d: Vec<(i64, f32, f32)>,           // (identifier, x, y)
+    pub cluster_labels: std::collections::HashMap<i64, i32>,          // identifier -> label
+    pub cluster_titles: std::collections::HashMap<i32, String>,       // label -> title
+    pub cluster_centroids: std::collections::HashMap<i32, (f32, f32)>, // label -> (cx, cy)
+}
