@@ -37,4 +37,7 @@ pub enum VizError {
 
     #[error("Nicht genügend Punkte für UMAP: {actual} Punkte, mindestens {required} benötigt")]
     InsufficientPoints { actual: usize, required: usize },
+
+    #[error("Serialisierungsfehler: {0}")]
+    SerializationError(String),
 }

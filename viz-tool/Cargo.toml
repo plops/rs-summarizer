@@ -7,6 +7,8 @@ edition = "2021"
 eframe = "0.34.2"
 egui_plot = "0.35.0"
 fast-umap = { version = "1.6.0", features = ["gpu"] }
+burn = { version = "0.20.1", features = ["wgpu", "autodiff"], default-features = false }
+cubecl = { version = "0.9.0", features = ["wgpu"] }
 linfa-clustering = "0.8.1"
 linfa = "0.8.1"
 ndarray = "0.17"
@@ -16,6 +18,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 anyhow = "1.0"
+tokio = "1.0"
 
 [dev-dependencies]
 proptest = "1.11"

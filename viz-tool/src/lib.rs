@@ -1,2 +1,8 @@
 pub mod errors;
 pub mod embedding;
+pub mod data_loader;
+pub mod umap_engine;
+pub mod dbscan_engine;
+pub mod cluster_titler;
+pub mod nn_mapper;
+pub mod viz_app;
