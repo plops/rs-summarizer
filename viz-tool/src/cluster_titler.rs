@@ -16,8 +16,9 @@ pub fn extract_abstract_block(summary: &str) -> Option<String> {
     
     for (i, line) in lines.iter().enumerate() {
         if line.to_lowercase().contains("**abstract**:") {
-            // Find the position after the marker
-            let marker_pos = line.find("**abstract**:")? + "**abstract**:".len();
+            // Find the position after the marker (case-insensitive)
+            let lowercase_line = line.to_lowercase();
+            let marker_pos = lowercase_line.find("**abstract**:")? + "**abstract**:".len();
             let mut abstract_text = String::new();
             
             // Add text from the current line after the marker
@@ -207,12 +208,27 @@ mod tests {
             suffix in "[a-zA-Z0-9 .,!?]{0,50}"
         ) {
             let timestamp = "\n* 0:00 Some section";
-            let summary = format!("**Abstract**:\n\n{}{}{}", abstract_text, suffix, timestamp);
+            let summary = format!("**Abstract**: {}\n\n{}{}", abstract_text, suffix, timestamp);
             let result = extract_abstract_block(&summary);
             prop_assert!(result.is_some());
             let block = result.unwrap();
-            // Block should contain the abstract text
-            prop_assert!(block.contains(&abstract_text[..abstract_text.len().min(50)]));
+            // Block should contain the abstract text (unless it's only whitespace)
+            if abstract_text.trim().is_empty() {
+                // If abstract text is only whitespace, the extracted block should only contain the suffix
+                let expected_block = suffix.trim();
+                prop_assert_eq!(block.clone(), expected_block);
+            } else {
+                // Block should contain the abstract text
+                let trimmed_abstract = abstract_text.trim();
+                if !trimmed_abstract.is_empty() {
+                    prop_assert!(block.contains(trimmed_abstract));
+                }
+                // Block should also contain the suffix if it's not empty
+                let trimmed_suffix = suffix.trim();
+                if !trimmed_suffix.is_empty() {
+                    prop_assert!(block.contains(trimmed_suffix));
+                }
+            }
             // Block should not contain the timestamp marker
             prop_assert!(!block.contains("0:00"));
         }

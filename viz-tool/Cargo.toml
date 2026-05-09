@@ -14,14 +14,15 @@ cubecl = { version = "=0.9.0", features = ["wgpu"] }
 linfa-clustering = "0.8.1"
 linfa = "0.8.1"
 ndarray = "0.17"
-sqlx = { version = "0.8", features = ["sqlite", "macros"] }
+sqlx = { version = "0.8", features = ["sqlite", "macros", "runtime-tokio"] }
 gemini-rust = "1.7.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
 anyhow = "1.0"
-tokio = { version = "1.52", features = ["rt", "rt-multi-thread"] }
+tokio = { version = "1.52", features = ["rt", "rt-multi-thread", "macros"] }
 rfd = "0.17"
 
 [dev-dependencies]
 proptest = "1.11"
+tempfile = "3.19"

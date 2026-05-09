@@ -231,7 +231,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_load_compact_db_valid_and_invalid_blobs() {
-        let (temp_file, _ids) = create_test_db().await.unwrap();
+        let (temp_file, _ids): (NamedTempFile, Vec<i64>) = create_test_db().await.unwrap();
         
         let result = load_compact_db(temp_file.path(), 2).await.unwrap();
         
@@ -293,8 +293,33 @@ mod tests {
         ) {
             // Create a temporary database
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let (temp_file, _) = rt.block_on(async {
-                create_test_db().await.unwrap()
+            let temp_file = NamedTempFile::new().unwrap();
+            
+            // Create empty database with proper schema
+            rt.block_on(async {
+                let pool = SqlitePool::connect(&format!("sqlite:{}", temp_file.path().display()))
+                    .await
+                    .unwrap();
+                    
+                sqlx::query(
+                    "CREATE TABLE summaries (
+                        identifier INTEGER PRIMARY KEY,
+                        original_source_link TEXT NOT NULL DEFAULT '',
+                        model TEXT NOT NULL DEFAULT '',
+                        embedding BLOB,
+                        embedding_model TEXT NOT NULL DEFAULT '',
+                        summary TEXT NOT NULL DEFAULT '',
+                        summary_timestamp_start TEXT NOT NULL DEFAULT '',
+                        summary_timestamp_end TEXT NOT NULL DEFAULT '',
+                        cost REAL NOT NULL DEFAULT 0.0,
+                        timestamped_summary_in_youtube_format TEXT NOT NULL DEFAULT ''
+                    )"
+                )
+                .execute(&pool)
+                .await
+                .unwrap();
+                
+                pool.close().await;
             });
 
             // Count valid BLOBs in generated data
@@ -307,29 +332,35 @@ mod tests {
             }).count();
 
             // Insert test data into database
-            let pool = SqlitePool::connect(&format!("sqlite:{}", temp_file.path().display()))
-                .await
-                .unwrap();
+            let pool: SqlitePool = rt.block_on(async {
+                SqlitePool::connect(&format!("sqlite:{}", temp_file.path().display()))
+                    .await
+                    .unwrap()
+            });
 
             for (i, opt_blob) in blob_data.iter().enumerate() {
                 if let Some(blob) = opt_blob {
-                    let result = sqlx::query(
-                        "INSERT INTO summaries (identifier, original_source_link, summary, embedding, embedding_model, timestamped_summary_in_youtube_format)
-                         VALUES (?, ?, ?, ?, ?, ?)"
-                    )
-                    .bind(i as i64 + 100) // Use different IDs to avoid conflicts
-                    .bind(format!("https://example.com/{}", i))
-                    .bind(format!("Test summary {}", i))
-                    .bind(blob)
-                    .bind("text-embedding-ada-002")
-                    .bind(format!("Timestamped summary {}", i))
-                    .execute(&pool)
-                    .await
-                    .unwrap();
+                    rt.block_on(async {
+                        let result = sqlx::query(
+                            "INSERT INTO summaries (identifier, original_source_link, summary, embedding, embedding_model, timestamped_summary_in_youtube_format)
+                             VALUES (?, ?, ?, ?, ?, ?)"
+                        )
+                        .bind(i as i64 + 100) // Use different IDs to avoid conflicts
+                        .bind(format!("https://example.com/{}", i))
+                        .bind(format!("Test summary {}", i))
+                        .bind(blob)
+                        .bind("text-embedding-ada-002")
+                        .bind(format!("Timestamped summary {}", i))
+                        .execute(&pool)
+                        .await
+                        .unwrap();
+                    });
                 }
             }
 
-            pool.close().await;
+            rt.block_on(async {
+                pool.close().await;
+            });
 
             // Load data and verify count
             let result = rt.block_on(async {
