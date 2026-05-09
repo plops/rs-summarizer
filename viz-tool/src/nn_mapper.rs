@@ -4,9 +4,11 @@ use fast_umap::prelude::*;
 use cubecl::wgpu::WgpuRuntime;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
+use burn_autodiff::Autodiff;
+use burn_cubecl::CubeBackend;
 
-type MyBackend = burn::backend::wgpu::CubeBackend<WgpuRuntime, f32, i32, u32>;
-type MyAutodiffBackend = burn::backend::Autodiff<MyBackend>;
+type MyBackend = CubeBackend<WgpuRuntime, f32, i32, u32>;
+type MyAutodiffBackend = Autodiff<MyBackend>;
 
 /// Sidecar configuration for NN Mapper model persistence
 #[derive(Debug, Clone, Serialize, Deserialize)]

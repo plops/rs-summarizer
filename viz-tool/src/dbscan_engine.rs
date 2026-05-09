@@ -1,4 +1,7 @@
 use crate::errors::VizError;
+use linfa::traits::Transformer;
+use linfa_clustering::Dbscan;
+use ndarray::Array2;
 
 /// Parameters for DBSCAN clustering
 pub struct DbscanParams {

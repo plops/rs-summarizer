@@ -87,7 +87,7 @@ pub async fn load_compact_db(
                     embedding,
                 });
             }
-            Err(VizError::InvalidBlobLength(_)) => {
+            Err(VizError::InvalidBlobLength { length: _ }) => {
                 eprintln!(
                     "Warning: Skipping identifier {} - invalid BLOB length (not multiple of 4)",
                     identifier
