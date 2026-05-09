@@ -199,11 +199,6 @@ struct Point2D {
     umap_2d_y: f32,
 }
 
-#[derive(sqlx::FromRow)]
-struct ClusterLabel {
-    identifier: i64,
-    dbscan_label: Option<i32>,
-}
 
 async fn load_viz_data(
     compact_db_path: &str,

@@ -50,18 +50,18 @@ async fn test_app_state() -> AppState {
 
     let model_options = vec![
         ModelOption {
-            name: "gemini-3-flash-preview".to_string(),
-            input_price_per_mtoken: 0.10,
-            output_price_per_mtoken: 0.40,
-            context_window: 1_000_000,
-            rpm_limit: 5,
-            rpd_limit: 20,
+            name: "test-model".to_string(),
+            input_price_per_mtoken: 0.001,
+            output_price_per_mtoken: 0.002,
+            context_window: 128000,
+            rpm_limit: 15,
+            rpd_limit: 1000,
         },
         ModelOption {
-            name: "gemma-3-27b-it".to_string(),
+            name: "gemma-3-1b-it".to_string(),
             input_price_per_mtoken: 0.0,
             output_price_per_mtoken: 0.0,
-            context_window: 128_000,
+            context_window: 128000,
             rpm_limit: 30,
             rpd_limit: 14400,
         },
@@ -75,6 +75,8 @@ async fn test_app_state() -> AppState {
         model_counts: Arc::new(RwLock::new(HashMap::new())),
         last_reset_day: Arc::new(RwLock::new(None)),
         gemini_api_key,
+        nn_mapper: None,
+        viz_data: None,
     }
 }
 
@@ -219,6 +221,8 @@ async fn test_app_state_with_low_limit() -> AppState {
         model_counts: Arc::new(RwLock::new(HashMap::new())),
         last_reset_day: Arc::new(RwLock::new(None)),
         gemini_api_key,
+        nn_mapper: None,
+        viz_data: None,
     }
 }
 
