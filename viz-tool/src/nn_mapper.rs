@@ -1,118 +1,191 @@
 use crate::errors::VizError;
+use crate::umap_engine::{fit_parametric_umap, UmapParams};
 use fast_umap::prelude::*;
-use burn::prelude::*;
 use cubecl::wgpu::WgpuRuntime;
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct NnMapperResult {
-    pub model_path: String,
-    pub metadata: ModelMetadata,
-}
+type MyBackend = burn::backend::wgpu::CubeBackend<WgpuRuntime, f32, i32, u32>;
+type MyAutodiffBackend = burn::backend::Autodiff<MyBackend>;
 
+/// Sidecar configuration for NN Mapper model persistence
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelMetadata {
-    pub n_components: usize,
-    pub n_neighbors: usize,
-    pub min_dist: f64,
-    pub n_epochs: usize,
-    pub training_points: usize,
+pub struct NnMapperConfig {
+    pub umap_config: UmapConfig,
+    pub embedding_dim: usize,
 }
 
 pub struct NnMapper {
-    runtime: WgpuRuntime,
+    fitted: FittedUmap<MyAutodiffBackend>,
+    embedding_dim: usize,
 }
 
 impl NnMapper {
-    pub fn new() -> Result<Self, VizError> {
-        let runtime = WgpuRuntime::init()
-            .map_err(|e| VizError::Umap(format!("Failed to initialize WGPU runtime: {}", e)))?;
+    /// Train a new parametric UMAP model for out-of-sample projection
+    pub fn train(
+        embeddings: &[Vec<f32>],
+        embedding_dim: usize,
+        params: UmapParams,
+    ) -> Result<Self, VizError> {
+        // Validate input
+        if embeddings.is_empty() {
+            return Err(VizError::NoEmbeddings);
+        }
         
-        Ok(Self { runtime })
-    }
-
-    pub async fn save_model(&self, model: FittedUmap<Backend<Burn<WgpuRuntime, f32, i32>>, path: &Path) -> Result<NnMapperResult, VizError> {
-        // Create directory if it doesn't exist
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| VizError::Io(format!("Failed to create directory: {}", e)))?;
+        // Validate all embeddings have the same dimension
+        for embedding in embeddings {
+            if embedding.len() != embedding_dim {
+                return Err(VizError::DimensionMismatch {
+                    expected: embedding_dim,
+                    actual: embedding.len(),
+                });
+            }
         }
 
-        // Save the fitted model using burn's recorder
-        let recorder = burn::record::CompactRecorder::new();
-        
-        let model_data = recorder
-            .record(Model::new(&ModelRecord::new()), &model)
-            .map_err(|e| VizError::Umap(format!("Failed to record model: {}", e)))?;
+        // Fit parametric UMAP
+        let fitted = fit_parametric_umap(embeddings, params)?;
 
-        // Save to file
-        recorder
-            .save(model_data, path)
-            .map_err(|e| VizError::Io(format!("Failed to save model: {}", e)))?;
-
-        // Extract metadata
-        let metadata = ModelMetadata {
-            n_components: model.config().n_components,
-            n_neighbors: model.config().n_neighbors,
-            min_dist: model.config().min_dist,
-            n_epochs: model.config().n_epochs,
-            training_points: model.embedding().shape().dims[0],
-        };
-
-        Ok(NnMapperResult {
-            model_path: path.to_string_lossy().to_string(),
-            metadata,
+        Ok(Self {
+            fitted,
+            embedding_dim,
         })
     }
 
-    pub async fn load_model(&self, path: &Path) -> Result<FittedUmap<Backend<Burn<WgpuRuntime, f32, i32>>, VizError> {
-        // Load the saved model
-        let model_data = burn::record::CompactRecorder::new()
-            .load(path)
-            .map_err(|e| VizError::Io(format!("Failed to load model: {}", e)))?;
+    /// Project a single embedding to 2D coordinates
+    /// Returns VizError::DimensionMismatch if embedding dimension is incorrect
+    pub fn project(&self, embedding: &[f32]) -> Result<(f32, f32), VizError> {
+        // Check dimension
+        if embedding.len() != self.embedding_dim {
+            return Err(VizError::DimensionMismatch {
+                expected: self.embedding_dim,
+                actual: embedding.len(),
+            });
+        }
 
-        let model = model_data.model.get::<Model<Burn<WgpuRuntime, f32, i32>>()
-            .ok_or_else(|| VizError::Umap("Invalid model format".to_string()))?;
+        // Convert single embedding to Vec<Vec<f64>> for transform
+        let embedding_f64: Vec<Vec<f64>> = vec![
+            embedding.iter().map(|&x| x as f64).collect()
+        ];
 
-        // Create UMAP instance from loaded model
-        let umap = Umap::new(model.config());
+        // Transform using the fitted model
+        let result = self.fitted.transform(embedding_f64);
 
-        Ok(FittedUmap::new(model, umap))
+        // Extract the first (and only) 2D coordinate
+        if result.is_empty() || result[0].len() != 2 {
+            return Err(VizError::Umap("Invalid transform result".to_string()));
+        }
+
+        let x = result[0][0] as f32;
+        let y = result[0][1] as f32;
+
+        Ok((x, y))
     }
 
-    pub async fn transform_new_points(&self, model: &FittedUmap<Backend<Burn<WgpuRuntime, f32, i32>>, new_embeddings: &[Vec<f32>]) -> Result<Vec<[f32; 2]>, VizError> {
-        // Convert new embeddings to burn tensor
-        let n_samples = new_embeddings.len();
-        let n_features = new_embeddings[0].len();
-        
-        let mut flat_data = Vec::with_capacity(n_samples * n_features);
-        for embedding in new_embeddings {
-            flat_data.extend_from_slice(embedding);
+    /// Save the trained model and configuration
+    /// Saves the model binary and a sidecar JSON with configuration
+    pub fn save(&self, path: &Path) -> Result<(), VizError> {
+        // Create directory if it doesn't exist
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| VizError::Io(e))?;
         }
 
-        let data = Tensor::<Backend<Burn<WgpuRuntime, f32, i32>, 2>::from_data(
-            flat_data,
-            Shape::new([n_samples, n_features]),
-            &Default::default(),
-        );
+        // Save the fitted model
+        self.fitted.save(path)
+            .map_err(|e| VizError::Umap(format!("Failed to save model: {}", e)))?;
 
-        // Transform using the loaded model
-        let result = model.transform(data)
-            .map_err(|e| VizError::Umap(format!("Transform failed: {}", e)))?;
+        // Create and save sidecar configuration
+        let config = NnMapperConfig {
+            umap_config: self.fitted.config().clone(),
+            embedding_dim: self.embedding_dim,
+        };
 
-        // Convert result back to Vec<[f32; 2]>
-        let result_data = result.into_data();
-        let mut embeddings_2d = Vec::with_capacity(n_samples);
+        let config_path = path.with_extension("_nn_mapper_config.json");
+        let config_json = serde_json::to_string_pretty(&config)
+            .map_err(|e| VizError::SerializationError(format!("Failed to serialize config: {}", e)))?;
+
+        std::fs::write(&config_path, config_json)
+            .map_err(|e| VizError::Io(e))?;
+
+        Ok(())
+    }
+
+    /// Load a saved model and its configuration
+    /// Reads the sidecar JSON to get configuration and loads the model
+    pub fn load(path: &Path, embedding_dim: usize) -> Result<Self, VizError> {
+        // Load sidecar configuration
+        let config_path = path.with_extension("_nn_mapper_config.json");
+        let config_json = std::fs::read_to_string(&config_path)
+            .map_err(|e| VizError::Io(e))?;
+
+        let config: NnMapperConfig = serde_json::from_str(&config_json)
+            .map_err(|e| VizError::SerializationError(format!("Failed to deserialize config: {}", e)))?;
+
+        // Validate embedding dimension matches
+        if config.embedding_dim != embedding_dim {
+            return Err(VizError::DimensionMismatch {
+                expected: embedding_dim,
+                actual: config.embedding_dim,
+            });
+        }
+
+        // Use default device for the backend
+        let device = Default::default();
+
+        // Load the fitted model
+        let fitted = FittedUmap::load(
+            path,
+            config.umap_config,
+            embedding_dim,
+            device,
+        ).map_err(|e| VizError::ModelLoadError(format!("Failed to load model: {}", e)))?;
+
+        Ok(Self {
+            fitted,
+            embedding_dim,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_project_dimension_mismatch() {
+        // This test requires a trained model, so we'll create a minimal test
+        // that demonstrates the dimension checking logic
+        let embeddings = vec![
+            vec![1.0f32; 768],
+            vec![2.0f32; 768],
+            vec![3.0f32; 768],
+        ];
+
+        let params = UmapParams {
+            n_components: 2,
+            n_neighbors: 2,
+            min_dist: 0.1,
+            n_epochs: 10, // Small number for testing
+        };
+
+        // Train a model
+        let nn_mapper = NnMapper::train(&embeddings, 768, params).unwrap();
+
+        // Test with correct dimension - should succeed
+        let correct_embedding = vec![0.5f32; 768];
+        assert!(nn_mapper.project(&correct_embedding).is_ok());
+
+        // Test with wrong dimension - should fail
+        let wrong_embedding = vec![0.5f32; 512]; // Wrong dimension
+        let result = nn_mapper.project(&wrong_embedding);
+        assert!(result.is_err());
         
-        for i in 0..n_samples {
-            let mut embedding_2d = [0.0f32; 2];
-            for j in 0..2 {
-                embedding_2d[j] = result_data[i * 2 + j];
+        match result.unwrap_err() {
+            VizError::DimensionMismatch { expected, actual } => {
+                assert_eq!(expected, 768);
+                assert_eq!(actual, 512);
             }
-            embeddings_2d.push(embedding_2d);
+            _ => panic!("Expected DimensionMismatch error"),
         }
-
-        Ok(embeddings_2d)
     }
 }

@@ -75,11 +75,11 @@ Implementierung der vollständigen Embedding-Visualisierungs-Pipeline in Rust. D
     - `test_output_exists_error`, `test_no_qualifying_rows_error`, `test_source_not_found`, `test_output_dir_missing`, `test_wal_mode_enabled`
     - _Requirements: 2.7, 2.8, 2.9, 2.10, 2.11_
 
-- [ ] 4. Checkpoint — Cargo check und Tests
+- [X] 4. Checkpoint — Cargo check und Tests
   - Führe `cargo check --workspace` aus, stelle sicher dass Workspace-Setup und alle bisherigen Module kompilieren.
   - Stelle sicher dass alle Tests in `src/` weiterhin bestehen.
 
-- [ ] 5. Viz_Tool — Datenmodelle und DataLoader
+- [X] 5. Viz_Tool — Datenmodelle und DataLoader
 make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies listed in /home/kiel/stage/rs-summarizer/viz-tool/deps.md
   - [ ] 5.1 Erstelle `viz-tool/src/data_loader.rs` mit `EmbeddingPoint`-Struct, `LoadResult`-Struct und `load_compact_db`-Funktion
     - `EmbeddingPoint { identifier: i64, original_source_link, summary, model, embedding_model, timestamped_summary, embedding: Vec<f32> }`
@@ -94,7 +94,7 @@ make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-v
     - **Validates: Requirements 12.6, 4.6**
     - Generiere Mischung aus gültigen und ungültigen BLOBs, prüfe dass `points.len()` exakt der Anzahl gültiger BLOBs entspricht
 
-- [ ] 6. Viz_Tool — UmapEngine
+- [X] 6. Viz_Tool — UmapEngine
 make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies listed in /home/kiel/stage/rs-summarizer/viz-tool/deps.md
   - [ ] 6.1 Erstelle `viz-tool/src/umap_engine.rs` mit `UmapParams`-Struct, `compute_umap`- und `fit_parametric_umap`-Funktionen
     - `UmapParams { n_components, n_neighbors, min_dist, n_epochs: usize (Standard: 200) }`
@@ -104,7 +104,7 @@ make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-v
     - `pub fn fit_parametric_umap(embeddings: &[Vec<f32>], params: UmapParams) -> Result<FittedUmap, VizError>`
     - _Requirements: 5.1, 5.2, 5.3, 5.7, 5.8, 5.9, 3.4_
 
-- [ ] 7. Viz_Tool — DbscanEngine
+- [X] 7. Viz_Tool — DbscanEngine
 make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies listed in /home/kiel/stage/rs-summarizer/viz-tool/deps.md
   - [ ] 7.1 Erstelle `viz-tool/src/dbscan_engine.rs` mit `DbscanParams`-Struct und `compute_dbscan`-Funktion
     - `DbscanParams { eps: f64, min_samples: usize }`
@@ -114,7 +114,7 @@ make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-v
     - Konvertiere `Array1<Option<usize>>`: `None` → `-1`, `Some(id)` → `id as i32`
     - _Requirements: 6.1, 6.2, 6.3, 6.7, 6.8_
 
-- [ ] 8. Viz_Tool — ClusterTitler
+- [X] 8. Viz_Tool — ClusterTitler
 make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies listed in /home/kiel/stage/rs-summarizer/viz-tool/deps.md
   - [ ] 8.1 Erstelle `viz-tool/src/cluster_titler.rs` mit `extract_abstract_block`, `generate_titles`, `save_titles`, `load_titles`
     - `pub fn extract_abstract_block(summary: &str) -> Option<String>` — sucht `**Abstract**:` (case-insensitive), extrahiert Text bis zum ersten Timestamp-Marker (`\n.*\d+:\d{2}`)
@@ -137,8 +137,8 @@ make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-v
     - `test_extract_abstract_case_insensitive` — `abstract:` (lowercase) wird erkannt
     - _Requirements: 8.2_
 
-- [ ] 9. Viz_Tool — NnMapper
-make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies
+- [X] 9. Viz_Tool — NnMapper
+make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies listed in /home/kiel/stage/rs-summarizer/viz-tool/deps.md
   - [ ] 9.1 Erstelle `viz-tool/src/nn_mapper.rs` mit `NnMapper`-Struct (train, project, save, load)
     - `NnMapper { fitted: FittedUmap, embedding_dim: usize }`
     - `pub fn train(embeddings, embedding_dim, params) -> Result<Self, VizError>` — ruft `fit_parametric_umap` auf
@@ -152,7 +152,7 @@ make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-v
     - _Requirements: 9.8_
 
 - [ ] 10. Viz_Tool — VizApp (egui GUI)
-make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies
+make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies listed in /home/kiel/stage/rs-summarizer/viz-tool/deps.md
   - [ ] 10.1 Erstelle `viz-tool/src/app.rs` mit `VizApp`-Struct, `AppStatus`-Enum, `ComputeResult`-Enum und `eframe::App`-Implementierung
     - Implementiere alle State-Felder aus dem Design: `db_path`, `points`, `embedding_dim`, UMAP-Parameter, DBSCAN-Parameter, `cluster_titles`, `nn_mapper`, `status`, `error_message`, `skipped_blobs`, `compute_tx`/`compute_rx`
     - Implementiere `update`-Methode: empfange `ComputeResult` via `compute_rx.try_recv()`, aktualisiere State, rufe `ctx.request_repaint()` auf
@@ -202,7 +202,7 @@ make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-v
   - Führe `cargo test --package viz-tool` aus, stelle sicher dass alle Unit- und Property-Tests bestehen.
 
 - [ ] 12. Web_Viz — AppState-Erweiterung und NnMapper-Service
-make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies
+make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies  listed in /home/kiel/stage/rs-summarizer/viz-tool/deps.md
   - [ ] 12.1 Erstelle `src/services/nn_mapper.rs` mit `NnMapper`-Struct (load, project) für den Web-Server
     - `NnMapper { fitted: FittedUmap, embedding_dim: usize }`
     - `pub fn load(model_path: &Path) -> Result<Self, NnMapperError>` — liest Sidecar-JSON, lädt `FittedUmap`
@@ -222,7 +222,7 @@ make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-v
     - _Requirements: 10.8, 10.9, 11.6_
 
 - [ ] 13. Web_Viz — Routen und SVG-Rendering
-make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies
+make sure to also look at /home/kiel/stage/rs-summarizer/.kiro/specs/embedding-visualization/design.md and use deepwiki mcp to ask how to use dependencies  listed in /home/kiel/stage/rs-summarizer/viz-tool/deps.md
   - [ ] 13.1 Erstelle `src/routes/viz.rs` mit `viz_map`- und `viz_search_map`-Routen und `find_k_nearest_2d`-Hilfsfunktion
     - `pub async fn viz_map(State(app): State<AppState>, Path(identifier): Path<i64>) -> impl IntoResponse`
     - `pub async fn viz_search_map(State(app): State<AppState>, Form(query): Form<SearchForm>) -> impl IntoResponse`
