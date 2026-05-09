@@ -53,3 +53,24 @@ pub enum ProcessError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
 }
+
+#[derive(Debug, Error)]
+pub enum ExportError {
+    #[error("Source file not found: {0}")]
+    SourceNotFound(std::path::PathBuf),
+
+    #[error("Output file already exists: {0}")]
+    OutputExists(std::path::PathBuf),
+
+    #[error("Output directory does not exist: {0}")]
+    OutputDirMissing(std::path::PathBuf),
+
+    #[error("No qualifying rows found (embedding IS NOT NULL AND summary_done = 1)")]
+    NoQualifyingRows,
+
+    #[error("Database error: {0}")]
+    Database(#[from] sqlx::Error),
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+}

@@ -2,7 +2,7 @@
 
 emilk/egui
 emilk/egui_plot
-eugenehp/fast-map
+eugenehp/fast-umap
 rust-ml/linfa
 rust-ml/linfa
 rust-ndarray/ndarray

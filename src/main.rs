@@ -1,8 +1,11 @@
 use std::collections::HashMap;
+use std::env;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use rs_summarizer::commands::export_db::{ExportDbArgs, run_export};
 use rs_summarizer::state::{AppState, ModelOption};
 use rs_summarizer::{build_router, db};
 
@@ -10,6 +13,12 @@ use rs_summarizer::{build_router, db};
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt::init();
     tracing::info!("rs-summarizer starting up");
+
+    // Check for export-db CLI command
+    let args: Vec<String> = env::args().collect();
+    if args.len() >= 2 && args[1] == "export-db" {
+        return handle_export_command(&args).await;
+    }
 
     // Load Gemini API key from environment
     let gemini_api_key = std::env::var("GEMINI_API_KEY")
@@ -123,5 +132,54 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(addr).await?;
     axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
 
+    Ok(())
+}
+
+async fn handle_export_command(args: &[String]) -> anyhow::Result<()> {
+    let mut source = None;
+    let mut output = None;
+    
+    let mut i = 2; // Skip "export-db"
+    while i < args.len() {
+        match args[i].as_str() {
+            "--source" => {
+                if i + 1 >= args.len() {
+                    eprintln!("Error: --source requires a path argument");
+                    std::process::exit(1);
+                }
+                source = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--output" => {
+                if i + 1 >= args.len() {
+                    eprintln!("Error: --output requires a path argument");
+                    std::process::exit(1);
+                }
+                output = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            _ => {
+                eprintln!("Error: Unknown argument '{}'", args[i]);
+                eprintln!("Usage: {} export-db --source <path> --output <path>", args[0]);
+                std::process::exit(1);
+            }
+        }
+    }
+    
+    let source = source.ok_or_else(|| {
+        eprintln!("Error: --source argument is required");
+        std::process::exit(1);
+        anyhow::anyhow!("Missing --source argument")
+    })?;
+    
+    let output = output.ok_or_else(|| {
+        eprintln!("Error: --output argument is required");
+        std::process::exit(1);
+        anyhow::anyhow!("Missing --output argument")
+    })?;
+    
+    let export_args = ExportDbArgs { source, output };
+    run_export(export_args).await?;
+    
     Ok(())
 }
