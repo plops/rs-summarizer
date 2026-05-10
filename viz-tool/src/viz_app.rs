@@ -34,6 +34,12 @@ enum ComputeResult {
         embeddings_2d: Vec<[f32; 2]>,
         params: UmapParams,
     },
+    /// 4D UMAP finished (optionally provides a 2D projection of the first two components)
+    Umap4dDone {
+        embeddings_4d: Vec<[f32; 4]>,
+        embeddings_2d_from_4d: Option<Vec<[f32; 2]>>,
+        params: UmapParams,
+    },
     /// Clustering finished (labels aligned with current embeddings)
     ClusterDone {
         labels: Vec<i32>,
@@ -68,7 +74,7 @@ pub struct VizApp {
     auto_recompute: bool,
     pending_recompute: bool,
 
-    // UMAP params
+    // UMAP params (2D)
     umap_mode: UmapMode,
     /// log10(learning_rate) slider value (e.g. -3.0 -> 1e-3)
     umap_lr_log: f32,
@@ -76,6 +82,14 @@ pub struct VizApp {
     umap_neighbors: usize,
     umap_min_dist: f32,
     umap_epochs: usize,
+
+    // UMAP 4D params
+    umap4_neighbors: usize,
+    umap4_min_dist: f32,
+    umap4_epochs: usize,
+    umap4_hidden_sizes_str: String,
+    /// Optional stored 4D embedding (computed via Compute 4D UMAP)
+    embeddings_4d: Option<Vec<[f32; 4]>>,
 
     // DBSCAN params
     dbscan_eps: f64,
@@ -117,6 +131,12 @@ impl Default for VizApp {
             umap_epochs: 200,
             auto_recompute: false,
             pending_recompute: false,
+            // UMAP 4D defaults
+            umap4_neighbors: 5,
+            umap4_min_dist: 0.1,
+            umap4_epochs: 200,
+            umap4_hidden_sizes_str: "100,100,100".to_string(),
+            embeddings_4d: None,
             // DBSCAN defaults
             dbscan_eps: 0.3,
             dbscan_min_samples: 5,
@@ -374,6 +394,40 @@ impl App for VizApp {
                         }
                     }
 
+                    // UMAP 4D controls
+                    ui.separator();
+                    ui.heading("UMAP 4D");
+                    ui.horizontal(|ui| {
+                        ui.label("n_neighbors");
+                        ui.add(egui::Slider::new(&mut self.umap4_neighbors, 2..=500).text("n_neighbors"));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("min_dist");
+                        ui.add(egui::Slider::new(&mut self.umap4_min_dist, 0.0..=1.0).text("min_dist"));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("epochs");
+                        ui.add(egui::DragValue::new(&mut self.umap4_epochs));
+                    });
+
+                    if self.umap_mode == UmapMode::Parametric {
+                        let disabled = !cfg!(feature = "gpu");
+                        let resp = ui.add_enabled(!disabled, egui::TextEdit::singleline(&mut self.umap4_hidden_sizes_str));
+                        resp.clone().on_hover_text("Hidden sizes for parametric 4D UMAP, comma-separated (e.g. 100,100)");
+                        if disabled {
+                            resp.clone().on_disabled_hover_text("Parametric UMAP not available in this build");
+                        }
+                    }
+
+                    let umap4_enabled = !self.points.is_empty() && self.status == AppStatus::Idle && (self.umap_mode == UmapMode::Classic || cfg!(feature = "gpu"));
+                    let compute_umap4_btn = ui.add_enabled(umap4_enabled, egui::Button::new("Compute 4D UMAP"));
+                    if !umap4_enabled {
+                        compute_umap4_btn.clone().on_disabled_hover_text("Cannot compute: no data loaded or parametric mode requires GPU build");
+                    }
+                    if compute_umap4_btn.clicked() {
+                        self.start_umap_4d_computation();
+                    }
+
                     // DBSCAN controls
                     ui.separator();
                     ui.heading("DBSCAN Clustering (from 4D UMAP)");
@@ -619,6 +673,107 @@ impl VizApp {
         });
     }
 
+    fn start_umap_4d_computation(&mut self) {
+        if self.points.is_empty() {
+            return;
+        }
+
+        self.status = AppStatus::ComputingUmap;
+        self.error_message = None;
+        // Clear previous 4D embedding and clusters
+        self.embeddings_4d = None;
+        self.cluster_labels = None;
+
+        // Prepare embeddings; honor max_points as a subset if requested
+        let embeddings: Vec<Vec<f32>> =
+            if self.max_points > 0 && self.max_points < self.points.len() {
+                self.points
+                    .iter()
+                    .take(self.max_points)
+                    .map(|p| p.embedding.clone())
+                    .collect()
+            } else {
+                self.points.iter().map(|p| p.embedding.clone()).collect()
+            };
+
+        // Parse hidden sizes (comma separated) for parametric runs (4D)
+        let hidden_sizes = if self.umap_mode == UmapMode::Parametric {
+            let parsed: Result<Vec<usize>, String> = self
+                .umap4_hidden_sizes_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    s.parse::<usize>()
+                        .map_err(|e| format!("Invalid hidden size '{}': {}", s, e))
+                })
+                .collect();
+            match parsed {
+                Ok(v) => v,
+                Err(err_msg) => {
+                    self.error_message = Some(err_msg);
+                    return;
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        let params = UmapParams {
+            n_components: 4,
+            n_neighbors: self.umap4_neighbors,
+            min_dist: self.umap4_min_dist,
+            n_epochs: self.umap4_epochs,
+            learning_rate: 10f64.powf(self.umap_lr_log as f64),
+            hidden_sizes: hidden_sizes.clone(),
+        };
+
+        let tx = self.compute_tx.clone();
+
+        // Create progress & cancel channels so GUI can receive epoch updates and cancel
+        let (progress_tx, progress_rx) = crossbeam_channel::unbounded::<ProgressUpdate>();
+        let (cancel_tx, cancel_rx) = crossbeam_channel::unbounded::<()>();
+        self.progress_rx = Some(progress_rx);
+        self.cancel_tx = Some(cancel_tx.clone());
+        self.progress = None;
+
+        let params_for_result = params.clone();
+
+        thread::spawn(move || {
+            match compute_umap(&embeddings, params, Some(progress_tx), Some(cancel_rx)) {
+                Ok(emb4d) => {
+                    // Convert to fixed 4D arrays and also provide a 2D projection (first two dims)
+                    let mut arr4d: Vec<[f32; 4]> = Vec::with_capacity(emb4d.len());
+                    let mut arr2d: Vec<[f32; 2]> = Vec::with_capacity(emb4d.len());
+                    for v in emb4d.iter() {
+                        let mut a4 = [0.0f32; 4];
+                        if v.len() >= 4 {
+                            for i in 0..4 {
+                                a4[i] = v[i];
+                            }
+                        } else {
+                            for (i, &val) in v.iter().enumerate().take(4) {
+                                a4[i] = val;
+                            }
+                        }
+                        arr4d.push(a4);
+                        let a2 = [a4[0], a4[1]];
+                        arr2d.push(a2);
+                    }
+
+                    let _ = tx.send(ComputeResult::Umap4dDone {
+                        embeddings_4d: arr4d,
+                        embeddings_2d_from_4d: Some(arr2d),
+                        params: params_for_result,
+                    });
+                }
+                Err(e) => {
+                    let _ = tx.send(ComputeResult::Error(format!("UMAP (4D) failed: {}", e)));
+                }
+            }
+        });
+    }
+
     /// Start the clustering flow: compute 4D UMAP (parametric when available), then run DBSCAN.
     fn start_dbscan_clustering(&mut self) {
         if self.points.is_empty() {
@@ -641,10 +796,10 @@ impl VizApp {
                 self.points.iter().map(|p| p.embedding.clone()).collect()
             };
 
-        // Parse hidden sizes (comma separated) for parametric runs
+        // Parse hidden sizes (comma separated) for parametric runs (4D)
         let hidden_sizes = if self.umap_mode == UmapMode::Parametric {
             let parsed: Result<Vec<usize>, String> = self
-                .hidden_sizes_str
+                .umap4_hidden_sizes_str
                 .split(',')
                 .map(|s| s.trim())
                 .filter(|s| !s.is_empty())
@@ -666,9 +821,9 @@ impl VizApp {
 
         let params = UmapParams {
             n_components: 4,
-            n_neighbors: self.umap_neighbors,
-            min_dist: self.umap_min_dist,
-            n_epochs: self.umap_epochs,
+            n_neighbors: self.umap4_neighbors,
+            min_dist: self.umap4_min_dist,
+            n_epochs: self.umap4_epochs,
             learning_rate: 10f64.powf(self.umap_lr_log as f64),
             hidden_sizes: hidden_sizes.clone(),
         };
@@ -678,6 +833,9 @@ impl VizApp {
         let eps = self.dbscan_eps;
         let min_samples = self.dbscan_min_samples;
 
+        // Preserve a cached 4D embedding if available to avoid recomputing
+        let cached_4d = self.embeddings_4d.clone();
+
         // Create progress & cancel channels so GUI can receive epoch updates and cancel
         let (progress_tx, progress_rx) = crossbeam_channel::unbounded::<ProgressUpdate>();
         let (cancel_tx, cancel_rx) = crossbeam_channel::unbounded::<()>();
@@ -686,6 +844,35 @@ impl VizApp {
         self.progress = None;
 
         thread::spawn(move || {
+            // If we have a cached 4D embedding, use it directly
+            if let Some(cached) = cached_4d {
+                // Convert to fixed 4D arrays for DBSCAN
+                let arr4d: Vec<[f32; 4]> = cached.into_iter().collect();
+                let db_params = DbscanParams { eps, min_samples };
+                match compute_dbscan(arr4d.as_slice(), db_params) {
+                    Ok(labels) => {
+                        let embeddings_2d_from_4d = if !have_2d {
+                            Some(
+                                // turn cached into 2d by taking first two components
+                                arr4d.into_iter().map(|v| [v[0], v[1]]).collect(),
+                            )
+                        } else {
+                            None
+                        };
+                        let _ = tx.send(ComputeResult::ClusterDone {
+                            labels,
+                            embeddings_2d_from_4d,
+                        });
+                        return;
+                    }
+                    Err(e) => {
+                        let _ = tx.send(ComputeResult::Error(format!("DBSCAN failed: {}", e)));
+                        return;
+                    }
+                }
+            }
+
+            // Otherwise compute 4D UMAP then cluster
             match compute_umap(&embeddings, params, Some(progress_tx), Some(cancel_rx)) {
                 Ok(emb4d) => {
                     // Convert to fixed 4D arrays for DBSCAN
@@ -797,6 +984,29 @@ impl VizApp {
                         if !self.points.is_empty() {
                             self.start_umap_2d_computation();
                         }
+                    }
+                }
+                ComputeResult::Umap4dDone {
+                    embeddings_4d,
+                    embeddings_2d_from_4d,
+                    params,
+                } => {
+                    // Store 4D embedding and 2D projection
+                    self.embeddings_4d = Some(embeddings_4d);
+                    if let Some(e2d) = embeddings_2d_from_4d {
+                        self.embeddings_2d = Some(e2d);
+                    }
+                    self.last_umap_params = Some(params);
+                    // Clear existing cluster labels (4D changed)
+                    self.cluster_labels = None;
+                    self.status = AppStatus::Idle;
+                    // Clear progress channels
+                    self.progress = None;
+                    self.progress_rx = None;
+                    self.cancel_tx = None;
+                    // Auto-run DBSCAN if requested
+                    if self.auto_dbscan {
+                        self.start_dbscan_clustering();
                     }
                 }
                 ComputeResult::ClusterDone {
