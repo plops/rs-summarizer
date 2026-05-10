@@ -24,3 +24,8 @@ Thumbs.db
 
 # Log files
 *.log
+
+# Ignore large vendored/generated artifacts from third_party
+third_party/fast-umap/figures/
+third_party/fast-umap/*.bin.gz
+third_party/fast-umap/benchmark_model.bin.gz
