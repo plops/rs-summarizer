@@ -3,6 +3,7 @@ use egui_plot::{Plot, PlotPoints, Points};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time::SystemTime;
 
 use crossbeam_channel;
 
@@ -45,6 +46,8 @@ enum ComputeResult {
         labels: Vec<i32>,
         /// Optional 2D embeddings derived from the 4D run (used when no 2D UMAP was computed)
         embeddings_2d_from_4d: Option<Vec<[f32; 2]>>,
+        /// DBSCAN parameters used for the clustering
+        params: DbscanParams,
     },
     Error(String),
 }
@@ -93,6 +96,14 @@ pub struct VizApp {
     /// When true, computing 4D UMAP will replace the 2D plot with the first-two components of the 4D embedding
     replace_2d_with_4d: bool,
 
+    // Snapshots & timestamps for presence indicators
+    umap2_params_snapshot: Option<UmapParams>,
+    umap2_computed_at: Option<SystemTime>,
+    umap4_params_snapshot: Option<UmapParams>,
+    umap4_computed_at: Option<SystemTime>,
+    dbscan_params_snapshot: Option<DbscanParams>,
+    dbscan_computed_at: Option<SystemTime>,
+
     // DBSCAN params
     dbscan_eps: f64,
     dbscan_min_samples: usize,
@@ -140,6 +151,15 @@ impl Default for VizApp {
             umap4_hidden_sizes_str: "100,100,100".to_string(),
             embeddings_4d: None,
             replace_2d_with_4d: false,
+
+            // snapshots & timestamps
+            umap2_params_snapshot: None,
+            umap2_computed_at: None,
+            umap4_params_snapshot: None,
+            umap4_computed_at: None,
+            dbscan_params_snapshot: None,
+            dbscan_computed_at: None,
+
             // DBSCAN defaults
             dbscan_eps: 0.3,
             dbscan_min_samples: 5,
@@ -387,15 +407,96 @@ impl App for VizApp {
                         }
                     }
 
-                    if let Some(ref p) = self.last_umap_params {
-                        ui.label(format!(
-                            "Last UMAP: neighbors={}, min_dist={}, epochs={}, lr={}",
-                            p.n_neighbors, p.min_dist, p.n_epochs, p.learning_rate
-                        ));
-                        if let Some(ref emb) = self.embeddings_2d {
-                            ui.label(format!("Points: {}", emb.len()));
-                        }
-                    }
+                    // Presence indicators for UMAP 2D, UMAP 4D, and DBSCAN
+                    ui.separator();
+                    ui.label(egui::RichText::new("Run status").size(12.0));
+
+                    ui.horizontal(|ui| {
+                        // 2D UMAP indicator
+                        let has_2d = self.embeddings_2d.is_some();
+                        let dot = if has_2d { "●" } else { "○" };
+                        let color = if has_2d { egui::Color32::from_rgb(80, 200, 120) } else { egui::Color32::LIGHT_GRAY };
+                        ui.label(egui::RichText::new(dot).color(color).size(12.0));
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new("UMAP 2D").size(11.0));
+                            if let Some(params) = &self.umap2_params_snapshot {
+                                let txt = format!("n={} md={} ep={}", params.n_neighbors, params.min_dist, params.n_epochs);
+                                let tooltip = if let Some(t) = self.umap2_computed_at {
+                                    let epoch = match t.duration_since(SystemTime::UNIX_EPOCH) { Ok(d) => d.as_secs(), Err(_) => 0 };
+                                    let ago = match SystemTime::now().duration_since(t) {
+                                        Ok(d) if d.as_secs() < 60 => format!("{}s", d.as_secs()),
+                                        Ok(d) if d.as_secs() < 3600 => format!("{}m", d.as_secs()/60),
+                                        Ok(d) => format!("{}h", d.as_secs()/3600),
+                                        Err(_) => "n/a".to_string(),
+                                    };
+                                    format!("Computed at: {} ({} ago)", epoch, ago)
+                                } else {
+                                    "Not computed".to_string()
+                                };
+                                ui.label(egui::RichText::new(txt).size(9.0)).on_hover_text(tooltip);
+                            } else {
+                                ui.label(egui::RichText::new("not computed").size(9.0));
+                            }
+                        });
+
+                        ui.add_space(10.0);
+
+                        // 4D UMAP indicator
+                        let has_4d = self.embeddings_4d.is_some();
+                        let dot4 = if has_4d { "●" } else { "○" };
+                        let color4 = if has_4d { egui::Color32::from_rgb(100, 160, 255) } else { egui::Color32::LIGHT_GRAY };
+                        ui.label(egui::RichText::new(dot4).color(color4).size(12.0));
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new("UMAP 4D").size(11.0));
+                            if let Some(params) = &self.umap4_params_snapshot {
+                                let txt = format!("n={} md={} ep={}", params.n_neighbors, params.min_dist, params.n_epochs);
+                                let tooltip = if let Some(t) = self.umap4_computed_at {
+                                    let epoch = match t.duration_since(SystemTime::UNIX_EPOCH) { Ok(d) => d.as_secs(), Err(_) => 0 };
+                                    let ago = match SystemTime::now().duration_since(t) {
+                                        Ok(d) if d.as_secs() < 60 => format!("{}s", d.as_secs()),
+                                        Ok(d) if d.as_secs() < 3600 => format!("{}m", d.as_secs()/60),
+                                        Ok(d) => format!("{}h", d.as_secs()/3600),
+                                        Err(_) => "n/a".to_string(),
+                                    };
+                                    format!("Computed at: {} ({} ago)", epoch, ago)
+                                } else {
+                                    "Not computed".to_string()
+                                };
+                                ui.label(egui::RichText::new(txt).size(9.0)).on_hover_text(tooltip);
+                            } else {
+                                ui.label(egui::RichText::new("not computed").size(9.0));
+                            }
+                        });
+
+                        ui.add_space(10.0);
+
+                        // DBSCAN indicator
+                        let has_db = self.cluster_labels.is_some();
+                        let dotc = if has_db { "●" } else { "○" };
+                        let colorc = if has_db { egui::Color32::from_rgb(255, 180, 80) } else { egui::Color32::LIGHT_GRAY };
+                        ui.label(egui::RichText::new(dotc).color(colorc).size(12.0));
+                        ui.vertical(|ui| {
+                            ui.label(egui::RichText::new("DBSCAN").size(11.0));
+                            if let Some(params) = &self.dbscan_params_snapshot {
+                                let txt = format!("eps={} min_samples={}", params.eps, params.min_samples);
+                                let tooltip = if let Some(t) = self.dbscan_computed_at {
+                                    let epoch = match t.duration_since(SystemTime::UNIX_EPOCH) { Ok(d) => d.as_secs(), Err(_) => 0 };
+                                    let ago = match SystemTime::now().duration_since(t) {
+                                        Ok(d) if d.as_secs() < 60 => format!("{}s", d.as_secs()),
+                                        Ok(d) if d.as_secs() < 3600 => format!("{}m", d.as_secs()/60),
+                                        Ok(d) => format!("{}h", d.as_secs()/3600),
+                                        Err(_) => "n/a".to_string(),
+                                    };
+                                    format!("Computed at: {} ({} ago)", epoch, ago)
+                                } else {
+                                    "Not computed".to_string()
+                                };
+                                ui.label(egui::RichText::new(txt).size(9.0)).on_hover_text(tooltip);
+                            } else {
+                                ui.label(egui::RichText::new("not computed").size(9.0));
+                            }
+                        });
+                    });
 
                     // UMAP 4D controls
                     ui.separator();
@@ -437,9 +538,10 @@ impl App for VizApp {
                     ui.separator();
                     ui.heading("DBSCAN Clustering (from 4D UMAP)");
                     ui.horizontal(|ui| {
-                        ui.label("eps");
-                        ui.add(egui::Slider::new(&mut self.dbscan_eps, 0.001..=5.0).text("eps"));
-                    });
+                                            ui.label("eps");
+                                            let resp = ui.add(egui::Slider::new(&mut self.dbscan_eps, 0.001..=5.0).text("eps"));
+                                            resp.on_hover_text("DBSCAN epsilon (distance threshold).\nSmaller eps => more noise; larger eps => larger clusters.\nNote: release runs set RAYON_NUM_THREADS to the machine CPU count to accelerate CPU-bound phases (kNN / nn-descent), which can speed DBSCAN preprocessing.");
+                                        });
                     ui.horizontal(|ui| {
                         ui.label("min_samples");
                         ui.add(egui::DragValue::new(&mut self.dbscan_min_samples));
@@ -887,6 +989,7 @@ impl VizApp {
                         let _ = tx.send(ComputeResult::ClusterDone {
                             labels,
                             embeddings_2d_from_4d,
+                            params: DbscanParams { eps, min_samples },
                         });
                         return;
                     }
@@ -937,6 +1040,7 @@ impl VizApp {
                             let _ = tx.send(ComputeResult::ClusterDone {
                                 labels,
                                 embeddings_2d_from_4d,
+                                params: DbscanParams { eps, min_samples },
                             });
                         }
                         Err(e) => {
@@ -993,7 +1097,11 @@ impl VizApp {
                     params,
                 } => {
                     self.embeddings_2d = Some(embeddings_2d);
-                    self.last_umap_params = Some(params);
+                    self.last_umap_params = Some(params.clone());
+                    // store a dedicated 2D snapshot and timestamp for the presence indicator
+                    self.umap2_params_snapshot = Some(params.clone());
+                    self.umap2_computed_at = Some(SystemTime::now());
+
                     self.status = AppStatus::Idle;
                     // Clear progress channels
                     self.progress = None;
@@ -1024,7 +1132,10 @@ impl VizApp {
                             self.embeddings_2d = Some(e2d);
                         }
                     }
-                    self.last_umap_params = Some(params);
+                    self.last_umap_params = Some(params.clone());
+                    // store a dedicated 4D snapshot and timestamp for the presence indicator
+                    self.umap4_params_snapshot = Some(params.clone());
+                    self.umap4_computed_at = Some(SystemTime::now());
                     // Clear existing cluster labels (4D changed)
                     self.cluster_labels = None;
                     self.status = AppStatus::Idle;
@@ -1040,7 +1151,12 @@ impl VizApp {
                 ComputeResult::ClusterDone {
                     labels,
                     embeddings_2d_from_4d,
+                    params,
                 } => {
+                    // Record DBSCAN params snapshot and completion time
+                    self.dbscan_params_snapshot = Some(params);
+                    self.dbscan_computed_at = Some(SystemTime::now());
+
                     // Align 2D projection with labels when necessary
                     let labels_len = labels.len();
 

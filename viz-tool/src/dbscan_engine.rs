@@ -1,6 +1,7 @@
 use crate::errors::VizError;
 
 /// Parameters for DBSCAN clustering
+#[derive(Clone, Copy, Debug)]
 pub struct DbscanParams {
     pub eps: f64, // tolerance
     pub min_samples: usize,

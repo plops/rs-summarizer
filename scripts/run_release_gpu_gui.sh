@@ -23,6 +23,10 @@ if [ ! -x "$BINARY" ]; then
 fi
 
 echo "[run_release_gpu_gui] Launching viz-tool GUI (this will block until the GUI exits)"
+# Choose a sensible number of Rayon threads (use all logical cores by default)
+NUM_THREADS="$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 1)"
+export RAYON_NUM_THREADS="$NUM_THREADS"
+echo "[run_release_gpu_gui] Setting RAYON_NUM_THREADS=$RAYON_NUM_THREADS to accelerate CPU-bound phases (kNN / nn-descent)"
 # Enable backtrace for debugging if the program panics
 RUST_BACKTRACE=1 FAST_UMAP_NN_DESCENT_THRESHOLD=3000 "$BINARY" "$DB_PATH"
 
