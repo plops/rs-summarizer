@@ -24,6 +24,6 @@ fi
 
 echo "[run_release_gpu_gui] Launching viz-tool GUI (this will block until the GUI exits)"
 # Enable backtrace for debugging if the program panics
-RUST_BACKTRACE=1 "$BINARY" "$DB_PATH"
+RUST_BACKTRACE=1 FAST_UMAP_NN_DESCENT_THRESHOLD=3000 "$BINARY" "$DB_PATH"
 
 echo "[run_release_gpu_gui] viz-tool exited"
