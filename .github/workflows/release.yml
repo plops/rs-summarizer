@@ -28,6 +28,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Ensure third_party/fast-umap exists
+        run: |
+          set -euo pipefail
+          if [ ! -f third_party/fast-umap/Cargo.toml ]; then
+            echo "third_party/fast-umap/Cargo.toml not found — cloning upstream fast-umap into third_party/fast-umap"
+            mkdir -p third_party
+            git clone --depth 1 https://github.com/eugenehp/fast-map.git third_party/fast-umap
+          else
+            echo "third_party/fast-umap present"
+          fi
+
       - name: Apply third_party patches
         env:
           SKIP_COMMIT: "1"
