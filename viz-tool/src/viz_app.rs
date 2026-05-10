@@ -7,6 +7,7 @@ use std::thread;
 use crossbeam_channel;
 
 use crate::data_loader::{load_compact_db, load_compact_db_subset, EmbeddingPoint};
+use crate::dbscan_engine::{compute_dbscan, DbscanParams};
 use crate::umap_engine::{compute_umap, ProgressUpdate, UmapParams};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -20,6 +21,7 @@ enum AppStatus {
     Idle,
     Loading,
     ComputingUmap,
+    ComputingClusters,
 }
 
 #[derive(Debug, Clone)]
@@ -32,6 +34,12 @@ enum ComputeResult {
         embeddings_2d: Vec<[f32; 2]>,
         params: UmapParams,
     },
+    /// Clustering finished (labels aligned with current embeddings)
+    ClusterDone {
+        labels: Vec<i32>,
+        /// Optional 2D embeddings derived from the 4D run (used when no 2D UMAP was computed)
+        embeddings_2d_from_4d: Option<Vec<[f32; 2]>>,
+    },
     Error(String),
 }
 
@@ -43,6 +51,8 @@ pub struct VizApp {
 
     // Results
     embeddings_2d: Option<Vec<[f32; 2]>>,
+    /// Optional cluster labels (aligned with embeddings_2d) - -1 == noise
+    cluster_labels: Option<Vec<i32>>,
     // Plotting
     point_radius: f32,
     // Last used UMAP params (for display)
@@ -67,6 +77,11 @@ pub struct VizApp {
     umap_min_dist: f32,
     umap_epochs: usize,
 
+    // DBSCAN params
+    dbscan_eps: f64,
+    dbscan_min_samples: usize,
+    auto_dbscan: bool,
+
     // Background worker channel
     compute_tx: Sender<ComputeResult>,
     compute_rx: Receiver<ComputeResult>,
@@ -86,6 +101,7 @@ impl Default for VizApp {
             points: Vec::new(),
             embedding_dim: 768,
             embeddings_2d: None,
+            cluster_labels: None,
             point_radius: 2.0,
             last_umap_params: None,
             last_umap_mode: None,
@@ -101,6 +117,10 @@ impl Default for VizApp {
             umap_epochs: 200,
             auto_recompute: false,
             pending_recompute: false,
+            // DBSCAN defaults
+            dbscan_eps: 0.3,
+            dbscan_min_samples: 5,
+            auto_dbscan: false,
             compute_tx: tx,
             compute_rx: rx,
             progress: None,
@@ -147,6 +167,20 @@ impl App for VizApp {
                 }
                 AppStatus::ComputingUmap => {
                     ui.label("Status: Computing UMAP...");
+                    if let Some(p) = &self.progress {
+                        let frac = p.epoch as f32 / p.total_epochs as f32;
+                        ui.add(
+                            egui::ProgressBar::new(frac)
+                                .text(format!(
+                                    "Epoch {}/{} — loss={:.4}",
+                                    p.epoch, p.total_epochs, p.loss
+                                ))
+                                .animate(true),
+                        );
+                    }
+                }
+                AppStatus::ComputingClusters => {
+                    ui.label("Status: Computing clusters (4D UMAP -> DBSCAN)...");
                     if let Some(p) = &self.progress {
                         let frac = p.epoch as f32 / p.total_epochs as f32;
                         ui.add(
@@ -274,71 +308,103 @@ impl App for VizApp {
                 }
             }
 
-            // Parametric-specific: hidden sizes
-            if self.umap_mode == UmapMode::Parametric {
-                let disabled = !cfg!(feature = "gpu");
-                let resp = ui.add_enabled(!disabled, egui::TextEdit::singleline(&mut self.hidden_sizes_str));
-                resp.clone().on_hover_text("Hidden layer sizes for the parametric UMAP neural network, comma-separated, e.g. 100,100,100");
-                if disabled {
-                    resp.clone().on_disabled_hover_text("Parametric UMAP not available in this build");
-                }
-                if resp.changed() && self.auto_recompute {
-                    if self.status == AppStatus::Idle && !self.points.is_empty() {
-                        self.start_umap_2d_computation();
+                    // Parametric-specific: hidden sizes
+                    if self.umap_mode == UmapMode::Parametric {
+                        let disabled = !cfg!(feature = "gpu");
+                        let resp = ui.add_enabled(!disabled, egui::TextEdit::singleline(&mut self.hidden_sizes_str));
+                        resp.clone().on_hover_text("Hidden layer sizes for the parametric UMAP neural network, comma-separated, e.g. 100,100,100");
+                        if disabled {
+                            resp.clone().on_disabled_hover_text("Parametric UMAP not available in this build");
+                        }
+                        if resp.changed() && self.auto_recompute {
+                            if self.status == AppStatus::Idle && !self.points.is_empty() {
+                                self.start_umap_2d_computation();
+                            } else {
+                                self.pending_recompute = true;
+                            }
+                        }
+                    }
+
+                    ui.add(egui::Slider::new(&mut self.point_radius, 0.01..=2.0).text("point radius")).on_hover_text(
+                        "Radius of plotted points in pixels. Reduce to see dense structure.",
+                    );
+
+                    let umap_enabled = !self.points.is_empty() && self.status == AppStatus::Idle && (self.umap_mode == UmapMode::Classic || cfg!(feature = "gpu"));
+                    let auto_resp = ui.checkbox(&mut self.auto_recompute, "Auto recompute");
+                    auto_resp.clone().on_hover_text("Automatically recompute UMAP whenever a parameter changes (will wait for current run to finish)");
+                    if auto_resp.changed() && self.auto_recompute {
+                        // If turned on and idle, kick off an immediate compute
+                        if self.status == AppStatus::Idle && !self.points.is_empty() {
+                            self.start_umap_2d_computation();
+                        }
+                    }
+
+                    let compute_btn = ui.add_enabled(umap_enabled, egui::Button::new("Compute 2D UMAP"));
+                    if !umap_enabled {
+                        compute_btn.clone().on_disabled_hover_text("Cannot compute: no data loaded or parametric mode requires GPU build");
                     } else {
-                        self.pending_recompute = true;
+                        compute_btn.clone().on_hover_text("Start UMAP with the selected parameters");
                     }
-                }
-            }
 
-            ui.add(egui::Slider::new(&mut self.point_radius, 0.01..=2.0).text("point radius")).on_hover_text(
-                "Radius of plotted points in pixels. Reduce to see dense structure.",
-            );
-
-            let umap_enabled = !self.points.is_empty() && self.status == AppStatus::Idle && (self.umap_mode == UmapMode::Classic || cfg!(feature = "gpu"));
-            let auto_resp = ui.checkbox(&mut self.auto_recompute, "Auto recompute");
-            auto_resp.clone().on_hover_text("Automatically recompute UMAP whenever a parameter changes (will wait for current run to finish)");
-            if auto_resp.changed() && self.auto_recompute {
-                // If turned on and idle, kick off an immediate compute
-                if self.status == AppStatus::Idle && !self.points.is_empty() {
-                    self.start_umap_2d_computation();
-                }
-            }
-
-            let compute_btn = ui.add_enabled(umap_enabled, egui::Button::new("Compute 2D UMAP"));
-            if !umap_enabled {
-                compute_btn.clone().on_disabled_hover_text("Cannot compute: no data loaded or parametric mode requires GPU build");
-            } else {
-                compute_btn.clone().on_hover_text("Start UMAP with the selected parameters");
-            }
-
-            if compute_btn.clicked() {
-                self.start_umap_2d_computation();
-            }
-
-            // Show cancel button when computing
-            if self.status == AppStatus::ComputingUmap {
-                if let Some(tx) = &self.cancel_tx {
-                    if ui.button("Cancel").clicked() {
-                        let _ = tx.send(());
-                        // Clear progress UI immediately
-                        self.progress = None;
-                        self.progress_rx = None;
-                        self.cancel_tx = None;
-                        self.status = AppStatus::Idle;
+                    if compute_btn.clicked() {
+                        self.start_umap_2d_computation();
                     }
-                }
-            }
 
-            if let Some(ref p) = self.last_umap_params {
-                ui.label(format!(
-                    "Last UMAP: neighbors={}, min_dist={}, epochs={}, lr={}",
-                    p.n_neighbors, p.min_dist, p.n_epochs, p.learning_rate
-                ));
-                if let Some(ref emb) = self.embeddings_2d {
-                    ui.label(format!("Points: {}", emb.len()));
-                }
-            }
+                    // Show cancel button when computing
+                    if self.status == AppStatus::ComputingUmap || self.status == AppStatus::ComputingClusters {
+                        if let Some(tx) = &self.cancel_tx {
+                            if ui.button("Cancel").clicked() {
+                                let _ = tx.send(());
+                                // Clear progress UI immediately
+                                self.progress = None;
+                                self.progress_rx = None;
+                                self.cancel_tx = None;
+                                self.status = AppStatus::Idle;
+                            }
+                        }
+                    }
+
+                    if let Some(ref p) = self.last_umap_params {
+                        ui.label(format!(
+                            "Last UMAP: neighbors={}, min_dist={}, epochs={}, lr={}",
+                            p.n_neighbors, p.min_dist, p.n_epochs, p.learning_rate
+                        ));
+                        if let Some(ref emb) = self.embeddings_2d {
+                            ui.label(format!("Points: {}", emb.len()));
+                        }
+                    }
+
+                    // DBSCAN controls
+                    ui.separator();
+                    ui.heading("DBSCAN Clustering (from 4D UMAP)");
+                    ui.horizontal(|ui| {
+                        ui.label("eps");
+                        ui.add(egui::Slider::new(&mut self.dbscan_eps, 0.001..=5.0).text("eps"));
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("min_samples");
+                        ui.add(egui::DragValue::new(&mut self.dbscan_min_samples));
+                    });
+
+                    let dbscan_enabled = !self.points.is_empty() && self.status == AppStatus::Idle && cfg!(feature = "gpu");
+                    if !dbscan_enabled {
+                        ui.label("DBSCAN requires data loaded and GPU parametric UMAP enabled");
+                    }
+
+                    let compute_clusters_btn = ui.add_enabled(dbscan_enabled, egui::Button::new("Compute Clusters (4D UMAP -> DBSCAN)"));
+                    if compute_clusters_btn.clicked() {
+                        self.start_dbscan_clustering();
+                    }
+
+                    ui.checkbox(&mut self.auto_dbscan, "Auto run DBSCAN after UMAP");
+
+                    if let Some(labels) = &self.cluster_labels {
+                        let mut counts = std::collections::HashMap::new();
+                        for &l in labels.iter() {
+                            *counts.entry(l).or_insert(0usize) += 1;
+                        }
+                        ui.label(format!("Clusters: {:?}", counts));
+                    }
         });
 
         // Central panel: plot
@@ -353,6 +419,42 @@ impl App for VizApp {
                     .collect();
 
                 Plot::new("umap_scatter").show(ui, |plot_ui| {
+                    // If cluster labels exist and match point count, draw per-cluster series
+                    if let Some(labels) = &self.cluster_labels {
+                        if labels.len() == points.len() {
+                            let mut groups: std::collections::HashMap<i32, Vec<[f64; 2]>> =
+                                std::collections::HashMap::new();
+                            for (i, pt) in points.iter().enumerate() {
+                                let id = labels[i];
+                                groups.entry(id).or_default().push(*pt);
+                            }
+
+                            // Sort keys so noise (-1) is drawn last
+                            let mut keys: Vec<i32> = groups.keys().cloned().collect();
+                            keys.sort_by_key(|&k| if k == -1 { i32::MAX } else { k });
+
+                            for key in keys {
+                                if let Some(pts) = groups.remove(&key) {
+                                    let plot_points: PlotPoints = pts.into_iter().collect();
+                                    let color = self.cluster_color(key);
+                                    let label = if key == -1 {
+                                        "noise".to_string()
+                                    } else {
+                                        format!("cluster_{}", key)
+                                    };
+                                    plot_ui.points(
+                                        Points::new(label, plot_points)
+                                            .color(color)
+                                            .radius(self.point_radius),
+                                    );
+                                }
+                            }
+
+                            return;
+                        }
+                    }
+
+                    // default single-color plot
                     let plot_points: PlotPoints = points.into_iter().collect();
                     let points_item = Points::new("UMAP 2D", plot_points)
                         .color(egui::Color32::LIGHT_BLUE)
@@ -517,6 +619,153 @@ impl VizApp {
         });
     }
 
+    /// Start the clustering flow: compute 4D UMAP (parametric when available), then run DBSCAN.
+    fn start_dbscan_clustering(&mut self) {
+        if self.points.is_empty() {
+            return;
+        }
+
+        self.status = AppStatus::ComputingClusters;
+        self.error_message = None;
+        self.cluster_labels = None;
+
+        // Prepare embeddings; honor max_points as a subset if requested
+        let embeddings: Vec<Vec<f32>> =
+            if self.max_points > 0 && self.max_points < self.points.len() {
+                self.points
+                    .iter()
+                    .take(self.max_points)
+                    .map(|p| p.embedding.clone())
+                    .collect()
+            } else {
+                self.points.iter().map(|p| p.embedding.clone()).collect()
+            };
+
+        // Parse hidden sizes (comma separated) for parametric runs
+        let hidden_sizes = if self.umap_mode == UmapMode::Parametric {
+            let parsed: Result<Vec<usize>, String> = self
+                .hidden_sizes_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    s.parse::<usize>()
+                        .map_err(|e| format!("Invalid hidden size '{}': {}", s, e))
+                })
+                .collect();
+            match parsed {
+                Ok(v) => v,
+                Err(err_msg) => {
+                    self.error_message = Some(err_msg);
+                    return;
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
+        let params = UmapParams {
+            n_components: 4,
+            n_neighbors: self.umap_neighbors,
+            min_dist: self.umap_min_dist,
+            n_epochs: self.umap_epochs,
+            learning_rate: 10f64.powf(self.umap_lr_log as f64),
+            hidden_sizes: hidden_sizes.clone(),
+        };
+
+        let tx = self.compute_tx.clone();
+        let have_2d = self.embeddings_2d.is_some();
+        let eps = self.dbscan_eps;
+        let min_samples = self.dbscan_min_samples;
+
+        // Create progress & cancel channels so GUI can receive epoch updates and cancel
+        let (progress_tx, progress_rx) = crossbeam_channel::unbounded::<ProgressUpdate>();
+        let (cancel_tx, cancel_rx) = crossbeam_channel::unbounded::<()>();
+        self.progress_rx = Some(progress_rx);
+        self.cancel_tx = Some(cancel_tx.clone());
+        self.progress = None;
+
+        thread::spawn(move || {
+            match compute_umap(&embeddings, params, Some(progress_tx), Some(cancel_rx)) {
+                Ok(emb4d) => {
+                    // Convert to fixed 4D arrays for DBSCAN
+                    let mut arr4d: Vec<[f32; 4]> = Vec::with_capacity(emb4d.len());
+                    for v in &emb4d {
+                        let mut a = [0.0f32; 4];
+                        for i in 0..4 {
+                            if i < v.len() {
+                                a[i] = v[i];
+                            }
+                        }
+                        arr4d.push(a);
+                    }
+
+                    let db_params = DbscanParams { eps, min_samples };
+
+                    match compute_dbscan(arr4d.as_slice(), db_params) {
+                        Ok(labels) => {
+                            let embeddings_2d_from_4d = if !have_2d {
+                                Some(
+                                    emb4d
+                                        .into_iter()
+                                        .map(|v| {
+                                            let mut a = [0.0f32; 2];
+                                            if v.len() >= 2 {
+                                                a[0] = v[0];
+                                                a[1] = v[1];
+                                            }
+                                            a
+                                        })
+                                        .collect(),
+                                )
+                            } else {
+                                None
+                            };
+
+                            let _ = tx.send(ComputeResult::ClusterDone {
+                                labels,
+                                embeddings_2d_from_4d,
+                            });
+                        }
+                        Err(e) => {
+                            let _ = tx.send(ComputeResult::Error(format!("DBSCAN failed: {}", e)));
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(ComputeResult::Error(format!(
+                        "UMAP (4D for clustering) failed: {}",
+                        e
+                    )));
+                }
+            }
+        });
+    }
+
+    /// Color palette helper for clusters
+    fn cluster_color(&self, id: i32) -> egui::Color32 {
+        if id == -1 {
+            return egui::Color32::from_gray(150);
+        }
+        let palette = [
+            (166u8, 206u8, 227u8),
+            (31u8, 120u8, 180u8),
+            (178u8, 223u8, 138u8),
+            (51u8, 160u8, 44u8),
+            (251u8, 154u8, 153u8),
+            (227u8, 26u8, 28u8),
+            (253u8, 191u8, 111u8),
+            (255u8, 127u8, 0u8),
+            (202u8, 178u8, 214u8),
+            (106u8, 61u8, 154u8),
+            (255u8, 255u8, 153u8),
+            (177u8, 89u8, 40u8),
+        ];
+        let idx = (id as usize) % palette.len();
+        let (r, g, b) = palette[idx];
+        egui::Color32::from_rgb(r, g, b)
+    }
+
     fn process_compute_results(&mut self) {
         while let Ok(result) = self.compute_rx.try_recv() {
             match result {
@@ -538,6 +787,10 @@ impl VizApp {
                     self.progress = None;
                     self.progress_rx = None;
                     self.cancel_tx = None;
+                    // If auto-run DBSCAN is enabled, trigger clustering
+                    if self.auto_dbscan {
+                        self.start_dbscan_clustering();
+                    }
                     // If a parameter changed while running, trigger another run
                     if self.pending_recompute {
                         self.pending_recompute = false;
@@ -545,6 +798,24 @@ impl VizApp {
                             self.start_umap_2d_computation();
                         }
                     }
+                }
+                ComputeResult::ClusterDone {
+                    labels,
+                    embeddings_2d_from_4d,
+                } => {
+                    // Set cluster labels
+                    self.cluster_labels = Some(labels);
+                    // If we don't have a 2D embedding yet, and the cluster run provided one, use it
+                    if self.embeddings_2d.is_none() {
+                        if let Some(e2d) = embeddings_2d_from_4d {
+                            self.embeddings_2d = Some(e2d);
+                        }
+                    }
+                    self.status = AppStatus::Idle;
+                    // Clear progress channels
+                    self.progress = None;
+                    self.progress_rx = None;
+                    self.cancel_tx = None;
                 }
                 ComputeResult::Error(msg) => {
                     self.error_message = Some(msg);
