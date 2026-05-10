@@ -26,12 +26,29 @@ impl Default for UmapParams {
     }
 }
 
+/// Progress update sent from the UMAP training loop to the caller (GUI)
+#[derive(Debug, Clone)]
+pub struct ProgressUpdate {
+    pub epoch: usize,
+    pub total_epochs: usize,
+    pub loss: f64,
+    pub best_loss: f64,
+    pub elapsed_secs: f64,
+    pub epoch_ms: f64,
+}
+
 /// Computes UMAP embeddings. Prefer GPU parametric UMAP when the `gpu` feature
 /// is enabled; otherwise use the fast-umap CPU backend when the `cpu` feature
 /// is enabled. If neither feature is enabled, return an error.
+///
+/// `progress_tx` is an optional channel sender to receive epoch-level progress
+/// updates (useful for GUI). `cancel_rx` is an optional receiver used to
+/// signal cancellation from the GUI (sent when user clicks "Cancel").
 pub fn compute_umap(
     embeddings: &[Vec<f32>],
     params: UmapParams,
+    progress_tx: Option<crossbeam_channel::Sender<ProgressUpdate>>,
+    cancel_rx: Option<crossbeam_channel::Receiver<()>>,
 ) -> Result<Vec<Vec<f32>>, VizError> {
     if embeddings.is_empty() {
         return Err(VizError::NoEmbeddings);
@@ -98,9 +115,17 @@ pub fn compute_umap(
         );
         pb.set_message("UMAP training");
 
-        // Channel for graceful cancellation (currently unused, but required by API)
-        let (_exit_tx, exit_rx) = unbounded::<()>();
+        // Prepare the exit receiver: use provided cancel_rx or create a local dummy one
+        let exit_rx_final = match cancel_rx {
+            Some(rx) => rx,
+            None => {
+                let (_local_tx, local_rx) = unbounded::<()>();
+                local_rx
+            }
+        };
 
+        // Clone progress sender for the closure (Option<Sender> is Clone)
+        let progress_tx_clone = progress_tx.clone();
         let pb_clone = pb.clone();
         let on_progress = Box::new(move |p: fast_umap::EpochProgress| {
             // epoch is 1-based in progress reports
@@ -110,10 +135,23 @@ pub fn compute_umap(
             if pos >= p.total_epochs as u64 {
                 pb_clone.finish_with_message("UMAP training complete");
             }
+
+            // Forward progress to GUI if requested
+            if let Some(ref tx) = progress_tx_clone {
+                let _ = tx.send(ProgressUpdate {
+                    epoch: p.epoch,
+                    total_epochs: p.total_epochs,
+                    loss: p.loss,
+                    best_loss: p.best_loss,
+                    elapsed_secs: p.elapsed_secs,
+                    epoch_ms: p.epoch_ms,
+                });
+            }
         });
 
-        let fitted =
-            std::panic::catch_unwind(|| umap.fit_with_progress(data, None, exit_rx, on_progress));
+        let fitted = std::panic::catch_unwind(|| {
+            umap.fit_with_progress(data, None, exit_rx_final, on_progress)
+        });
 
         match fitted {
             Ok(result) => {

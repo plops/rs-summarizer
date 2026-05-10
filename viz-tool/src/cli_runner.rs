@@ -131,7 +131,7 @@ async fn run_umap_command(
         hidden_sizes: vec![100, 100, 100],
     };
 
-    let reduced_embeddings = match compute_umap(&embeddings, params) {
+    let reduced_embeddings = match compute_umap(&embeddings, params, None, None) {
         Ok(result) => result,
         Err(e) => {
             if cli.verbose {
@@ -204,7 +204,7 @@ async fn run_umap_2d_command(
         hidden_sizes: vec![100, 100, 100],
     };
 
-    let reduced_embeddings = match compute_umap(&embeddings, params) {
+    let reduced_embeddings = match compute_umap(&embeddings, params, None, None) {
         Ok(result) => result,
         Err(e) => {
             if cli.verbose {

@@ -4,8 +4,10 @@ use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 
+use crossbeam_channel;
+
 use crate::data_loader::{load_compact_db, load_compact_db_subset, EmbeddingPoint};
-use crate::umap_engine::{compute_umap, UmapParams};
+use crate::umap_engine::{compute_umap, ProgressUpdate, UmapParams};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 enum UmapMode {
@@ -68,6 +70,12 @@ pub struct VizApp {
     // Background worker channel
     compute_tx: Sender<ComputeResult>,
     compute_rx: Receiver<ComputeResult>,
+
+    // Progress updates for GUI
+    progress: Option<ProgressUpdate>,
+    progress_rx: Option<crossbeam_channel::Receiver<ProgressUpdate>>,
+    // Cancellation sender to signal compute thread to stop early
+    cancel_tx: Option<crossbeam_channel::Sender<()>>,
 }
 
 impl Default for VizApp {
@@ -95,6 +103,9 @@ impl Default for VizApp {
             pending_recompute: false,
             compute_tx: tx,
             compute_rx: rx,
+            progress: None,
+            progress_rx: None,
+            cancel_tx: None,
         }
     }
 }
@@ -103,6 +114,18 @@ impl App for VizApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Process background results
         self.process_compute_results();
+
+        // Poll progress channel (if any) and request repaint when new progress arrives
+        if let Some(rx) = &self.progress_rx {
+            let mut got = false;
+            while let Ok(p) = rx.try_recv() {
+                self.progress = Some(p);
+                got = true;
+            }
+            if got {
+                ctx.request_repaint();
+            }
+        }
 
         // Top bar
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -124,6 +147,17 @@ impl App for VizApp {
                 }
                 AppStatus::ComputingUmap => {
                     ui.label("Status: Computing UMAP...");
+                    if let Some(p) = &self.progress {
+                        let frac = p.epoch as f32 / p.total_epochs as f32;
+                        ui.add(
+                            egui::ProgressBar::new(frac)
+                                .text(format!(
+                                    "Epoch {}/{} — loss={:.4}",
+                                    p.epoch, p.total_epochs, p.loss
+                                ))
+                                .animate(true),
+                        );
+                    }
                 }
             }
 
@@ -285,6 +319,20 @@ impl App for VizApp {
                 self.start_umap_2d_computation();
             }
 
+            // Show cancel button when computing
+            if self.status == AppStatus::ComputingUmap {
+                if let Some(tx) = &self.cancel_tx {
+                    if ui.button("Cancel").clicked() {
+                        let _ = tx.send(());
+                        // Clear progress UI immediately
+                        self.progress = None;
+                        self.progress_rx = None;
+                        self.cancel_tx = None;
+                        self.status = AppStatus::Idle;
+                    }
+                }
+            }
+
             if let Some(ref p) = self.last_umap_params {
                 ui.label(format!(
                     "Last UMAP: neighbors={}, min_dist={}, epochs={}, lr={}",
@@ -434,8 +482,20 @@ impl VizApp {
         // Remember the selected mode for reporting
         self.last_umap_mode = Some(self.umap_mode);
 
+        // Create progress & cancel channels so GUI can receive epoch updates and cancel
+        let (progress_tx, progress_rx) = crossbeam_channel::unbounded::<ProgressUpdate>();
+        let (cancel_tx, cancel_rx) = crossbeam_channel::unbounded::<()>();
+        self.progress_rx = Some(progress_rx);
+        self.cancel_tx = Some(cancel_tx.clone());
+        self.progress = None;
+
         thread::spawn(move || {
-            match compute_umap(&embeddings, params_for_compute) {
+            match compute_umap(
+                &embeddings,
+                params_for_compute,
+                Some(progress_tx),
+                Some(cancel_rx),
+            ) {
                 Ok(emb) => {
                     // Convert to fixed size arrays
                     let emb2d: Vec<[f32; 2]> = emb
@@ -477,6 +537,10 @@ impl VizApp {
                     self.embeddings_2d = Some(embeddings_2d);
                     self.last_umap_params = Some(params);
                     self.status = AppStatus::Idle;
+                    // Clear progress channels
+                    self.progress = None;
+                    self.progress_rx = None;
+                    self.cancel_tx = None;
                     // If a parameter changed while running, trigger another run
                     if self.pending_recompute {
                         self.pending_recompute = false;
@@ -488,6 +552,10 @@ impl VizApp {
                 ComputeResult::Error(msg) => {
                     self.error_message = Some(msg);
                     self.status = AppStatus::Idle;
+                    // Clear progress channels
+                    self.progress = None;
+                    self.progress_rx = None;
+                    self.cancel_tx = None;
                     if self.pending_recompute {
                         self.pending_recompute = false;
                         if !self.points.is_empty() {
