@@ -55,34 +55,67 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Build release
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --workspace --release --target ${{ matrix.target }}
 
       - name: Package assets
         shell: bash
         run: |
-          # Create single tarball per architecture containing both binaries
+          set -euo pipefail
           echo "Packaging rs-summarizer-${{ matrix.target }}..."
           mkdir -p staging
 
-          # Copy both binaries
-          cp target/${{ matrix.target }}/release/rs-summarizer staging/
-          cp target/${{ matrix.target }}/release/viz-tool staging/
+          # Helper function: copy a binary from possible cargo target locations
+          copy_bin() {
+            bin="$1"
+            paths=(
+              "target/${{ matrix.target }}/release/${bin}"
+              "target/release/${bin}"
+            )
+            for p in "${paths[@]}"; do
+              if [ -f "$p" ]; then
+                echo "Copying $p -> staging/"
+                cp "$p" staging/
+                return 0
+              fi
+            done
+            return 1
+          }
 
-          # Copy static files for web app
-          cp -r static staging/
+          # rs-summarizer is required
+          if ! copy_bin rs-summarizer; then
+            echo "Error: rs-summarizer binary not found in target dirs. Build may have failed."
+            ls -la target || true
+            exit 1
+          fi
+
+          # viz-tool is optional for packaging; copy if present
+          if ! copy_bin viz-tool; then
+            echo "Note: viz-tool binary not found; continuing without it."
+          fi
+
+          # Copy static files for web app if present
+          if [ -d static ]; then
+            cp -r static staging/
+          fi
 
           # Create platform-specific asset name
           case "${{ matrix.target }}" in
             x86_64-unknown-linux-gnu)
-              tar czf rs-summarizer-linux-amd64.tar.gz -C staging .
+              tar_name="rs-summarizer-linux-amd64.tar.gz"
               ;;
             x86_64-apple-darwin)
-              tar czf rs-summarizer-macos-amd64.tar.gz -C staging .
+              tar_name="rs-summarizer-macos-amd64.tar.gz"
               ;;
             aarch64-apple-darwin)
-              tar czf rs-summarizer-macos-arm64.tar.gz -C staging .
+              tar_name="rs-summarizer-macos-arm64.tar.gz"
+              ;;
+            *)
+              tar_name="rs-summarizer-${{ matrix.target }}.tar.gz"
               ;;
           esac
+
+          echo "Creating archive $tar_name"
+          tar czf "$tar_name" -C staging .
 
           # Clean up staging directory
           rm -rf staging
