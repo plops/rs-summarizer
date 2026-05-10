@@ -2909,8 +2909,6 @@ dependencies = [
 [[package]]
 name = "fast-umap"
 version = "1.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68a8e69887caf321df946c7d2d7c8ec6fe64bdaf50503ea61f57ab41a0d96bd8"
 dependencies = [
  "burn",
  "burn-cubecl",

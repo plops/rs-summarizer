@@ -1,6 +1,9 @@
 [workspace]
 members = [".", "viz-tool"]
 
+[patch.crates-io]
+fast-umap = { path = "third_party/fast-umap" }
+
 [package]
 name = "rs-summarizer"
 version = "0.5.0"
