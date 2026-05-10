@@ -40,4 +40,7 @@ pub enum VizError {
 
     #[error("Serialisierungsfehler: {0}")]
     SerializationError(String),
+
+    #[error("Berechnungsfehler: {0}")]
+    ComputationError(String),
 }

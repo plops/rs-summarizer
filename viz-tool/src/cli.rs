@@ -17,7 +17,7 @@ pub struct Cli {
     pub output_format: String,
 
     /// Output file path (optional, defaults to stdout)
-    #[arg(short, long)]
+    #[arg(short = 'f', long)]
     pub output_file: Option<PathBuf>,
 
     /// Verbose output
@@ -32,12 +32,54 @@ pub struct Cli {
 pub enum Commands {
     /// Load and validate database
     Load,
-    /// Run UMAP dimensionality reduction
+    /// Run UMAP dimensionality reduction (2D)
+    Umap2D(Umap2DArgs),
+    /// Run UMAP dimensionality reduction (4D)
+    Umap4D(Umap4DArgs),
+    /// Run UMAP dimensionality reduction (legacy)
     Umap(UmapArgs),
     /// Run DBSCAN clustering
     Cluster(ClusterArgs),
     /// Run complete pipeline
     Pipeline(PipelineArgs),
+}
+
+#[derive(Parser, Clone)]
+pub struct Umap2DArgs {
+    /// Limit to first N points (0 = all points)
+    #[arg(long, default_value = "0", help = "Limit to first N points (0 = all points)")]
+    pub subset: usize,
+
+    /// Number of neighbors
+    #[arg(short, long, default_value = "12")]
+    pub neighbors: usize,
+
+    /// Minimum distance
+    #[arg(short, long, default_value = "0.13")]
+    pub min_dist: f32,
+
+    /// Training epochs
+    #[arg(short, long, default_value = "200")]
+    pub epochs: usize,
+}
+
+#[derive(Parser, Clone)]
+pub struct Umap4DArgs {
+    /// Limit to first N points (0 = all points)
+    #[arg(long, default_value = "0", help = "Limit to first N points (0 = all points)")]
+    pub subset: usize,
+
+    /// Number of neighbors
+    #[arg(short, long, default_value = "5")]
+    pub neighbors: usize,
+
+    /// Minimum distance
+    #[arg(short, long, default_value = "0.1")]
+    pub min_dist: f32,
+
+    /// Training epochs
+    #[arg(short, long, default_value = "200")]
+    pub epochs: usize,
 }
 
 #[derive(Parser, Clone)]

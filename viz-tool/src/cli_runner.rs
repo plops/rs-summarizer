@@ -1,52 +1,61 @@
-use std::path::Path;
+use crate::cli::{Cli, Commands};
+use crate::data_loader::{load_compact_db, load_compact_db_subset};
+use crate::umap_engine::{compute_umap, UmapParams};
 use std::fs::File;
 use std::io::{self, Write};
 use tokio::runtime::Runtime;
-use crate::cli::{Cli, Commands};
-use crate::data_loader::load_compact_db;
-use crate::umap_engine::{UmapParams, compute_umap};
-use crate::dbscan_engine::{DbscanParams, compute_dbscan};
-use crate::cluster_titler::generate_titles;
-use crate::nn_mapper::NnMapper;
-use crate::errors::VizError;
 
 pub fn run_cli(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
     let rt = Runtime::new()?;
-    
-    match cli.command {
-        Some(Commands::Load) => {
-            rt.block_on(async {
-                run_load_command(&cli).await
-            })?
-        }
-        Some(Commands::Umap(ref umap_args)) => {
-            rt.block_on(async {
-                run_umap_command(&cli, umap_args.clone()).await
-            })?
-        }
-        Some(Commands::Cluster(ref cluster_args)) => {
-            rt.block_on(async {
-                run_cluster_command(&cli, cluster_args.clone()).await
-            })?
-        }
-        Some(Commands::Pipeline(ref pipeline_args)) => {
-            rt.block_on(async {
-                run_pipeline_command(&cli, pipeline_args.clone()).await
-            })?
-        }
+
+    match &cli.command {
+        Some(cmd) => match cmd {
+            Commands::Load => rt.block_on(async { run_load_command(&cli).await })?,
+            Commands::Umap2D(umap_args) => {
+                let args = umap_args.clone();
+                rt.block_on(async { run_umap_2d_command(&cli, args).await })?
+            }
+            Commands::Umap(umap_args) => {
+                let args = umap_args.clone();
+                if args.components == 2 {
+                    rt.block_on(async { run_umap_command(&cli, args).await })?
+                } else {
+                    return Err(
+                        "Only 2D UMAP is supported in the minimal build. Use --components 2."
+                            .into(),
+                    );
+                }
+            }
+            _ => {
+                return Err("This command is not supported in the minimal build".into());
+            }
+        },
         None => {
-            // No subcommand - launch GUI (original behavior)
-            return run_gui(cli);
+            // No subcommand. Launch GUI only when compiled with the "gui" feature.
+            #[cfg(feature = "gui")]
+            {
+                return run_gui(cli);
+            }
+
+            #[cfg(not(feature = "gui"))]
+            {
+                eprintln!(
+                    "No subcommand provided and GUI not enabled. Use --help to see available commands."
+                );
+                return Err("No subcommand provided".into());
+            }
         }
     }
-    
+
     Ok(())
 }
 
+// GUI launcher is only compiled when the "gui" feature is enabled
+#[cfg(feature = "gui")]
 fn run_gui(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
-    use eframe::{egui, NativeOptions};
     use crate::viz_app::VizApp;
-    
+    use eframe::{egui, NativeOptions};
+
     let native_options = NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([1200.0, 800.0]),
         ..Default::default()
@@ -60,13 +69,13 @@ fn run_gui(cli: Cli) -> Result<(), Box<dyn std::error::Error>> {
             Ok(Box::new(app))
         }),
     )?;
-    
+
     Ok(())
 }
 
 async fn run_load_command(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     let result = load_compact_db(&cli.database, cli.embedding_dim).await?;
-    
+
     let output = match cli.output_format.as_str() {
         "json" => serde_json::json!({
             "load_result": {
@@ -74,7 +83,8 @@ async fn run_load_command(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
                 "skipped_invalid": result.skipped_invalid_length,
                 "skipped_too_short": result.skipped_too_short
             }
-        }).to_string(),
+        })
+        .to_string(),
         "csv" => {
             let mut wtr = csv::Writer::from_writer(io::stdout());
             for point in &result.points {
@@ -96,35 +106,39 @@ async fn run_load_command(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
             result.skipped_too_short
         ),
     };
-    
+
     write_output(cli, &output)?;
     Ok(())
 }
 
-async fn run_umap_command(cli: &Cli, umap_args: crate::cli::UmapArgs) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_umap_command(
+    cli: &Cli,
+    umap_args: crate::cli::UmapArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
     let load_result = load_compact_db(&cli.database, cli.embedding_dim).await?;
-    let embeddings: Vec<Vec<f32>> = load_result.points.iter()
+    let embeddings: Vec<Vec<f32>> = load_result
+        .points
+        .iter()
         .map(|p| p.embedding.clone())
         .collect();
-    
+
     let params = UmapParams {
         n_components: umap_args.components as usize,
         n_neighbors: umap_args.neighbors,
         min_dist: umap_args.min_dist,
         n_epochs: umap_args.epochs,
     };
-    
+
     let reduced_embeddings = match compute_umap(&embeddings, params) {
         Ok(result) => result,
         Err(e) => {
             if cli.verbose {
-                eprintln!("GPU UMAP failed, using CPU fallback: {}", e);
+                eprintln!("UMAP failed: {}", e);
             }
-            // Simple CPU fallback using random projection for testing
-            compute_cpu_umap_fallback(&embeddings, umap_args.components as usize)?
+            return Err(Box::new(e));
         }
     };
-    
+
     let output = match cli.output_format.as_str() {
         "json" => serde_json::json!({
             "umap_result": {
@@ -133,7 +147,8 @@ async fn run_umap_command(cli: &Cli, umap_args: crate::cli::UmapArgs) -> Result<
                 "points_processed": reduced_embeddings.len(),
                 "embeddings": reduced_embeddings
             }
-        }).to_string(),
+        })
+        .to_string(),
         "csv" => {
             let mut wtr = csv::Writer::from_writer(io::stdout());
             wtr.write_record(&["id"])?;
@@ -141,7 +156,7 @@ async fn run_umap_command(cli: &Cli, umap_args: crate::cli::UmapArgs) -> Result<
                 wtr.write_field(&format!("dim{}", i))?;
             }
             wtr.write_record(None::<&str>)?;
-            
+
             for (i, embedding) in reduced_embeddings.iter().enumerate() {
                 let mut record = vec![i.to_string()];
                 record.extend(embedding.iter().map(|v| v.to_string()));
@@ -157,197 +172,67 @@ async fn run_umap_command(cli: &Cli, umap_args: crate::cli::UmapArgs) -> Result<
             reduced_embeddings.get(0..3.min(reduced_embeddings.len()))
         ),
     };
-    
+
     write_output(cli, &output)?;
     Ok(())
 }
 
-async fn run_cluster_command(cli: &Cli, cluster_args: crate::cli::ClusterArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let load_result = load_compact_db(&cli.database, cli.embedding_dim).await?;
-    let embeddings: Vec<Vec<f32>> = load_result.points.iter()
+async fn run_umap_2d_command(
+    cli: &Cli,
+    umap_args: crate::cli::Umap2DArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let load_result = if umap_args.subset > 0 {
+        load_compact_db_subset(&cli.database, cli.embedding_dim, umap_args.subset).await?
+    } else {
+        load_compact_db(&cli.database, cli.embedding_dim).await?
+    };
+
+    let embeddings: Vec<Vec<f32>> = load_result
+        .points
+        .iter()
         .map(|p| p.embedding.clone())
         .collect();
-    
-    // First run UMAP to get 4D embeddings for clustering
-    let umap_params = UmapParams {
-        n_components: 4,
-        n_neighbors: 15,
-        min_dist: 0.1,
-        n_epochs: 200,
+
+    let params = UmapParams {
+        n_components: 2,
+        n_neighbors: umap_args.neighbors,
+        min_dist: umap_args.min_dist,
+        n_epochs: umap_args.epochs,
     };
-    
-    let embeddings_4d_vec = compute_umap(&embeddings, umap_params)?;
-    let embeddings_4d: Vec<[f32; 4]> = embeddings_4d_vec.into_iter()
-        .map(|v| {
-            let mut arr = [0.0f32; 4];
-            for (i, val) in v.into_iter().take(4).enumerate() {
-                arr[i] = val;
+
+    let reduced_embeddings = match compute_umap(&embeddings, params) {
+        Ok(result) => result,
+        Err(e) => {
+            if cli.verbose {
+                eprintln!("UMAP failed: {}", e);
             }
-            arr
-        })
-        .collect();
-    
-    let dbscan_params = DbscanParams {
-        eps: cluster_args.eps,
-        min_samples: cluster_args.min_samples,
+            return Err(Box::new(e));
+        }
     };
-    
-    let labels = compute_dbscan(&embeddings_4d, dbscan_params)?;
-    let n_clusters = labels.iter().filter(|&&l| l >= 0).max().map(|m| m + 1).unwrap_or(0);
-    let noise_points = labels.iter().filter(|&&l| l == -1).count();
-    
+
     let output = match cli.output_format.as_str() {
         "json" => serde_json::json!({
-            "cluster_result": {
-                "n_clusters": n_clusters,
-                "noise_points": noise_points,
-                "total_points": labels.len(),
-                "labels": labels
+            "umap_2d_result": {
+                "input_dimensions": cli.embedding_dim,
+                "output_dimensions": 2,
+                "points_processed": reduced_embeddings.len(),
+                "subset_used": umap_args.subset,
+                "embeddings": reduced_embeddings
             }
-        }).to_string(),
-        "csv" => {
-            let mut wtr = csv::Writer::from_writer(io::stdout());
-            wtr.write_record(&["id", "cluster_id"])?;
-            for (i, label) in labels.iter().enumerate() {
-                wtr.write_record(&[i.to_string(), label.to_string()])?;
-            }
-            wtr.flush()?;
-            String::new()
-        }
-        _ => format!(
-            "DBSCAN clustering completed: {} clusters found\n{} noise points out of {} total",
-            n_clusters, noise_points, labels.len()
-        ),
-    };
-    
-    write_output(cli, &output)?;
-    Ok(())
-}
-
-async fn run_pipeline_command(cli: &Cli, pipeline_args: crate::cli::PipelineArgs) -> Result<(), Box<dyn std::error::Error>> {
-    let load_result = load_compact_db(&cli.database, cli.embedding_dim).await?;
-    let embeddings: Vec<Vec<f32>> = load_result.points.iter()
-        .map(|p| p.embedding.clone())
-        .collect();
-    
-    // UMAP reduction
-    let umap_params = UmapParams {
-        n_components: pipeline_args.umap_components as usize,
-        n_neighbors: pipeline_args.umap_neighbors,
-        min_dist: pipeline_args.umap_min_dist,
-        n_epochs: pipeline_args.umap_epochs,
-    };
-    
-    let reduced_embeddings = compute_umap(&embeddings, umap_params.clone())?;
-    
-    // For clustering, always use 4D
-    let umap_4d_params = UmapParams {
-        n_components: 4,
-        n_neighbors: pipeline_args.umap_neighbors,
-        min_dist: pipeline_args.umap_min_dist,
-        n_epochs: pipeline_args.umap_epochs,
-    };
-    
-    let embeddings_4d_vec = compute_umap(&embeddings, umap_4d_params)?;
-    let embeddings_4d: Vec<[f32; 4]> = embeddings_4d_vec.into_iter()
-        .map(|v| {
-            let mut arr = [0.0f32; 4];
-            for (i, val) in v.into_iter().take(4).enumerate() {
-                arr[i] = val;
-            }
-            arr
         })
-        .collect();
-    
-    // DBSCAN clustering
-    let dbscan_params = DbscanParams {
-        eps: pipeline_args.dbscan_eps,
-        min_samples: pipeline_args.dbscan_min_samples,
+        .to_string(),
+        _ => {
+            format!(
+                "UMAP 2D reduction completed: {} points -> 2D\nSubset: {} points\nFirst few points: {:?}",
+                reduced_embeddings.len(),
+                if umap_args.subset > 0 { umap_args.subset } else { load_result.points.len() },
+                &reduced_embeddings[..reduced_embeddings.len().min(3)]
+            )
+        }
     };
-    
-    let labels = compute_dbscan(&embeddings_4d, dbscan_params)?;
-    let n_clusters = labels.iter().filter(|&&l| l >= 0).max().map(|m| m + 1).unwrap_or(0);
-    let noise_points = labels.iter().filter(|&&l| l == -1).count();
-    
-    let output = match cli.output_format.as_str() {
-        "json" => serde_json::json!({
-            "pipeline_result": {
-                "load_result": {
-                    "points_loaded": load_result.points.len(),
-                    "skipped_invalid": load_result.skipped_invalid_length,
-                    "skipped_too_short": load_result.skipped_too_short
-                },
-                "umap_result": {
-                    "input_dimensions": cli.embedding_dim,
-                    "output_dimensions": pipeline_args.umap_components,
-                    "points_processed": reduced_embeddings.len()
-                },
-                "cluster_result": {
-                    "n_clusters": n_clusters,
-                    "noise_points": noise_points,
-                    "total_points": labels.len()
-                }
-            }
-        }).to_string(),
-        _ => format!(
-            "Pipeline completed successfully:\n\
-             - Loaded {} embeddings\n\
-             - UMAP reduction: {}D -> {}D\n\
-             - DBSCAN clustering: {} clusters found\n\
-             - {} noise points out of {} total",
-            load_result.points.len(),
-            cli.embedding_dim,
-            pipeline_args.umap_components,
-            n_clusters,
-            noise_points,
-            labels.len()
-        ),
-    };
-    
+
     write_output(cli, &output)?;
     Ok(())
-}
-
-/// Simple CPU fallback for UMAP using random projection
-/// This is a basic implementation for testing when GPU fails
-fn compute_cpu_umap_fallback(embeddings: &[Vec<f32>], n_components: usize) -> Result<Vec<Vec<f32>>, Box<dyn std::error::Error>> {
-    if embeddings.is_empty() {
-        return Ok(Vec::new());
-    }
-    
-    let n_points = embeddings.len();
-    let input_dim = embeddings[0].len();
-    
-    // Simple random projection matrix
-    use rand::Rng;
-    let mut rng = rand::thread_rng();
-    let mut projection: Vec<Vec<f32>> = Vec::with_capacity(n_components);
-    
-    for _ in 0..n_components {
-        let mut component = Vec::with_capacity(input_dim);
-        for _ in 0..input_dim {
-            component.push(rng.gen_range(-1.0..1.0));
-        }
-        projection.push(component);
-    }
-    
-    // Apply projection
-    let mut result: Vec<Vec<f32>> = Vec::with_capacity(n_points);
-    for embedding in embeddings {
-        let mut reduced = Vec::with_capacity(n_components);
-        for component in &projection {
-            let mut sum = 0.0;
-            for (i, &val) in embedding.iter().enumerate() {
-                if i < component.len() {
-                    sum += val * component[i];
-                }
-            }
-            reduced.push(sum);
-        }
-        result.push(reduced);
-    }
-    
-    Ok(result)
 }
 
 fn write_output(cli: &Cli, output: &str) -> Result<(), Box<dyn std::error::Error>> {

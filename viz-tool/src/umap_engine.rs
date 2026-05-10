@@ -1,25 +1,4 @@
 use crate::errors::VizError;
-use fast_umap::prelude::*;
-
-#[cfg(feature = "gpu")]
-use burn_autodiff::Autodiff;
-#[cfg(feature = "cpu")]
-use burn_autodiff::Autodiff;
-
-#[cfg(feature = "gpu")]
-use cubecl::wgpu::WgpuRuntime;
-#[cfg(feature = "gpu")]
-use burn_cubecl::CubeBackend;
-#[cfg(feature = "cpu")]
-use burn_autodiff::AutodiffBackend;
-#[cfg(feature = "cpu")]
-use burn::backend::NdArray;
-
-#[cfg(feature = "gpu")]
-type MyBackend = CubeBackend<WgpuRuntime, f32, i32, u32>;
-#[cfg(feature = "cpu")]
-type MyBackend = NdArray<f32>;
-type MyAutodiffBackend = Autodiff<MyBackend>;
 
 /// UMAP computation parameters
 #[derive(Debug, Clone)]
@@ -41,8 +20,9 @@ impl Default for UmapParams {
     }
 }
 
-/// Computes UMAP embeddings (non-parametric) using WGPU backend
-/// Returns the reduced dimension coordinates
+/// Computes UMAP embeddings. Prefer GPU parametric UMAP when the `gpu` feature
+/// is enabled; otherwise use the fast-umap CPU backend when the `cpu` feature
+/// is enabled. If neither feature is enabled, return an error.
 pub fn compute_umap(
     embeddings: &[Vec<f32>],
     params: UmapParams,
@@ -58,55 +38,129 @@ pub fn compute_umap(
         });
     }
 
-    // Convert f32 embeddings to f64 for fast-umap
-    let data: Vec<Vec<f64>> = embeddings
-        .iter()
-        .map(|emb| emb.iter().map(|&x| x as f64).collect())
-        .collect();
+    // GPU parametric UMAP (preferred if available)
+    #[cfg(feature = "gpu")]
+    {
+        use burn_autodiff::Autodiff;
+        use burn_cubecl::CubeBackend;
+        use cubecl::wgpu::WgpuRuntime;
+        use fast_umap::prelude::*;
+        use fast_umap::{GraphParams, ManifoldParams, Metric, OptimizationParams, UmapConfig};
 
-    // Create UMAP configuration
-    let config = UmapConfig {
-        n_components: params.n_components,
-        hidden_sizes: vec![100, 100, 100],
-        graph: GraphParams {
-            n_neighbors: params.n_neighbors,
-            metric: Metric::Euclidean,
+        type MyBackend = CubeBackend<WgpuRuntime, f32, i32, u32>;
+        type MyAutodiffBackend = Autodiff<MyBackend>;
+
+        let data: Vec<Vec<f64>> = embeddings
+            .iter()
+            .map(|emb| emb.iter().map(|&x| x as f64).collect())
+            .collect();
+
+        let config = UmapConfig {
+            n_components: params.n_components,
+            hidden_sizes: vec![100, 100, 100],
+            graph: GraphParams {
+                n_neighbors: params.n_neighbors,
+                metric: Metric::Euclidean,
+                ..Default::default()
+            },
+            manifold: ManifoldParams {
+                min_dist: params.min_dist,
+                spread: 1.0,
+                ..Default::default()
+            },
+            optimization: OptimizationParams {
+                n_epochs: params.n_epochs,
+                learning_rate: 1e-3,
+                ..Default::default()
+            },
             ..Default::default()
-        },
-        manifold: ManifoldParams {
-            min_dist: params.min_dist,
-            spread: 1.0,
+        };
+
+        let umap = fast_umap::Umap::<MyAutodiffBackend>::new(config);
+        let fitted = std::panic::catch_unwind(|| umap.fit(data, None));
+
+        match fitted {
+            Ok(result) => {
+                let embedding = result.embedding();
+                let result_vec: Vec<Vec<f32>> = embedding
+                    .iter()
+                    .map(|emb: &Vec<f64>| emb.iter().map(|&x| x as f32).collect())
+                    .collect();
+                return Ok(result_vec);
+            }
+            Err(_) => {
+                return Err(VizError::Umap("GPU UMAP fitting panicked".to_string()));
+            }
+        }
+    }
+
+    // CPU backend for fast-umap (classical UMAP)
+    #[cfg(all(not(feature = "gpu"), feature = "cpu"))]
+    {
+        use fast_umap::cpu_backend::api as cpu_api;
+        use fast_umap::{GraphParams, ManifoldParams, Metric, OptimizationParams, UmapConfig};
+
+        let data: Vec<Vec<f64>> = embeddings
+            .iter()
+            .map(|emb| emb.iter().map(|&x| x as f64).collect())
+            .collect();
+
+        let config = UmapConfig {
+            n_components: params.n_components,
+            hidden_sizes: vec![],
+            graph: GraphParams {
+                n_neighbors: params.n_neighbors,
+                metric: Metric::Euclidean,
+                ..Default::default()
+            },
+            manifold: ManifoldParams {
+                min_dist: params.min_dist,
+                spread: 1.0,
+                ..Default::default()
+            },
+            optimization: OptimizationParams {
+                n_epochs: params.n_epochs,
+                learning_rate: 1e-3,
+                ..Default::default()
+            },
             ..Default::default()
-        },
-        optimization: OptimizationParams {
-            n_epochs: params.n_epochs,
-            learning_rate: 1e-3,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+        };
 
-    // Create and fit UMAP model
-    let umap = fast_umap::Umap::<MyAutodiffBackend>::new(config);
-    
-    let fitted = umap.fit(data, None);
+        // Fit using CPU UMAP
+        let fitted = cpu_api::fit_cpu(config, data, None);
+        let embedding = fitted.embedding();
+        let result_vec: Vec<Vec<f32>> = embedding
+            .iter()
+            .map(|emb: &Vec<f64>| emb.iter().map(|&x| x as f32).collect())
+            .collect();
+        return Ok(result_vec);
+    }
 
-    // Extract embeddings and convert back to f32
-    let embedding = fitted.embedding();
-    let result: Vec<Vec<f32>> = embedding
-        .iter()
-        .map(|emb: &Vec<f64>| emb.iter().map(|&x| x as f32).collect())
-        .collect();
-
-    Ok(result)
+    // If neither CPU nor GPU fast-umap is enabled, return an error
+    Err(VizError::Umap(
+        "fast-umap is not enabled in this build (enable the 'cpu' or 'gpu' feature)".to_string(),
+    ))
 }
 
-/// Fits parametric UMAP (WGPU backend) - supports transform()
-/// Used for NN_Mapper training
+// Parametric UMAP fit (GPU only)
+#[cfg(feature = "gpu")]
 pub fn fit_parametric_umap(
     embeddings: &[Vec<f32>],
     params: UmapParams,
-) -> Result<FittedUmap<MyAutodiffBackend>, VizError> {
+) -> Result<
+    fast_umap::FittedUmap<
+        burn_autodiff::Autodiff<burn_cubecl::CubeBackend<cubecl::wgpu::WgpuRuntime, f32, i32, u32>>,
+    >,
+    VizError,
+> {
+    use burn_autodiff::Autodiff;
+    use burn_cubecl::CubeBackend;
+    use cubecl::wgpu::WgpuRuntime;
+    use fast_umap::prelude::*;
+    use fast_umap::{
+        FittedUmap, GraphParams, ManifoldParams, Metric, OptimizationParams, UmapConfig,
+    };
+
     if embeddings.is_empty() {
         return Err(VizError::NoEmbeddings);
     }
@@ -118,13 +172,11 @@ pub fn fit_parametric_umap(
         });
     }
 
-    // Convert f32 embeddings to f64 for fast-umap
     let data: Vec<Vec<f64>> = embeddings
         .iter()
         .map(|emb| emb.iter().map(|&x| x as f64).collect())
         .collect();
 
-    // Create UMAP configuration
     let config = UmapConfig {
         n_components: params.n_components,
         hidden_sizes: vec![100, 100, 100],
@@ -146,10 +198,19 @@ pub fn fit_parametric_umap(
         ..Default::default()
     };
 
-    // Create and fit UMAP model
-    let umap = fast_umap::Umap::<MyAutodiffBackend>::new(config);
-    
+    let umap =
+        fast_umap::Umap::<burn_autodiff::Autodiff<CubeBackend<WgpuRuntime, f32, i32, u32>>>::new(
+            config,
+        );
     let fitted = umap.fit(data, None);
-
     Ok(fitted)
+}
+
+// Non-gpu builds don't support parametric UMAP
+#[cfg(not(feature = "gpu"))]
+#[allow(dead_code)]
+pub fn fit_parametric_umap(_embeddings: &[Vec<f32>], _params: UmapParams) -> Result<(), VizError> {
+    Err(VizError::ComputationError(
+        "Parametric UMAP requires GPU feature".to_string(),
+    ))
 }
