@@ -3,7 +3,7 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   build-and-release:
@@ -24,6 +24,16 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Apply third_party patches
+        env:
+          SKIP_COMMIT: "1"
+        run: |
+          chmod +x ./scripts/apply_submodule_patches.sh
+          ./scripts/apply_submodule_patches.sh
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -42,14 +52,14 @@ jobs:
           # Create single tarball per architecture containing both binaries
           echo "Packaging rs-summarizer-${{ matrix.target }}..."
           mkdir -p staging
-          
+
           # Copy both binaries
           cp target/${{ matrix.target }}/release/rs-summarizer staging/
           cp target/${{ matrix.target }}/release/viz-tool staging/
-          
+
           # Copy static files for web app
           cp -r static staging/
-          
+
           # Create platform-specific asset name
           case "${{ matrix.target }}" in
             x86_64-unknown-linux-gnu)
@@ -62,7 +72,7 @@ jobs:
               tar czf rs-summarizer-macos-arm64.tar.gz -C staging .
               ;;
           esac
-          
+
           # Clean up staging directory
           rm -rf staging
 
