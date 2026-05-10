@@ -7,6 +7,12 @@ use std::thread;
 use crate::data_loader::{load_compact_db, load_compact_db_subset, EmbeddingPoint};
 use crate::umap_engine::{compute_umap, UmapParams};
 
+#[derive(Debug, Copy, Clone, PartialEq)]
+enum UmapMode {
+    Classic,
+    Parametric,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum AppStatus {
     Idle,
@@ -39,14 +45,22 @@ pub struct VizApp {
     point_radius: f32,
     // Last used UMAP params (for display)
     last_umap_params: Option<UmapParams>,
+    last_umap_mode: Option<UmapMode>,
 
     // UI state
     status: AppStatus,
     error_message: Option<String>,
     skipped_blobs: usize,
     max_points: usize,
+    // Auto recompute
+    auto_recompute: bool,
+    pending_recompute: bool,
 
     // UMAP params
+    umap_mode: UmapMode,
+    /// log10(learning_rate) slider value (e.g. -3.0 -> 1e-3)
+    umap_lr_log: f32,
+    hidden_sizes_str: String,
     umap_neighbors: usize,
     umap_min_dist: f32,
     umap_epochs: usize,
@@ -66,13 +80,19 @@ impl Default for VizApp {
             embeddings_2d: None,
             point_radius: 2.0,
             last_umap_params: None,
+            last_umap_mode: None,
             status: AppStatus::Idle,
             error_message: None,
             skipped_blobs: 0,
             max_points: 0,
+            umap_mode: UmapMode::Classic,
+            umap_lr_log: -3.0,
+            hidden_sizes_str: "100,100,100".to_string(),
             umap_neighbors: 12,
             umap_min_dist: 0.13,
             umap_epochs: 200,
+            auto_recompute: false,
+            pending_recompute: false,
             compute_tx: tx,
             compute_rx: rx,
         }
@@ -118,7 +138,15 @@ impl App for VizApp {
 
             ui.horizontal(|ui| {
                 ui.label("Max points");
-                ui.add(egui::Slider::new(&mut self.max_points, 0..=50000).text("max_points"));
+                let resp_max = ui.add(egui::Slider::new(&mut self.max_points, 0..=50000).text("max_points"));
+                resp_max.clone().on_hover_text("Limit to first N points (0 = all). Changing this will recompute when Auto is enabled.");
+                if resp_max.changed() && self.auto_recompute {
+                    if self.status == AppStatus::Idle && !self.points.is_empty() {
+                        self.start_umap_2d_computation();
+                    } else {
+                        self.pending_recompute = true;
+                    }
+                }
 
                 if ui.button("Load DB").clicked() {
                     if let Some(path) = rfd::FileDialog::new()
@@ -134,27 +162,133 @@ impl App for VizApp {
             ui.separator();
 
             ui.heading("UMAP 2D");
-            ui.add(egui::Slider::new(&mut self.umap_neighbors, 2..=200).text("n_neighbors"));
-            ui.add(egui::Slider::new(&mut self.umap_min_dist, 0.0..=1.0).text("min_dist"));
+            // UMAP mode selector
             ui.horizontal(|ui| {
-                ui.label("epochs");
-                ui.add(egui::DragValue::new(&mut self.umap_epochs));
+                ui.label("UMAP mode:");
+                let parametric_supported = cfg!(feature = "gpu");
+                let resp_classic = ui.radio_value(&mut self.umap_mode, UmapMode::Classic, "Classic");
+                resp_classic.clone().on_hover_text("Classical non-parametric UMAP (no neural network). Works with the CPU backend.");
+                if resp_classic.changed() && self.auto_recompute {
+                    if self.status == AppStatus::Idle && !self.points.is_empty() {
+                        self.start_umap_2d_computation();
+                    } else {
+                        self.pending_recompute = true;
+                    }
+                }
+
+                let resp = ui.add_enabled(parametric_supported, egui::RadioButton::new(self.umap_mode == UmapMode::Parametric, "Parametric"));
+                let hover_text = if parametric_supported { "Parametric UMAP trains a neural network (hidden sizes) and supports out-of-sample transform." } else { "Parametric UMAP requires building with the 'gpu' feature (not enabled in this build)" };
+                resp.clone().on_hover_text(hover_text.to_string());
+                if resp.changed() {
+                    if parametric_supported {
+                        self.umap_mode = UmapMode::Parametric;
+                    }
+                    if self.auto_recompute {
+                        if self.status == AppStatus::Idle && !self.points.is_empty() {
+                            self.start_umap_2d_computation();
+                        } else {
+                            self.pending_recompute = true;
+                        }
+                    }
+                }
             });
 
-            ui.add(egui::Slider::new(&mut self.point_radius, 0.5..=8.0).text("point radius"));
+            // Core UMAP params
+            let resp_neighbors = ui.add(egui::Slider::new(&mut self.umap_neighbors, 2..=500).text("n_neighbors"));
+            resp_neighbors.clone().on_hover_text("Number of neighbors for the k-NN graph. Smaller values capture local structure; larger values capture global structure.");
+            if resp_neighbors.changed() && self.auto_recompute {
+                if self.status == AppStatus::Idle && !self.points.is_empty() {
+                    self.start_umap_2d_computation();
+                } else {
+                    self.pending_recompute = true;
+                }
+            }
 
-            let umap_enabled = !self.points.is_empty() && self.status == AppStatus::Idle;
-            if ui
-                .add_enabled(umap_enabled, egui::Button::new("Compute 2D UMAP"))
-                .clicked()
-            {
+            let resp_min = ui.add(egui::Slider::new(&mut self.umap_min_dist, 0.0..=1.0).text("min_dist"));
+            resp_min.clone().on_hover_text("Minimum distance between points in the low-dimensional embedding. Smaller => tighter clusters.");
+            if resp_min.changed() && self.auto_recompute {
+                if self.status == AppStatus::Idle && !self.points.is_empty() {
+                    self.start_umap_2d_computation();
+                } else {
+                    self.pending_recompute = true;
+                }
+            }
+
+            ui.horizontal(|ui| {
+                ui.label("epochs");
+                let resp_epochs = ui.add(egui::DragValue::new(&mut self.umap_epochs));
+                resp_epochs.clone().on_hover_text("Number of training epochs. Higher values may improve convergence but take longer.");
+                if resp_epochs.changed() && self.auto_recompute {
+                    if self.status == AppStatus::Idle && !self.points.is_empty() {
+                        self.start_umap_2d_computation();
+                    } else {
+                        self.pending_recompute = true;
+                    }
+                }
+            });
+
+            // Log slider for learning rate: log10(lr) in [-5, -1]
+            let lr_inner = ui.horizontal(|ui| {
+                ui.label("log10(lr)");
+                let slider_resp = ui.add(egui::Slider::new(&mut self.umap_lr_log, -5.0..=-1.0).text("log10(lr)"));
+                ui.label(format!("lr={:.5}", 10f32.powf(self.umap_lr_log)));
+                slider_resp
+            });
+            lr_inner.response.clone().on_hover_text("Log slider for learning rate: move to change lr = 10^{x}. Typical default lr=1e-3 (log10=-3)");
+            if lr_inner.response.changed() && self.auto_recompute {
+                if self.status == AppStatus::Idle && !self.points.is_empty() {
+                    self.start_umap_2d_computation();
+                } else {
+                    self.pending_recompute = true;
+                }
+            }
+
+            // Parametric-specific: hidden sizes
+            if self.umap_mode == UmapMode::Parametric {
+                let disabled = !cfg!(feature = "gpu");
+                let resp = ui.add_enabled(!disabled, egui::TextEdit::singleline(&mut self.hidden_sizes_str));
+                resp.clone().on_hover_text("Hidden layer sizes for the parametric UMAP neural network, comma-separated, e.g. 100,100,100");
+                if disabled {
+                    resp.clone().on_disabled_hover_text("Parametric UMAP not available in this build");
+                }
+                if resp.changed() && self.auto_recompute {
+                    if self.status == AppStatus::Idle && !self.points.is_empty() {
+                        self.start_umap_2d_computation();
+                    } else {
+                        self.pending_recompute = true;
+                    }
+                }
+            }
+
+            ui.add(egui::Slider::new(&mut self.point_radius, 0.01..=2.0).text("point radius")).on_hover_text(
+                "Radius of plotted points in pixels. Reduce to see dense structure.",
+            );
+
+            let umap_enabled = !self.points.is_empty() && self.status == AppStatus::Idle && (self.umap_mode == UmapMode::Classic || cfg!(feature = "gpu"));
+            let auto_resp = ui.checkbox(&mut self.auto_recompute, "Auto recompute");
+            auto_resp.clone().on_hover_text("Automatically recompute UMAP whenever a parameter changes (will wait for current run to finish)");
+            if auto_resp.changed() && self.auto_recompute {
+                // If turned on and idle, kick off an immediate compute
+                if self.status == AppStatus::Idle && !self.points.is_empty() {
+                    self.start_umap_2d_computation();
+                }
+            }
+
+            let compute_btn = ui.add_enabled(umap_enabled, egui::Button::new("Compute 2D UMAP"));
+            if !umap_enabled {
+                compute_btn.clone().on_disabled_hover_text("Cannot compute: no data loaded or parametric mode requires GPU build");
+            } else {
+                compute_btn.clone().on_hover_text("Start UMAP with the selected parameters");
+            }
+
+            if compute_btn.clicked() {
                 self.start_umap_2d_computation();
             }
 
             if let Some(ref p) = self.last_umap_params {
                 ui.label(format!(
-                    "Last UMAP: neighbors={}, min_dist={}, epochs={}",
-                    p.n_neighbors, p.min_dist, p.n_epochs
+                    "Last UMAP: neighbors={}, min_dist={}, epochs={}, lr={}",
+                    p.n_neighbors, p.min_dist, p.n_epochs, p.learning_rate
                 ));
                 if let Some(ref emb) = self.embeddings_2d {
                     ui.label(format!("Points: {}", emb.len()));
@@ -259,17 +393,46 @@ impl VizApp {
                 self.points.iter().map(|p| p.embedding.clone()).collect()
             };
 
+        // Build UMAP params with hidden sizes and learning rate
+        // Parse hidden sizes (comma separated)
+        let hidden_sizes = if self.umap_mode == UmapMode::Parametric {
+            let parsed: Result<Vec<usize>, String> = self
+                .hidden_sizes_str
+                .split(',')
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| {
+                    s.parse::<usize>()
+                        .map_err(|e| format!("Invalid hidden size '{}': {}", s, e))
+                })
+                .collect();
+            match parsed {
+                Ok(v) => v,
+                Err(err_msg) => {
+                    self.error_message = Some(err_msg);
+                    return;
+                }
+            }
+        } else {
+            Vec::new()
+        };
+
         let params = UmapParams {
             n_components: 2,
             n_neighbors: self.umap_neighbors,
             min_dist: self.umap_min_dist,
             n_epochs: self.umap_epochs,
+            learning_rate: 10f64.powf(self.umap_lr_log as f64),
+            hidden_sizes: hidden_sizes.clone(),
         };
         let tx = self.compute_tx.clone();
 
         // Clone params for compute and for reporting
         let params_for_compute = params.clone();
         let params_for_result = params.clone();
+
+        // Remember the selected mode for reporting
+        self.last_umap_mode = Some(self.umap_mode);
 
         thread::spawn(move || {
             match compute_umap(&embeddings, params_for_compute) {
@@ -314,10 +477,23 @@ impl VizApp {
                     self.embeddings_2d = Some(embeddings_2d);
                     self.last_umap_params = Some(params);
                     self.status = AppStatus::Idle;
+                    // If a parameter changed while running, trigger another run
+                    if self.pending_recompute {
+                        self.pending_recompute = false;
+                        if !self.points.is_empty() {
+                            self.start_umap_2d_computation();
+                        }
+                    }
                 }
                 ComputeResult::Error(msg) => {
                     self.error_message = Some(msg);
                     self.status = AppStatus::Idle;
+                    if self.pending_recompute {
+                        self.pending_recompute = false;
+                        if !self.points.is_empty() {
+                            self.start_umap_2d_computation();
+                        }
+                    }
                 }
             }
         }

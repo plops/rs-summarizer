@@ -7,6 +7,10 @@ pub struct UmapParams {
     pub n_neighbors: usize,
     pub min_dist: f32,
     pub n_epochs: usize,
+    /// Learning rate for optimization (used by parametric and CPU training)
+    pub learning_rate: f64,
+    /// Hidden sizes for parametric UMAP neural network (parametric only)
+    pub hidden_sizes: Vec<usize>,
 }
 
 impl Default for UmapParams {
@@ -16,6 +20,8 @@ impl Default for UmapParams {
             n_neighbors: 15,
             min_dist: 0.1,
             n_epochs: 200,
+            learning_rate: 1e-3,
+            hidden_sizes: vec![100, 100, 100],
         }
     }
 }
@@ -57,7 +63,7 @@ pub fn compute_umap(
 
         let config = UmapConfig {
             n_components: params.n_components,
-            hidden_sizes: vec![100, 100, 100],
+            hidden_sizes: params.hidden_sizes.clone(),
             graph: GraphParams {
                 n_neighbors: params.n_neighbors,
                 metric: Metric::Euclidean,
@@ -70,7 +76,7 @@ pub fn compute_umap(
             },
             optimization: OptimizationParams {
                 n_epochs: params.n_epochs,
-                learning_rate: 1e-3,
+                learning_rate: params.learning_rate,
                 ..Default::default()
             },
             ..Default::default()
@@ -107,7 +113,7 @@ pub fn compute_umap(
 
         let config = UmapConfig {
             n_components: params.n_components,
-            hidden_sizes: vec![],
+            hidden_sizes: params.hidden_sizes.clone(),
             graph: GraphParams {
                 n_neighbors: params.n_neighbors,
                 metric: Metric::Euclidean,
@@ -120,7 +126,7 @@ pub fn compute_umap(
             },
             optimization: OptimizationParams {
                 n_epochs: params.n_epochs,
-                learning_rate: 1e-3,
+                learning_rate: params.learning_rate,
                 ..Default::default()
             },
             ..Default::default()
@@ -179,7 +185,7 @@ pub fn fit_parametric_umap(
 
     let config = UmapConfig {
         n_components: params.n_components,
-        hidden_sizes: vec![100, 100, 100],
+        hidden_sizes: params.hidden_sizes.clone(),
         graph: GraphParams {
             n_neighbors: params.n_neighbors,
             metric: Metric::Euclidean,
@@ -192,7 +198,7 @@ pub fn fit_parametric_umap(
         },
         optimization: OptimizationParams {
             n_epochs: params.n_epochs,
-            learning_rate: 1e-3,
+            learning_rate: params.learning_rate,
             ..Default::default()
         },
         ..Default::default()

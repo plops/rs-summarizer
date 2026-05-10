@@ -127,6 +127,8 @@ async fn run_umap_command(
         n_neighbors: umap_args.neighbors,
         min_dist: umap_args.min_dist,
         n_epochs: umap_args.epochs,
+        learning_rate: 1e-3,
+        hidden_sizes: vec![100, 100, 100],
     };
 
     let reduced_embeddings = match compute_umap(&embeddings, params) {
@@ -198,6 +200,8 @@ async fn run_umap_2d_command(
         n_neighbors: umap_args.neighbors,
         min_dist: umap_args.min_dist,
         n_epochs: umap_args.epochs,
+        learning_rate: 1e-3,
+        hidden_sizes: vec![100, 100, 100],
     };
 
     let reduced_embeddings = match compute_umap(&embeddings, params) {

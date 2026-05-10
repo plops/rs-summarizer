@@ -9,7 +9,7 @@ default = ["cpu", "gui"]
 
 cpu = ["fast-umap/cpu", "burn/ndarray", "burn-autodiff"]
 # GPU feature enables parametric UMAP via fast-umap GPU backend
-gpu = ["fast-umap/gpu", "burn/wgpu", "burn-cubecl", "cubecl/wgpu", "burn-autodiff"]
+gpu = ["fast-umap/gpu", "fast-umap/nn-descent", "burn/wgpu", "burn-cubecl", "cubecl/wgpu", "burn-autodiff"]
 # GUI feature pulls in eframe/egui_plot/rfd as optional dependencies
 gui = ["eframe", "egui_plot", "rfd"]
 
