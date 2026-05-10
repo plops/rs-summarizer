@@ -90,6 +90,8 @@ pub struct VizApp {
     umap4_hidden_sizes_str: String,
     /// Optional stored 4D embedding (computed via Compute 4D UMAP)
     embeddings_4d: Option<Vec<[f32; 4]>>,
+    /// When true, computing 4D UMAP will replace the 2D plot with the first-two components of the 4D embedding
+    replace_2d_with_4d: bool,
 
     // DBSCAN params
     dbscan_eps: f64,
@@ -137,6 +139,7 @@ impl Default for VizApp {
             umap4_epochs: 200,
             umap4_hidden_sizes_str: "100,100,100".to_string(),
             embeddings_4d: None,
+            replace_2d_with_4d: false,
             // DBSCAN defaults
             dbscan_eps: 0.3,
             dbscan_min_samples: 5,
@@ -418,6 +421,8 @@ impl App for VizApp {
                             resp.clone().on_disabled_hover_text("Parametric UMAP not available in this build");
                         }
                     }
+
+                    ui.checkbox(&mut self.replace_2d_with_4d, "Replace 2D plot with 4D projection");
 
                     let umap4_enabled = !self.points.is_empty() && self.status == AppStatus::Idle && (self.umap_mode == UmapMode::Classic || cfg!(feature = "gpu"));
                     let compute_umap4_btn = ui.add_enabled(umap4_enabled, egui::Button::new("Compute 4D UMAP"));
@@ -828,13 +833,38 @@ impl VizApp {
             hidden_sizes: hidden_sizes.clone(),
         };
 
+        // Determine subset size to match the currently displayed 2D embedding when possible
+        let subset_count: usize = if let Some(ref emb2d) = self.embeddings_2d {
+            emb2d.len()
+        } else if self.max_points > 0 && self.max_points < self.points.len() {
+            self.max_points
+        } else {
+            self.points.len()
+        };
+
+        // Build embeddings for this subset
+        let embeddings: Vec<Vec<f32>> = self
+            .points
+            .iter()
+            .take(subset_count)
+            .map(|p| p.embedding.clone())
+            .collect();
+
         let tx = self.compute_tx.clone();
-        let have_2d = self.embeddings_2d.is_some();
+        // only consider have_2d true when existing embeddings_2d length matches subset_count
+        let have_2d = self
+            .embeddings_2d
+            .as_ref()
+            .map(|v| v.len() == subset_count)
+            .unwrap_or(false);
         let eps = self.dbscan_eps;
         let min_samples = self.dbscan_min_samples;
 
-        // Preserve a cached 4D embedding if available to avoid recomputing
-        let cached_4d = self.embeddings_4d.clone();
+        // Preserve a cached 4D embedding only if it matches the same subset size
+        let cached_4d = self
+            .embeddings_4d
+            .clone()
+            .filter(|c| c.len() == subset_count);
 
         // Create progress & cancel channels so GUI can receive epoch updates and cancel
         let (progress_tx, progress_rx) = crossbeam_channel::unbounded::<ProgressUpdate>();
@@ -844,21 +874,16 @@ impl VizApp {
         self.progress = None;
 
         thread::spawn(move || {
-            // If we have a cached 4D embedding, use it directly
+            // If we have a cached 4D embedding for the same subset, use it directly
             if let Some(cached) = cached_4d {
                 // Convert to fixed 4D arrays for DBSCAN
                 let arr4d: Vec<[f32; 4]> = cached.into_iter().collect();
                 let db_params = DbscanParams { eps, min_samples };
                 match compute_dbscan(arr4d.as_slice(), db_params) {
                     Ok(labels) => {
-                        let embeddings_2d_from_4d = if !have_2d {
-                            Some(
-                                // turn cached into 2d by taking first two components
-                                arr4d.into_iter().map(|v| [v[0], v[1]]).collect(),
-                            )
-                        } else {
-                            None
-                        };
+                        // Provide a 2D projection matching the cached 4D (useful if we need to update view)
+                        let embeddings_2d_from_4d =
+                            Some(arr4d.iter().map(|v| [v[0], v[1]]).collect());
                         let _ = tx.send(ComputeResult::ClusterDone {
                             labels,
                             embeddings_2d_from_4d,
@@ -991,10 +1016,13 @@ impl VizApp {
                     embeddings_2d_from_4d,
                     params,
                 } => {
-                    // Store 4D embedding and 2D projection
+                    // Store 4D embedding
                     self.embeddings_4d = Some(embeddings_4d);
-                    if let Some(e2d) = embeddings_2d_from_4d {
-                        self.embeddings_2d = Some(e2d);
+                    // Optionally replace 2D plot with the first-two components of the 4D result
+                    if self.replace_2d_with_4d {
+                        if let Some(e2d) = embeddings_2d_from_4d {
+                            self.embeddings_2d = Some(e2d);
+                        }
                     }
                     self.last_umap_params = Some(params);
                     // Clear existing cluster labels (4D changed)
@@ -1013,14 +1041,30 @@ impl VizApp {
                     labels,
                     embeddings_2d_from_4d,
                 } => {
-                    // Set cluster labels
-                    self.cluster_labels = Some(labels);
-                    // If we don't have a 2D embedding yet, and the cluster run provided one, use it
-                    if self.embeddings_2d.is_none() {
+                    // Align 2D projection with labels when necessary
+                    let labels_len = labels.len();
+
+                    let need_replace_2d = match &self.embeddings_2d {
+                        Some(e2d) => e2d.len() != labels_len,
+                        None => true,
+                    };
+
+                    if need_replace_2d {
+                        // Prefer provided 2D projection from the clustering run
                         if let Some(e2d) = embeddings_2d_from_4d {
                             self.embeddings_2d = Some(e2d);
+                        } else if let Some(ref emb4d) = self.embeddings_4d {
+                            if emb4d.len() == labels_len {
+                                let projected: Vec<[f32; 2]> =
+                                    emb4d.iter().map(|v| [v[0], v[1]]).collect();
+                                self.embeddings_2d = Some(projected);
+                            }
                         }
                     }
+
+                    // Set cluster labels (now that embeddings_2d likely matches)
+                    self.cluster_labels = Some(labels);
+
                     self.status = AppStatus::Idle;
                     // Clear progress channels
                     self.progress = None;
