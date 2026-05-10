@@ -82,11 +82,44 @@ pub fn compute_umap(
             ..Default::default()
         };
 
+        use crossbeam_channel::unbounded;
+        use indicatif::{ProgressBar, ProgressStyle};
+
         let umap = fast_umap::Umap::<MyAutodiffBackend>::new(config);
-        let fitted = std::panic::catch_unwind(|| umap.fit(data, None));
+
+        // Create a progress bar for epoch-level reporting
+        let pb = ProgressBar::new(params.n_epochs as u64);
+        pb.set_style(
+            ProgressStyle::with_template(
+                "{msg} {bar:40.cyan/blue} {pos}/{len} epochs [{elapsed_precise}] {eta}",
+            )
+            .unwrap()
+            .progress_chars("=>-"),
+        );
+        pb.set_message("UMAP training");
+
+        // Channel for graceful cancellation (currently unused, but required by API)
+        let (_exit_tx, exit_rx) = unbounded::<()>();
+
+        let pb_clone = pb.clone();
+        let on_progress = Box::new(move |p: fast_umap::EpochProgress| {
+            // epoch is 1-based in progress reports
+            let pos = p.epoch as u64;
+            pb_clone.set_position(pos);
+            pb_clone.set_message(format!("loss={:.6}", p.loss));
+            if pos >= p.total_epochs as u64 {
+                pb_clone.finish_with_message("UMAP training complete");
+            }
+        });
+
+        let fitted =
+            std::panic::catch_unwind(|| umap.fit_with_progress(data, None, exit_rx, on_progress));
 
         match fitted {
             Ok(result) => {
+                // Ensure progress bar finished
+                pb.finish_and_clear();
+
                 let embedding = result.embedding();
                 let result_vec: Vec<Vec<f32>> = embedding
                     .iter()
@@ -95,6 +128,7 @@ pub fn compute_umap(
                 return Ok(result_vec);
             }
             Err(_) => {
+                pb.finish_and_clear();
                 return Err(VizError::Umap("GPU UMAP fitting panicked".to_string()));
             }
         }
