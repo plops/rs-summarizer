@@ -7,9 +7,8 @@ pub mod umap_engine;
 #[cfg(feature = "gui")]
 pub mod viz_app;
 
-// Other advanced modules may be added behind features as needed
-//#[cfg(feature = "dbscan")]
-//pub mod dbscan_engine;
+// Expose dbscan_engine so CLI/pipeline can use it; this was previously commented out
+pub mod dbscan_engine;
 //#[cfg(feature = "titles")]
 //pub mod cluster_titler;
 //#[cfg(feature = "nn-mapper")]

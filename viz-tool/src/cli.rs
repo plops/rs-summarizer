@@ -47,7 +47,11 @@ pub enum Commands {
 #[derive(Parser, Clone)]
 pub struct Umap2DArgs {
     /// Limit to first N points (0 = all points)
-    #[arg(long, default_value = "0", help = "Limit to first N points (0 = all points)")]
+    #[arg(
+        long,
+        default_value = "0",
+        help = "Limit to first N points (0 = all points)"
+    )]
     pub subset: usize,
 
     /// Number of neighbors
@@ -66,7 +70,11 @@ pub struct Umap2DArgs {
 #[derive(Parser, Clone)]
 pub struct Umap4DArgs {
     /// Limit to first N points (0 = all points)
-    #[arg(long, default_value = "0", help = "Limit to first N points (0 = all points)")]
+    #[arg(
+        long,
+        default_value = "0",
+        help = "Limit to first N points (0 = all points)"
+    )]
     pub subset: usize,
 
     /// Number of neighbors
@@ -103,11 +111,31 @@ pub struct UmapArgs {
 
 #[derive(Parser, Clone)]
 pub struct ClusterArgs {
-    /// Epsilon parameter
+    /// Limit to first N points (0 = all points)
+    #[arg(
+        long,
+        default_value = "0",
+        help = "Limit to first N points (0 = all points)"
+    )]
+    pub subset: usize,
+
+    /// Number of neighbors for UMAP before clustering
+    #[arg(short, long, default_value = "5")]
+    pub neighbors: usize,
+
+    /// Minimum distance for UMAP
+    #[arg(short, long, default_value = "0.1")]
+    pub min_dist: f32,
+
+    /// Training epochs for UMAP
+    #[arg(short, long, default_value = "200")]
+    pub epochs: usize,
+
+    /// Epsilon parameter for DBSCAN
     #[arg(short, long, default_value = "0.3")]
     pub eps: f64,
 
-    /// Minimum samples
+    /// Minimum samples for DBSCAN
     #[arg(short, long, default_value = "5")]
     pub min_samples: usize,
 }

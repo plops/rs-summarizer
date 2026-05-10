@@ -183,10 +183,7 @@ impl App for VizApp {
                 }
 
                 if ui.button("Load DB").clicked() {
-                    if let Some(path) = rfd::FileDialog::new()
-                        .add_filter("SQLite DB", &["db"])
-                        .pick_file()
-                    {
+                    if let Some(path) = rfd::FileDialog::new().pick_file() {
                         self.db_path = Some(path.clone());
                         self.start_loading(path);
                     }
