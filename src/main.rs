@@ -7,7 +7,7 @@ use tokio::sync::RwLock;
 use sqlx::Row;
 
 use rs_summarizer::commands::export_db::{ExportDbArgs, run_export};
-use rs_summarizer::state::{AppState, ModelOption};
+use rs_summarizer::state::AppState;
 use rs_summarizer::{build_router, db};
 
 #[tokio::main]
@@ -35,88 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let (nn_mapper, viz_data) = load_visualization_components().await;
 
     // Configure model options
-    let model_options = vec![
-        ModelOption {
-            name: "gemini-3-flash-preview".to_string(),
-            input_price_per_mtoken: 0.10,
-            output_price_per_mtoken: 0.40,
-            context_window: 1_000_000,
-            rpm_limit: 5,
-            rpd_limit: 20,
-        },
-        ModelOption {
-            name: "gemini-3.1-flash-lite-preview".to_string(),
-            input_price_per_mtoken: 0.075,
-            output_price_per_mtoken: 0.30,
-            context_window: 1_000_000,
-            rpm_limit: 15,
-            rpd_limit: 500,
-        },
-        ModelOption {
-            name: "gemini-2.5-flash".to_string(),
-            input_price_per_mtoken: 0.15,
-            output_price_per_mtoken: 0.60,
-            context_window: 1_000_000,
-            rpm_limit: 5,
-            rpd_limit: 20,
-        },
-        ModelOption {
-            name: "gemini-2.5-flash-lite".to_string(),
-            input_price_per_mtoken: 0.075,
-            output_price_per_mtoken: 0.30,
-            context_window: 1_000_000,
-            rpm_limit: 10,
-            rpd_limit: 20,
-        },
-        ModelOption {
-            name: "gemma-4-31b-it".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 128_000,
-            rpm_limit: 15,
-            rpd_limit: 1500,
-        },
-        ModelOption {
-            name: "gemma-4-26b-a4b-it".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 128_000,
-            rpm_limit: 15,
-            rpd_limit: 1500,
-        },
-        ModelOption {
-            name: "gemma-3-27b-it".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 128_000,
-            rpm_limit: 30,
-            rpd_limit: 14400,
-        },
-        ModelOption {
-            name: "gemma-3-12b-it".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 128_000,
-            rpm_limit: 30,
-            rpd_limit: 14400,
-        },
-        ModelOption {
-            name: "gemma-3-4b-it".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 128_000,
-            rpm_limit: 30,
-            rpd_limit: 14400,
-        },
-        ModelOption {
-            name: "gemma-3-1b-it".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 128_000,
-            rpm_limit: 30,
-            rpd_limit: 14400,
-        },
-    ];
+    let model_options = rs_summarizer::state::get_default_models();
 
     // Build application state
     let state = AppState {

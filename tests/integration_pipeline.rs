@@ -12,7 +12,7 @@ use rs_summarizer::db;
 use rs_summarizer::services::embedding::EmbeddingService;
 use rs_summarizer::services::summary::SummaryService;
 use rs_summarizer::services::transcript::TranscriptService;
-use rs_summarizer::state::{AppState, ModelOption};
+use rs_summarizer::state::{AppState, ModelOption, ModelArchitecture};
 use rs_summarizer::tasks;
 use rs_summarizer::utils::markdown_converter::convert_markdown_to_youtube_format;
 
@@ -31,6 +31,7 @@ fn test_model() -> ModelOption {
         context_window: 128_000,
         rpm_limit: 30,
         rpd_limit: 14400,
+        architecture: ModelArchitecture::Gemma,
     }
 }
 

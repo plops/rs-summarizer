@@ -77,11 +77,18 @@ impl SummaryService {
         // Model-aware prompt routing (Req 2.3, 3.1, 3.2):
         // - Gemini models: system instruction as API parameter, standard user prompt
         // - Gemma models: no system prompt param, system instruction prepended to user prompt
-        let prompt = if !model.name.starts_with("gemma") {
-            builder = builder.with_system_prompt(SYSTEM_INSTRUCTION);
-            self.build_prompt(transcript)
-        } else {
-            self.build_prompt_for_gemma(transcript)
+        // - Other models: fallback base prompt
+        let prompt = match model.architecture {
+            crate::state::ModelArchitecture::Gemini => {
+                builder = builder.with_system_prompt(SYSTEM_INSTRUCTION);
+                self.build_prompt(transcript)
+            }
+            crate::state::ModelArchitecture::Gemma => {
+                self.build_prompt_for_gemma(transcript)
+            }
+            crate::state::ModelArchitecture::Other => {
+                self.build_prompt(transcript)
+            }
         };
 
         let mut stream = builder
@@ -242,7 +249,7 @@ fn is_rate_limit_error(err_str: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::ModelOption;
+    use crate::state::{ModelOption, ModelArchitecture};
 
     fn test_model() -> ModelOption {
         ModelOption {
@@ -252,6 +259,7 @@ mod tests {
             context_window: 1_000_000,
             rpm_limit: 10,
             rpd_limit: 1500,
+            architecture: ModelArchitecture::Gemini,
         }
     }
 

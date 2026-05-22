@@ -71,6 +71,7 @@ impl RateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::state::ModelArchitecture;
 
     #[tokio::test]
     async fn test_check_rate_limit_allows_under_limit() {
@@ -81,6 +82,7 @@ mod tests {
             context_window: 1000,
             rpm_limit: 10,
             rpd_limit: 5,
+            architecture: ModelArchitecture::Gemini,
         };
         let model_counts = Arc::new(RwLock::new(HashMap::new()));
         let last_reset_day = Arc::new(RwLock::new(None));
@@ -98,6 +100,7 @@ mod tests {
             context_window: 1000,
             rpm_limit: 10,
             rpd_limit: 3,
+            architecture: ModelArchitecture::Gemini,
         };
         let model_counts = Arc::new(RwLock::new(HashMap::new()));
         // Set last_reset_day to today so maybe_reset_counters won't clear our counts

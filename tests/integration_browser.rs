@@ -13,7 +13,7 @@
 //! (These tests are ignored by default since they require geckodriver + Firefox)
 
 use fantoccini::{Client, ClientBuilder, Locator};
-use rs_summarizer::state::{AppState, ModelOption};
+use rs_summarizer::state::{AppState, ModelOption, ModelArchitecture};
 use rs_summarizer::{build_router, db};
 use serde_json::json;
 use sqlx::SqlitePool;
@@ -56,6 +56,7 @@ async fn test_app_state() -> AppState {
             context_window: 128000,
             rpm_limit: 15,
             rpd_limit: 1000,
+            architecture: ModelArchitecture::Gemini,
         },
         ModelOption {
             name: "gemma-3-1b-it".to_string(),
@@ -64,6 +65,7 @@ async fn test_app_state() -> AppState {
             context_window: 128000,
             rpm_limit: 30,
             rpd_limit: 14400,
+            architecture: ModelArchitecture::Gemma,
         },
     ];
 
@@ -211,6 +213,7 @@ async fn test_app_state_with_low_limit() -> AppState {
         context_window: 128_000,
         rpm_limit: 30,
         rpd_limit: 1,
+        architecture: ModelArchitecture::Gemini,
     }];
 
     let gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
