@@ -44,7 +44,7 @@ The following list provides a functional overview of the files in your codebase:
 To integrate the new models, we should move the hardcoded configurations out of `src/main.rs` into a central constructor in `src/state.rs`. This provides clean separation of concerns and lets us attach structured model attributes directly to `ModelOption`.
 
 #### 1. Update `src/state.rs`
-We will define a `ModelArchitecture` enum to structure prompt formulation and mapping logic. The RPM and RPD numbers represent the *denominator* limits parsed from your configuration table:
+We will define a `ModelArchitecture` enum to structure prompt formulation and mapping logic. The RPM and RPD numbers represent the *denominator* limits parsed from the configuration table `.kiro/specs/model-update/models_20250522.md`:
 
 ```rust
 // src/state.rs
@@ -298,60 +298,6 @@ Using the new `ModelArchitecture` enum in `ModelOption`, we can rewrite prompt r
             }
         };
 ```
-
-#### Improvement B: Real DST-Aware Timezone Handling in `src/services/rate_limiter.rs`
-The existing daily rate limit reset calculates Pacific Time by subtracting a hardcoded 8 hours from UTC:
-
-```rust
-    fn today_la() -> NaiveDate {
-        let utc_now = chrono::Utc::now();
-        let la_time = utc_now - chrono::Duration::hours(8);
-        la_time.date_naive()
-    }
-```
-
-This approximation does not account for Daylight Saving Time (DST) changes. Since America/Los_Angeles switches between PST (UTC-8) and PDT (UTC-7) dynamically throughout the year, we can introduce a pure Rust, zero-dependency DST helper inside `src/services/rate_limiter.rs` to compute the correct offset:
-
-```rust
-// src/services/rate_limiter.rs
-use chrono::{Datelike, NaiveDate, Weekday};
-
-impl RateLimiter {
-    // ... (rest of methods)
-
-    /// Dynamic local time offset lookup for America/Los_Angeles
-    fn today_la() -> NaiveDate {
-        let utc_now = chrono::Utc::now();
-        let year = utc_now.year();
-
-        // DST in US begins second Sunday in March
-        let mut march_dst_start = NaiveDate::from_ymd_opt(year, 3, 1).unwrap();
-        let mut sundays_found = 0;
-        while sundays_found < 2 {
-            if march_dst_start.weekday() == Weekday::Sun {
-                sundays_found += 1;
-                if sundays_found == 2 { break; }
-            }
-            march_dst_start = march_dst_start.succ_opt().unwrap();
-        }
-        
-        // DST in US ends first Sunday in November
-        let mut nov_dst_end = NaiveDate::from_ymd_opt(year, 11, 1).unwrap();
-        while nov_dst_end.weekday() != Weekday::Sun {
-            nov_dst_end = nov_dst_end.succ_opt().unwrap();
-        }
-
-        // Check if UTC is within daylight-savings boundaries
-        let is_dst = utc_now.date_naive() >= march_dst_start && utc_now.date_naive() < nov_dst_end;
-        let offset_hours = if is_dst { 7 } else { 8 };
-
-        let la_time = utc_now - chrono::Duration::hours(offset_hours);
-        la_time.date_naive()
-    }
-}
-```
-
----
 
 ### Suggested Testing Additions
 
