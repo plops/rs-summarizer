@@ -53,12 +53,39 @@ pub async fn process_transcript(
         );
     }
 
+    // Check at least one of original_source_link or transcript is provided
+    let url_empty = input.original_source_link.trim().is_empty();
+    let transcript_empty = input.transcript.as_ref().map_or(true, |t| t.trim().is_empty());
+    if url_empty && transcript_empty {
+        return Html("<p>Error: Please provide either a YouTube URL or paste a transcript.</p>".to_string());
+    }
+
     // Check for duplicates
     let dedup_svc = DeduplicationService::new(Duration::from_secs(300));
-    if let Ok(Some(existing_id)) = dedup_svc
-        .check_duplicate(&app.db, &input.original_source_link, &input.model)
-        .await
-    {
+    let mut duplicate_id = None;
+
+    if let Some(ref transcript) = input.transcript {
+        let trimmed_transcript = transcript.trim();
+        if !trimmed_transcript.is_empty() {
+            if let Ok(Some(existing_id)) = dedup_svc
+                .check_duplicate_by_transcript(&app.db, trimmed_transcript, &input.model)
+                .await
+            {
+                duplicate_id = Some(existing_id);
+            }
+        }
+    }
+
+    if duplicate_id.is_none() && !input.original_source_link.trim().is_empty() {
+        if let Ok(Some(existing_id)) = dedup_svc
+            .check_duplicate(&app.db, input.original_source_link.trim(), &input.model)
+            .await
+        {
+            duplicate_id = Some(existing_id);
+        }
+    }
+
+    if let Some(existing_id) = duplicate_id {
         // Return existing generation partial
         return render_generation_partial(&app, existing_id).await;
     }

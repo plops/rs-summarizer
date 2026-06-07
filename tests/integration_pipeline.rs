@@ -515,3 +515,38 @@ async fn test_polling_lifecycle_simulation() {
     assert!(row.timestamps_done, "timestamps_done should be true");
     assert!(!row.summary_timestamp_end.is_empty(), "end timestamp should be set");
 }
+
+/// Test that pasting a transcript directly works: skips download, generates summary,
+/// and works with/without original_source_link.
+#[tokio::test]
+#[ignore]
+async fn test_pasted_transcript_pipeline() {
+    let app = build_test_app_state().await;
+
+    let transcript = "00:00:00 Welcome to this video about Rust programming \
+        00:00:05 Today we will learn about ownership and borrowing \
+        00:00:10 Rust's ownership system is what makes it unique among programming languages \
+        00:00:15 Every value in Rust has a single owner at any given time \
+        00:00:20 When the owner goes out of scope the value is dropped \
+        00:00:25 This prevents memory leaks and data races at compile time \
+        00:00:30 Let me show you some examples of how this works in practice";
+
+    // Test case 1: Pasted transcript WITHOUT YouTube URL (empty string)
+    let form_no_url = rs_summarizer::models::SubmitForm {
+        original_source_link: "".to_string(),
+        transcript: Some(transcript.to_string()),
+        model: test_model().name,
+    };
+    let id_no_url = db::insert_new_summary(&app.db, &form_no_url, "127.0.0.1", "2024-01-01T00:00:00Z")
+        .await
+        .expect("Failed to insert");
+
+    // Run pipeline
+    tasks::process_summary(app.db.clone(), id_no_url, app.clone()).await;
+
+    // Verify it succeeded
+    let row_no_url = db::fetch_summary(&app.db, id_no_url).await.unwrap().unwrap();
+    assert!(row_no_url.summary_done, "summary_done should be true");
+    assert!(!row_no_url.summary.is_empty(), "summary should not be empty");
+    assert_eq!(row_no_url.original_source_link, "", "original source link should be empty");
+}

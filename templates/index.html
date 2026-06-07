@@ -12,8 +12,15 @@
         <h1>YouTube Transcript Summarizer</h1>
         <form hx-post="/process_transcript" hx-target="#result" hx-swap="innerHTML">
             <label for="url">YouTube URL</label>
-            <input type="text" id="url" name="original_source_link" placeholder="https://www.youtube.com/watch?v=..." required>
+            <input type="text" id="url" name="original_source_link" placeholder="https://www.youtube.com/watch?v=...">
             
+            <details>
+                <summary>Or paste a transcript directly...</summary>
+                <label for="transcript">Transcript Text</label>
+                <textarea id="transcript" name="transcript" rows="6" placeholder="00:00:00 Welcome to this video...&#10;00:00:05 Today we will learn about ownership..."></textarea>
+                <small>If you paste a transcript here, the YouTube URL becomes optional and will only be used to generate links for the timestamps.</small>
+            </details>
+
             <label for="model">Model</label>
             <select id="model" name="model">
                 {% for model in models %}
@@ -23,6 +30,24 @@
             
             <button type="submit">Summarize</button>
         </form>
+
+        <script>
+            document.addEventListener("DOMContentLoaded", function() {
+                const urlInput = document.getElementById('url');
+                const transcriptInput = document.getElementById('transcript');
+
+                function updateRequired() {
+                    if (transcriptInput.value.trim().length > 0) {
+                        urlInput.removeAttribute('required');
+                    } else {
+                        urlInput.setAttribute('required', 'required');
+                    }
+                }
+
+                transcriptInput.addEventListener('input', updateRequired);
+                updateRequired();
+            });
+        </script>
         
         <div id="result"></div>
         
