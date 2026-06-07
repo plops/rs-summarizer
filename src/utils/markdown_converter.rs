@@ -25,7 +25,9 @@ pub fn convert_markdown_to_youtube_format(text: &str) -> String {
     text = text.replace("**.", ".**");
 
     // Convert ** to *
-    text = text.replace("**", "*");
+    while text.contains("**") {
+        text = text.replace("**", "*");
+    }
 
     // Reposition punctuation adjacent to * bold markers
     text = text.replace("*:", ":*");

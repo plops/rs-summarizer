@@ -59,13 +59,13 @@ async fn test_app_state() -> AppState {
             architecture: ModelArchitecture::Gemini,
         },
         ModelOption {
-            name: "gemma-3-1b-it".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 128000,
-            rpm_limit: 30,
-            rpd_limit: 14400,
-            architecture: ModelArchitecture::Gemma,
+            name: "gemini-3.5-flash".to_string(),
+            input_price_per_mtoken: 0.10,
+            output_price_per_mtoken: 0.40,
+            context_window: 1000000,
+            rpm_limit: 5,
+            rpd_limit: 20,
+            architecture: ModelArchitecture::Gemini,
         },
     ];
 
@@ -164,7 +164,7 @@ async fn seed_summaries(db: &SqlitePool, count: usize) -> Vec<i64> {
             "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, summary, summary_done) \
              VALUES (?, ?, ?, ?, ?, ?, 1)"
         )
-        .bind("gemma-3-27b-it")
+        .bind("gemma-4-31b-it")
         .bind(format!("https://youtube.com/watch?v=test{}", i))
         .bind(format!("Transcript for video {}", i))
         .bind("127.0.0.1:0")
@@ -186,7 +186,7 @@ async fn seed_summary_with_timestamps(db: &SqlitePool, url: &str) -> i64 {
         "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, summary, summary_done, timestamps_done, timestamped_summary_in_youtube_format) \
          VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?)"
     )
-    .bind("gemma-3-27b-it")
+    .bind("gemma-4-31b-it")
     .bind(url)
     .bind("Transcript with timestamps")
     .bind("127.0.0.1:0")
@@ -602,10 +602,10 @@ async fn test_full_summarization_e2e() {
         .await
         .unwrap();
 
-    // Select the free model (gemma-3-27b-it)
+    // Select the free model (gemini-3.5-flash)
     let model_select = client.find(Locator::Css("#model")).await.unwrap();
     model_select
-        .select_by_value("gemma-3-27b-it")
+        .select_by_value("gemini-3.5-flash")
         .await
         .unwrap();
 
@@ -700,12 +700,17 @@ async fn test_deduplication_returns_same_id() {
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Extract the identifier from the #generation div's hx-post attribute
-    let generation_div = client.find(Locator::Css("#generation")).await.unwrap();
-    let hx_post = generation_div
-        .attr("hx-post")
-        .await
-        .unwrap()
-        .expect("hx-post should be present");
+    let mut hx_post = None;
+    for _ in 0..15 {
+        if let Ok(div) = client.find(Locator::Css("#generation")).await {
+            if let Ok(Some(val)) = div.attr("hx-post").await {
+                hx_post = Some(val);
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    let hx_post = hx_post.expect("hx-post should be present");
     // hx-post is like "/generations/1"
     let first_id = hx_post.trim_start_matches("/generations/").to_string();
 
@@ -726,12 +731,17 @@ async fn test_deduplication_returns_same_id() {
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Extract the identifier from the second submission
-    let generation_div = client.find(Locator::Css("#generation")).await.unwrap();
-    let hx_post = generation_div
-        .attr("hx-post")
-        .await
-        .unwrap()
-        .expect("hx-post should be present on second submission");
+    let mut hx_post = None;
+    for _ in 0..15 {
+        if let Ok(div) = client.find(Locator::Css("#generation")).await {
+            if let Ok(Some(val)) = div.attr("hx-post").await {
+                hx_post = Some(val);
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    let hx_post = hx_post.expect("hx-post should be present on second submission");
     let second_id = hx_post.trim_start_matches("/generations/").to_string();
 
     // Both submissions should return the same identifier (deduplication)
@@ -1333,8 +1343,8 @@ async fn test_concurrent_submissions() {
         .unwrap();
     submit_2.click().await.unwrap();
 
-    // Wait for both HTMX responses
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    // Wait for both HTMX responses to be initiated
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Extract identifier from client 1's #generation div
     let gen_1 = client_1.find(Locator::Css("#generation")).await.unwrap();
@@ -1398,11 +1408,19 @@ async fn test_server_restart_recovery() {
     submit_btn.click().await.unwrap();
 
     // Wait for HTMX to swap in the generation partial
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Verify polling started (generation div with hx-trigger)
-    let generation_div = client.find(Locator::Css("#generation")).await.unwrap();
-    let hx_trigger = generation_div.attr("hx-trigger").await.unwrap();
+    let mut hx_trigger = None;
+    for _ in 0..15 {
+        if let Ok(div) = client.find(Locator::Css("#generation")).await {
+            if let Ok(Some(val)) = div.attr("hx-trigger").await {
+                hx_trigger = Some(val);
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
     assert!(
         hx_trigger.is_some(),
         "Expected hx-trigger attribute for polling"
@@ -1432,11 +1450,22 @@ async fn test_server_restart_recovery() {
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     // The new server doesn't have the old record, so it should return "Summary not found"
-    let page_source = client.source().await.unwrap();
+    let mut found = false;
+    let mut last_page_source = String::new();
+    for _ in 0..20 {
+        if let Ok(page_source) = client.source().await {
+            last_page_source = page_source.clone();
+            if page_source.contains("Summary not found") {
+                found = true;
+                break;
+            }
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    }
     assert!(
-        page_source.contains("Summary not found"),
+        found,
         "Expected 'Summary not found' after server restart with fresh DB, got page source (first 500 chars): {}",
-        &page_source[..page_source.len().min(500)]
+        &last_page_source[..last_page_source.len().min(500)]
     );
 
     // Clean up
@@ -1477,7 +1506,7 @@ async fn test_aria_busy_during_generation() {
         .await
         .unwrap();
     submit_btn.click().await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Verify aria-busy="true" is present within #generation
     let busy_element = client
@@ -1603,6 +1632,16 @@ async fn test_keyboard_navigation() {
         "Expected URL input to be focused"
     );
 
+    // Tab to details summary
+    active.send_keys("\u{E004}").await.unwrap(); // Tab key
+    let active = client.active_element().await.unwrap();
+    let active_tag = active.tag_name().await.unwrap();
+    assert_eq!(
+        active_tag.to_lowercase(),
+        "summary",
+        "Expected details summary to be focused after Tab"
+    );
+
     // Tab to model select
     active.send_keys("\u{E004}").await.unwrap(); // Tab key
     let active = client.active_element().await.unwrap();
@@ -1610,7 +1649,7 @@ async fn test_keyboard_navigation() {
     assert_eq!(
         active_id.as_deref(),
         Some("model"),
-        "Expected model select to be focused after Tab"
+        "Expected model select to be focused after second Tab"
     );
 
     // Tab to submit button
@@ -1621,7 +1660,7 @@ async fn test_keyboard_navigation() {
     assert_eq!(
         active_tag.to_lowercase(),
         "button",
-        "Expected submit button to be focused after second Tab"
+        "Expected submit button to be focused after third Tab"
     );
 
     // Now test Enter key submission

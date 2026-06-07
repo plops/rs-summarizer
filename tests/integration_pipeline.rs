@@ -25,13 +25,13 @@ fn get_api_key() -> String {
 
 fn test_model() -> ModelOption {
     ModelOption {
-        name: "gemma-3-27b-it".to_string(),
-        input_price_per_mtoken: 0.0,
-        output_price_per_mtoken: 0.0,
-        context_window: 128_000,
-        rpm_limit: 30,
-        rpd_limit: 14400,
-        architecture: ModelArchitecture::Gemma,
+        name: "gemini-3.5-flash".to_string(),
+        input_price_per_mtoken: 0.10,
+        output_price_per_mtoken: 0.40,
+        context_window: 1_000_000,
+        rpm_limit: 5,
+        rpd_limit: 20,
+        architecture: ModelArchitecture::Gemini,
     }
 }
 
@@ -348,6 +348,9 @@ async fn test_timestamps_done_after_pipeline() {
 
     let row = db::fetch_summary(&app.db, id).await.unwrap().unwrap();
     assert!(row.summary_done, "summary_done should be true");
+    if !row.timestamps_done {
+        println!("Test failed. Summary content: {}", row.summary);
+    }
     assert!(row.timestamps_done, "timestamps_done should be true after pipeline");
     assert!(
         !row.timestamped_summary_in_youtube_format.is_empty(),
@@ -512,6 +515,9 @@ async fn test_polling_lifecycle_simulation() {
     // Final verification
     let row = db::fetch_summary(&app.db, id).await.unwrap().unwrap();
     assert!(row.summary_done, "summary_done should be true");
+    if !row.timestamps_done {
+        println!("Test failed. Summary content: {}", row.summary);
+    }
     assert!(row.timestamps_done, "timestamps_done should be true");
     assert!(!row.summary_timestamp_end.is_empty(), "end timestamp should be set");
 }
