@@ -36,25 +36,25 @@ pub struct AppState {
 /// Retrieve default baseline configurations reflecting the model list
 pub fn get_default_models() -> Vec<ModelOption> {
     vec![
-        // 1. Gemini 3 Flash (Text-out models)
+        // 1. Gemini 3.5 Flash (Text-out models)
         ModelOption {
-            name: "gemini-3-flash".to_string(),
+            name: "gemini-3.5-flash".to_string(),
             input_price_per_mtoken: 0.10,
             output_price_per_mtoken: 0.40,
-            context_window: 1_048_576,
+            context_window: 1_000_000,
             rpm_limit: 5,
             rpd_limit: 20,
             architecture: ModelArchitecture::Gemini,
         },
-        // 2. Gemini 3.1 Flash Lite (Text-out models)
+        // 2. Gemma 4 31B (Mixture-of-Experts)
         ModelOption {
-            name: "gemini-3.1-flash-lite".to_string(),
-            input_price_per_mtoken: 0.075,
-            output_price_per_mtoken: 0.30,
-            context_window: 1_048_576,
+            name: "gemma-4-31b-it".to_string(),
+            input_price_per_mtoken: 0.07,
+            output_price_per_mtoken: 0.34,
+            context_window: 262_144,
             rpm_limit: 15,
-            rpd_limit: 500,
-            architecture: ModelArchitecture::Gemini,
+            rpd_limit: 1500,
+            architecture: ModelArchitecture::Gemma,
         },
         // 3. Gemma 4 26B (Mixture-of-Experts)
         ModelOption {
@@ -66,134 +66,44 @@ pub fn get_default_models() -> Vec<ModelOption> {
             rpd_limit: 1500,
             architecture: ModelArchitecture::Gemma,
         },
-        // 4. Gemini 3.5 Flash (Text-out models)
+        // 4. Gemini 3.1 Flash Lite (Text-out models)
         ModelOption {
-            name: "gemini-3.5-flash".to_string(),
+            name: "gemini-3.1-flash-lite".to_string(),
+            input_price_per_mtoken: 0.075,
+            output_price_per_mtoken: 0.30,
+            context_window: 1_048_576,
+            rpm_limit: 15,
+            rpd_limit: 500,
+            architecture: ModelArchitecture::Gemini,
+        },
+        // 5. Gemini 2.5 Flash (Text-out models)
+        ModelOption {
+            name: "gemini-2.5-flash".to_string(),
             input_price_per_mtoken: 0.10,
             output_price_per_mtoken: 0.40,
-            context_window: 1_000_000,
+            context_window: 1_048_576,
             rpm_limit: 5,
             rpd_limit: 20,
             architecture: ModelArchitecture::Gemini,
         },
-        // 5. Imagen 4 Generate (Multi-modal)
+        // 6. Gemini 2.5 Flash Lite (Text-out models)
         ModelOption {
-            name: "imagen-4.0-generate-001".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 0,
-            rpm_limit: 5,
-            rpd_limit: 25,
-            architecture: ModelArchitecture::Other,
-        },
-        // 6. Imagen 4 Ultra Generate (Multi-modal)
-        ModelOption {
-            name: "imagen-4.0-ultra-generate-001".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 0,
-            rpm_limit: 5,
-            rpd_limit: 25,
-            architecture: ModelArchitecture::Other,
-        },
-        // 7. Imagen 4 Fast Generate (Multi-modal)
-        ModelOption {
-            name: "imagen-4.0-fast-generate-001".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 0,
-            rpm_limit: 5,
-            rpd_limit: 25,
-            architecture: ModelArchitecture::Other,
-        },
-        // 8. Gemini 2.5 Flash (Map grounding)
-        ModelOption {
-            name: "gemini-2.5-flash-map".to_string(),
-            input_price_per_mtoken: 0.15,
-            output_price_per_mtoken: 0.60,
-            context_window: 1_000_000,
-            rpm_limit: 15,
-            rpd_limit: 500,
-            architecture: ModelArchitecture::Other,
-        },
-        // 9. Gemini 3.1 Flash Lite (Map grounding)
-        ModelOption {
-            name: "gemini-3.1-flash-lite-map".to_string(),
+            name: "gemini-2.5-flash-lite".to_string(),
             input_price_per_mtoken: 0.075,
             output_price_per_mtoken: 0.30,
-            context_window: 1_000_000,
-            rpm_limit: 15,
-            rpd_limit: 500,
-            architecture: ModelArchitecture::Other,
-        },
-        // 10. Gemini 3.1 Flash TTS (Map grounding)
-        ModelOption {
-            name: "gemini-3.1-flash-tts-map".to_string(),
-            input_price_per_mtoken: 0.075,
-            output_price_per_mtoken: 0.30,
-            context_window: 1_000_000,
-            rpm_limit: 15,
-            rpd_limit: 500,
-            architecture: ModelArchitecture::Other,
-        },
-        // 11. Gemini Robotics ER 1.6 Preview (Map grounding)
-        ModelOption {
-            name: "gemini-robotics-er-1.6-preview-map".to_string(),
-            input_price_per_mtoken: 0.15,
-            output_price_per_mtoken: 0.60,
-            context_window: 1_000_000,
-            rpm_limit: 15,
-            rpd_limit: 500,
-            architecture: ModelArchitecture::Other,
-        },
-        // 12. Computer Use Preview (Map grounding)
-        ModelOption {
-            name: "computer-use-preview-map".to_string(),
-            input_price_per_mtoken: 0.15,
-            output_price_per_mtoken: 0.60,
-            context_window: 1_000_000,
-            rpm_limit: 15,
-            rpd_limit: 500,
-            architecture: ModelArchitecture::Other,
-        },
-        // 13. Deep Research Pro Preview (Map grounding)
-        ModelOption {
-            name: "deep-research-pro-preview-map".to_string(),
-            input_price_per_mtoken: 0.15,
-            output_price_per_mtoken: 0.60,
-            context_window: 1_000_000,
-            rpm_limit: 15,
-            rpd_limit: 500,
-            architecture: ModelArchitecture::Other,
-        },
-        // 14. Gemini 2.0 (Search grounding)
-        ModelOption {
-            name: "gemini-2.0".to_string(),
-            input_price_per_mtoken: 0.15,
-            output_price_per_mtoken: 0.60,
-            context_window: 1_000_000,
-            rpm_limit: 15,
-            rpd_limit: 1500,
+            context_window: 1_048_576,
+            rpm_limit: 10,
+            rpd_limit: 20,
             architecture: ModelArchitecture::Gemini,
         },
-        // 15. Gemini 2.5 (Search grounding)
+        // 7. Gemini 3 Flash Preview (Text-out models)
         ModelOption {
-            name: "gemini-2.5".to_string(),
-            input_price_per_mtoken: 0.15,
-            output_price_per_mtoken: 0.60,
-            context_window: 1_000_000,
-            rpm_limit: 15,
-            rpd_limit: 1500,
-            architecture: ModelArchitecture::Gemini,
-        },
-        // 16. Default (Search grounding)
-        ModelOption {
-            name: "default".to_string(),
-            input_price_per_mtoken: 0.15,
-            output_price_per_mtoken: 0.60,
-            context_window: 1_000_000,
-            rpm_limit: 15,
-            rpd_limit: 1500,
+            name: "gemini-3-flash-preview".to_string(),
+            input_price_per_mtoken: 0.10,
+            output_price_per_mtoken: 0.40,
+            context_window: 1_048_576,
+            rpm_limit: 5,
+            rpd_limit: 20,
             architecture: ModelArchitecture::Gemini,
         },
     ]
