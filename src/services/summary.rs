@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use gemini_rust::{Gemini, Model};
+use gemini_rust::{Gemini, Model, ThinkingLevel};
 use sqlx::SqlitePool;
 use tracing;
 
@@ -73,6 +73,17 @@ impl SummaryService {
 
         // Use streaming to persist chunks progressively (Req 6.1, 6.2)
         let mut builder = client.generate_content();
+
+        // Configure high thinking effort for thinking-supported Gemini models
+        if model.architecture == crate::state::ModelArchitecture::Gemini {
+            let name_lower = model.name.to_lowercase();
+            if name_lower.contains("gemini-3") {
+                builder = builder.with_thinking_level(ThinkingLevel::High);
+            } else if name_lower.contains("gemini-2.5") {
+                let budget = if name_lower.contains("pro") { 32768 } else { 24576 };
+                builder = builder.with_thinking_budget(budget);
+            }
+        }
 
         // Model-aware prompt routing (Req 2.3, 3.1, 3.2):
         // - Gemini models: system instruction as API parameter, standard user prompt

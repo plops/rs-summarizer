@@ -1,6 +1,6 @@
 use crate::data_loader::EmbeddingPoint;
 use crate::errors::VizError;
-use gemini_rust::{Gemini, Model};
+use gemini_rust::{Gemini, Model, ThinkingLevel};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -144,10 +144,20 @@ async fn process_batch(
     let client = Gemini::with_model(api_key, Model::Custom(format!("models/{}", model_name)))
         .map_err(|e| VizError::Api(format!("Failed to create Gemini client: {}", e)))?;
     
-    let response = client
-        .generate_content()
+    let mut builder = client.generate_content()
         .with_user_message(&combined_prompt)
-        .with_response_mime_type("application/json")
+        .with_response_mime_type("application/json");
+
+    // Configure high thinking effort for thinking-supported Gemini models
+    let name_lower = model_name.to_lowercase();
+    if name_lower.contains("gemini-3") {
+        builder = builder.with_thinking_level(ThinkingLevel::High);
+    } else if name_lower.contains("gemini-2.5") {
+        let budget = if name_lower.contains("pro") { 32768 } else { 24576 };
+        builder = builder.with_thinking_budget(budget);
+    }
+
+    let response = builder
         .execute()
         .await
         .map_err(|e| VizError::Api(format!("Gemini API call failed: {}", e)))?;
