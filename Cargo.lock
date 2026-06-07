@@ -6234,7 +6234,7 @@ dependencies = [
 
 [[package]]
 name = "rs-summarizer"
-version = "0.6.3"
+version = "0.6.4"
 dependencies = [
  "anyhow",
  "askama",
