@@ -14,13 +14,6 @@
             <label for="url">YouTube URL</label>
             <input type="text" id="url" name="original_source_link" placeholder="https://www.youtube.com/watch?v=...">
             
-            <details>
-                <summary>Or paste a transcript directly...</summary>
-                <label for="transcript">Transcript Text</label>
-                <textarea id="transcript" name="transcript" rows="6" placeholder="00:00:00 Welcome to this video...&#10;00:00:05 Today we will learn about ownership..."></textarea>
-                <small>If you paste a transcript here, the YouTube URL becomes optional and will only be used to generate links for the timestamps.</small>
-            </details>
-
             <label for="model">Model</label>
             <select id="model" name="model">
                 {% for model in models %}
@@ -28,33 +21,43 @@
                 {% endfor %}
             </select>
 
-            <fieldset id="extra-options" style="margin-top: 1rem; border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 8px; padding: 1rem; background: rgba(0, 0, 0, 0.01); display: none;">
-                <legend style="padding: 0 0.5rem; font-weight: bold; font-size: 0.9rem;">Model Options</legend>
+            <details>
+                <summary style="font-weight: bold; cursor: pointer; color: var(--primary);">Advanced Options</summary>
                 
-                <div id="grounding-container" style="display: none; margin-bottom: 0.5rem;">
-                    <label for="google_search_grounding">
-                        <input type="checkbox" id="google_search_grounding" name="google_search_grounding" role="switch">
-                        Grounding with Google Search
-                    </label>
-                </div>
+                <label for="transcript" style="margin-top: 1rem;">Paste Transcript Directly (Optional)</label>
+                <textarea id="transcript" name="transcript" rows="6" placeholder="00:00:00 Welcome to this video...&#10;00:00:05 Today we will learn about ownership..."></textarea>
+                <small>If you paste a transcript here, the YouTube URL becomes optional and will only be used to generate links for the timestamps.</small>
 
-                <div id="url-context-container" style="display: none; margin-bottom: 0.5rem;">
-                    <label for="url_context">
-                        <input type="checkbox" id="url_context" name="url_context" role="switch">
-                        URL Context (Gemini only)
-                    </label>
-                </div>
-            </fieldset>
+                <fieldset id="extra-options" style="margin-top: 1.5rem; border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 8px; padding: 1rem; background: rgba(0, 0, 0, 0.01); display: none;">
+                    <legend style="padding: 0 0.5rem; font-weight: bold; font-size: 0.9rem;">Model Features</legend>
+                    
+                    <div id="grounding-container" style="display: none; margin-bottom: 0.5rem;">
+                        <label for="google_search_grounding">
+                            <input type="checkbox" id="google_search_grounding" name="google_search_grounding" role="switch">
+                            Grounding with Google Search
+                        </label>
+                    </div>
+
+                    <div id="url-context-container" style="display: none; margin-bottom: 0.5rem;">
+                        <label for="url_context">
+                            <input type="checkbox" id="url_context" name="url_context" role="switch">
+                            URL Context (Gemini only)
+                        </label>
+                    </div>
+                </fieldset>
+            </details>
             
             <button type="submit" style="margin-top: 1.5rem;">Summarize</button>
         </form>
 
         <script>
             document.addEventListener("DOMContentLoaded", function() {
+                const form = document.querySelector('form[hx-post="/process_transcript"]');
                 const urlInput = document.getElementById('url');
                 const transcriptInput = document.getElementById('transcript');
 
                 function updateRequired() {
+                    if (!transcriptInput || !urlInput) return;
                     if (transcriptInput.value.trim().length > 0) {
                         urlInput.removeAttribute('required');
                     } else {
@@ -62,8 +65,14 @@
                     }
                 }
 
-                transcriptInput.addEventListener('input', updateRequired);
-                updateRequired();
+                if (form && transcriptInput && urlInput) {
+                    // Update required attribute on any interaction inside the form
+                    form.addEventListener('input', updateRequired);
+                    form.addEventListener('change', updateRequired);
+                    form.addEventListener('click', updateRequired);
+                    form.addEventListener('keyup', updateRequired);
+                    updateRequired();
+                }
 
                 // Toggle visibility of Grounding and URL Context options
                 const modelSelect = document.getElementById('model');
@@ -74,6 +83,7 @@
                 const urlContextCheckbox = document.getElementById('url_context');
 
                 function updateOptionsVisibility() {
+                    if (!modelSelect) return;
                     const selectedOption = modelSelect.options[modelSelect.selectedIndex];
                     const arch = selectedOption ? selectedOption.getAttribute('data-architecture') : '';
 
@@ -86,21 +96,42 @@
                     } else if (arch === 'Gemma') {
                         showGrounding = true;
                         showUrlContext = false;
-                        urlContextCheckbox.checked = false;
+                        if (urlContextCheckbox) urlContextCheckbox.checked = false;
                     } else {
                         showGrounding = false;
                         showUrlContext = false;
-                        groundingCheckbox.checked = false;
-                        urlContextCheckbox.checked = false;
+                        if (groundingCheckbox) groundingCheckbox.checked = false;
+                        if (urlContextCheckbox) urlContextCheckbox.checked = false;
                     }
 
-                    groundingContainer.style.display = showGrounding ? 'block' : 'none';
-                    urlContextContainer.style.display = showUrlContext ? 'block' : 'none';
-                    extraOptions.style.display = (showGrounding || showUrlContext) ? 'block' : 'none';
+                    if (groundingContainer) groundingContainer.style.display = showGrounding ? 'block' : 'none';
+                    if (urlContextContainer) urlContextContainer.style.display = showUrlContext ? 'block' : 'none';
+                    if (extraOptions) extraOptions.style.display = (showGrounding || showUrlContext) ? 'block' : 'none';
                 }
 
-                modelSelect.addEventListener('change', updateOptionsVisibility);
-                updateOptionsVisibility();
+                if (modelSelect) {
+                    modelSelect.addEventListener('change', updateOptionsVisibility);
+                    updateOptionsVisibility();
+                }
+
+                // Manage tabindex for elements inside collapsed details for keyboard accessibility
+                const details = document.querySelector('details');
+                if (details) {
+                    const advancedInputs = details.querySelectorAll('textarea, input');
+                    function updateTabindex() {
+                        const isOpen = details.hasAttribute('open');
+                        for (let i = 0; i < advancedInputs.length; i++) {
+                            const el = advancedInputs[i];
+                            if (isOpen) {
+                                el.removeAttribute('tabindex');
+                            } else {
+                                el.setAttribute('tabindex', '-1');
+                            }
+                        }
+                    }
+                    details.addEventListener('toggle', updateTabindex);
+                    updateTabindex();
+                }
             });
         </script>
         

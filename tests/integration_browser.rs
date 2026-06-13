@@ -919,6 +919,76 @@ async fn test_form_required_validation() {
     geckodriver.kill().ok();
 }
 
+/// Test that pasting a transcript into the textarea removes the required attribute
+/// from the URL input and allows successful form submission.
+#[tokio::test]
+#[ignore]
+async fn test_form_submission_with_pasted_transcript() {
+    let base_url = start_test_server().await;
+    let geckodriver_port = 4492;
+    let mut geckodriver = start_geckodriver(geckodriver_port);
+    let client = connect_browser(geckodriver_port).await;
+
+    // Navigate to the index page
+    client.goto(&base_url).await.unwrap();
+
+    // Verify URL input has the `required` attribute initially
+    let url_input = client.find(Locator::Css("#url")).await.unwrap();
+    assert!(
+        url_input.attr("required").await.unwrap().is_some(),
+        "URL input should start as required"
+    );
+
+    // Open the details section
+    let summary = client.find(Locator::Css("details summary")).await.unwrap();
+    summary.click().await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+
+    // Paste a transcript into the textarea
+    let transcript_input = client.find(Locator::Css("#transcript")).await.unwrap();
+    transcript_input
+        .send_keys("00:00:00 Welcome to this video about Rust programming \
+            00:00:05 Today we will learn about ownership and borrowing \
+            00:00:10 Rust's ownership system is what makes it unique among programming languages \
+            00:00:15 Every value in Rust has a single owner at any given time \
+            00:00:20 When the owner goes out of scope the value is dropped \
+            00:00:25 This prevents memory leaks and data races at compile time \
+            00:00:30 Let me show you some examples of how this works in practice")
+        .await
+        .unwrap();
+
+    // Verify URL input no longer has the `required` attribute
+    assert!(
+        url_input.attr("required").await.unwrap().is_none(),
+        "URL input should not be required after transcript is entered"
+    );
+
+    // Click submit
+    let submit_btn = client.find(Locator::Css("button[type='submit']")).await.unwrap();
+    submit_btn.click().await.unwrap();
+
+    // Wait for HTMX to swap in the result
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // The result div should contain either the progress state or the API key permission error
+    // (indicating that form validation was bypassed and submission reached the backend)
+    let result_div = client.find(Locator::Css("#result")).await.unwrap();
+    let result_html = result_div.html(true).await.unwrap();
+    assert!(
+        result_html.contains("Processing") || 
+        result_html.contains("Generating summary") ||
+        result_html.contains("API Key") ||
+        result_html.contains("PERMISSION_DENIED") ||
+        result_html.contains("Summary error"),
+        "Expected processing state or API key error in result div, got: {}",
+        result_html
+    );
+
+    // Clean up
+    client.close().await.unwrap();
+    geckodriver.kill().ok();
+}
+
 /// Test that the browse page displays 20 articles on page 0 when there are 25 total,
 /// and shows a "Next →" link pointing to /browse?page=1.
 #[tokio::test]
@@ -1615,12 +1685,7 @@ async fn test_keyboard_navigation() {
     // Navigate to the index page
     client.goto(&base_url).await.unwrap();
 
-    // Click on the body to ensure focus starts from the page
-    let body = client.find(Locator::Css("body")).await.unwrap();
-    body.click().await.unwrap();
-
-    // Tab to the URL input (first focusable element in the form)
-    // Use JavaScript to focus the URL input first, then test tab order from there
+    // Focus the URL input first, then test tab order from there
     client.execute("document.getElementById('url').focus()", vec![]).await.unwrap();
 
     // Verify URL input is focused
@@ -1632,16 +1697,6 @@ async fn test_keyboard_navigation() {
         "Expected URL input to be focused"
     );
 
-    // Tab to details summary
-    active.send_keys("\u{E004}").await.unwrap(); // Tab key
-    let active = client.active_element().await.unwrap();
-    let active_tag = active.tag_name().await.unwrap();
-    assert_eq!(
-        active_tag.to_lowercase(),
-        "summary",
-        "Expected details summary to be focused after Tab"
-    );
-
     // Tab to model select
     active.send_keys("\u{E004}").await.unwrap(); // Tab key
     let active = client.active_element().await.unwrap();
@@ -1649,11 +1704,20 @@ async fn test_keyboard_navigation() {
     assert_eq!(
         active_id.as_deref(),
         Some("model"),
-        "Expected model select to be focused after second Tab"
+        "Expected model select to be focused after Tab"
     );
 
-    // Tab to submit button
+    // Tab to details summary
+    active.send_keys("\u{E004}").await.unwrap(); // Tab key
     let active = client.active_element().await.unwrap();
+    let active_tag = active.tag_name().await.unwrap();
+    assert_eq!(
+        active_tag.to_lowercase(),
+        "summary",
+        "Expected details summary to be focused after second Tab"
+    );
+
+    // Tab to submit button (third Tab)
     active.send_keys("\u{E004}").await.unwrap(); // Tab key
     let active = client.active_element().await.unwrap();
     let active_tag = active.tag_name().await.unwrap();
