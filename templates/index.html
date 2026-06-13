@@ -24,11 +24,29 @@
             <label for="model">Model</label>
             <select id="model" name="model">
                 {% for model in models %}
-                <option value="{{ model.name }}">{{ model.name }}</option>
+                <option value="{{ model.name }}" data-architecture="{{ model.architecture.as_str() }}">{{ model.name }}</option>
                 {% endfor %}
             </select>
+
+            <fieldset id="extra-options" style="margin-top: 1rem; border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 8px; padding: 1rem; background: rgba(0, 0, 0, 0.01); display: none;">
+                <legend style="padding: 0 0.5rem; font-weight: bold; font-size: 0.9rem;">Model Options</legend>
+                
+                <div id="grounding-container" style="display: none; margin-bottom: 0.5rem;">
+                    <label for="google_search_grounding">
+                        <input type="checkbox" id="google_search_grounding" name="google_search_grounding" role="switch">
+                        Grounding with Google Search
+                    </label>
+                </div>
+
+                <div id="url-context-container" style="display: none; margin-bottom: 0.5rem;">
+                    <label for="url_context">
+                        <input type="checkbox" id="url_context" name="url_context" role="switch">
+                        URL Context (Gemini only)
+                    </label>
+                </div>
+            </fieldset>
             
-            <button type="submit">Summarize</button>
+            <button type="submit" style="margin-top: 1.5rem;">Summarize</button>
         </form>
 
         <script>
@@ -46,6 +64,43 @@
 
                 transcriptInput.addEventListener('input', updateRequired);
                 updateRequired();
+
+                // Toggle visibility of Grounding and URL Context options
+                const modelSelect = document.getElementById('model');
+                const extraOptions = document.getElementById('extra-options');
+                const groundingContainer = document.getElementById('grounding-container');
+                const urlContextContainer = document.getElementById('url-context-container');
+                const groundingCheckbox = document.getElementById('google_search_grounding');
+                const urlContextCheckbox = document.getElementById('url_context');
+
+                function updateOptionsVisibility() {
+                    const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+                    const arch = selectedOption ? selectedOption.getAttribute('data-architecture') : '';
+
+                    let showGrounding = false;
+                    let showUrlContext = false;
+
+                    if (arch === 'Gemini') {
+                        showGrounding = true;
+                        showUrlContext = true;
+                    } else if (arch === 'Gemma') {
+                        showGrounding = true;
+                        showUrlContext = false;
+                        urlContextCheckbox.checked = false;
+                    } else {
+                        showGrounding = false;
+                        showUrlContext = false;
+                        groundingCheckbox.checked = false;
+                        urlContextCheckbox.checked = false;
+                    }
+
+                    groundingContainer.style.display = showGrounding ? 'block' : 'none';
+                    urlContextContainer.style.display = showUrlContext ? 'block' : 'none';
+                    extraOptions.style.display = (showGrounding || showUrlContext) ? 'block' : 'none';
+                }
+
+                modelSelect.addEventListener('change', updateOptionsVisibility);
+                updateOptionsVisibility();
             });
         </script>
         

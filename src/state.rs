@@ -11,6 +11,16 @@ pub enum ModelArchitecture {
     Other,
 }
 
+impl ModelArchitecture {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ModelArchitecture::Gemini => "Gemini",
+            ModelArchitecture::Gemma => "Gemma",
+            ModelArchitecture::Other => "Other",
+        }
+    }
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ModelOption {
     pub name: String,

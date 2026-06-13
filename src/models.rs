@@ -26,6 +26,10 @@ pub struct Summary {
     pub embedding: Option<Vec<u8>>,
     pub embedding_model: String,
     pub full_embedding: Option<Vec<u8>>,
+    pub google_search_grounding: bool,
+    pub url_context: bool,
+    pub thinking: String,
+    pub thinking_tokens: i64,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -33,6 +37,10 @@ pub struct SubmitForm {
     pub original_source_link: String,
     pub transcript: Option<String>,
     pub model: String,
+    #[serde(default)]
+    pub google_search_grounding: bool,
+    #[serde(default)]
+    pub url_context: bool,
 }
 
 #[derive(Debug, serde::Deserialize)]

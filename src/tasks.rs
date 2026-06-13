@@ -68,7 +68,14 @@ async fn process_summary_inner(
 
     // Step 5: Generate summary (streaming, updates DB progressively)
     let result = summary_svc
-        .generate_summary(db_pool, identifier, &summary.transcript, &model)
+        .generate_summary(
+            db_pool,
+            identifier,
+            &summary.transcript,
+            &model,
+            summary.google_search_grounding,
+            summary.url_context,
+        )
         .await?;
 
     // Step 5b: Mark summary as done (stops HTMX polling on the frontend)
@@ -78,6 +85,8 @@ async fn process_summary_inner(
         identifier,
         result.input_tokens as i64,
         result.output_tokens as i64,
+        result.thinking_tokens as i64,
+        &result.thinking_text,
         result.cost,
         &timestamp_end,
     )
@@ -137,5 +146,5 @@ fn parse_model_option(model_name: &str, model_options: &[ModelOption]) -> Result
 /// This ensures the frontend stops polling and displays the error.
 async fn mark_error(db_pool: &SqlitePool, identifier: i64, error_msg: &str) {
     let _ = db::update_summary_chunk(db_pool, identifier, error_msg).await;
-    let _ = db::mark_summary_done(db_pool, identifier, 0, 0, 0.0, "").await;
+    let _ = db::mark_summary_done(db_pool, identifier, 0, 0, 0, "", 0.0, "").await;
 }

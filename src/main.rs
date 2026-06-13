@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Build application state
     let state = AppState {
-        db,
+        db: db.clone(),
         model_options: Arc::new(model_options),
         model_counts: Arc::new(RwLock::new(HashMap::new())),
         last_reset_day: Arc::new(RwLock::new(None)),
@@ -55,9 +55,44 @@ async fn main() -> anyhow::Result<()> {
     let addr = SocketAddr::from(([0, 0, 0, 0], 5001));
     tracing::info!("Listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+    
+    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
+        .with_graceful_shutdown(shutdown_signal())
+        .await?;
+
+    // Perform database cleanup on graceful shutdown
+    tracing::info!("Cleaning up database connections...");
+    let _ = sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
+        .execute(&db)
+        .await;
+    db.close().await;
+    tracing::info!("Shutdown complete");
 
     Ok(())
+}
+
+async fn shutdown_signal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("failed to install signal handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
+    }
 }
 
 async fn load_visualization_components() -> (
@@ -285,15 +320,11 @@ async fn handle_export_command(args: &[String]) -> anyhow::Result<()> {
     }
     
     let source = source.ok_or_else(|| {
-        eprintln!("Error: --source argument is required");
-        std::process::exit(1);
-        anyhow::anyhow!("Missing --source argument")
+        anyhow::anyhow!("--source argument is required")
     })?;
     
     let output = output.ok_or_else(|| {
-        eprintln!("Error: --output argument is required");
-        std::process::exit(1);
-        anyhow::anyhow!("Missing --output argument")
+        anyhow::anyhow!("--output argument is required")
     })?;
     
     let export_args = ExportDbArgs { source, output };

@@ -31,14 +31,16 @@ pub async fn insert_new_summary(
     let transcript = form.transcript.as_deref().unwrap_or("");
 
     let result = sqlx::query(
-        "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start) \
-         VALUES (?, ?, ?, ?, ?)"
+        "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, google_search_grounding, url_context) \
+         VALUES (?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&form.model)
     .bind(&form.original_source_link)
     .bind(transcript)
     .bind(host)
     .bind(timestamp_start)
+    .bind(form.google_search_grounding)
+    .bind(form.url_context)
     .execute(db)
     .await?;
 
@@ -85,15 +87,19 @@ pub async fn mark_summary_done(
     identifier: i64,
     input_tokens: i64,
     output_tokens: i64,
+    thinking_tokens: i64,
+    thinking: &str,
     cost: f64,
     timestamp_end: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE summaries SET summary_done = 1, summary_input_tokens = ?, summary_output_tokens = ?, \
-         cost = ?, summary_timestamp_end = ? WHERE identifier = ?"
+         thinking_tokens = ?, thinking = ?, cost = ?, summary_timestamp_end = ? WHERE identifier = ?"
     )
     .bind(input_tokens)
     .bind(output_tokens)
+    .bind(thinking_tokens)
+    .bind(thinking)
     .bind(cost)
     .bind(timestamp_end)
     .bind(identifier)

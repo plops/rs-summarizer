@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use gemini_rust::{Gemini, Model, ThinkingLevel};
+use gemini_rust::{Gemini, Model, ThinkingLevel, Tool, Part};
 use sqlx::SqlitePool;
 use tracing;
 
@@ -24,6 +24,8 @@ pub struct SummaryResult {
     pub summary_text: String,
     pub input_tokens: u64,
     pub output_tokens: u64,
+    pub thinking_text: String,
+    pub thinking_tokens: u64,
     pub cost: f64,
     pub duration_secs: f64,
 }
@@ -47,6 +49,8 @@ impl SummaryService {
         identifier: i64,
         transcript: &str,
         model: &ModelOption,
+        google_search_grounding: bool,
+        url_context: bool,
     ) -> Result<SummaryResult, SummaryError> {
         // Validate transcript length (Req 6.5, 6.6)
         let word_count = transcript.split_whitespace().count();
@@ -74,14 +78,26 @@ impl SummaryService {
         // Use streaming to persist chunks progressively (Req 6.1, 6.2)
         let mut builder = client.generate_content();
 
+        // Configure grounding with Google Search if selected and architecture is Gemini or Gemma
+        if google_search_grounding && (model.architecture == crate::state::ModelArchitecture::Gemini || model.architecture == crate::state::ModelArchitecture::Gemma) {
+            builder = builder.with_tool(Tool::google_search());
+        }
+
+        // Configure URL context if selected and architecture is Gemini
+        if url_context && model.architecture == crate::state::ModelArchitecture::Gemini {
+            builder = builder.with_tool(Tool::url_context());
+        }
+
         // Configure high thinking effort for thinking-supported Gemini models
         if model.architecture == crate::state::ModelArchitecture::Gemini {
             let name_lower = model.name.to_lowercase();
             if name_lower.contains("gemini-3") {
-                builder = builder.with_thinking_level(ThinkingLevel::High);
+                builder = builder.with_thinking_level(ThinkingLevel::High)
+                                 .with_thoughts_included(true);
             } else if name_lower.contains("gemini-2.5") {
                 let budget = if name_lower.contains("pro") { 32768 } else { 24576 };
-                builder = builder.with_thinking_budget(budget);
+                builder = builder.with_thinking_budget(budget)
+                                 .with_thoughts_included(true);
             }
         }
 
@@ -118,20 +134,43 @@ impl SummaryService {
             })?;
 
         let mut summary_text = String::new();
+        let mut thinking_text = String::new();
         let mut input_tokens: u64 = 0;
         let mut output_tokens: u64 = 0;
+        let mut thinking_tokens: u64 = 0;
 
         // Process streaming chunks, persisting each to DB progressively
         while let Some(chunk_result) = stream.next().await {
             match chunk_result {
                 Ok(response) => {
-                    let chunk_text = response.text();
-                    if !chunk_text.is_empty() {
-                        // Persist chunk to DB (Req 6.2 - monotonically growing)
-                        db::update_summary_chunk(db_pool, identifier, &chunk_text)
-                            .await
-                            .map_err(|e| SummaryError::ApiError(format!("DB error: {}", e)))?;
-                        summary_text.push_str(&chunk_text);
+                    // Extract text parts, separating thoughts if it's a Gemini model with thoughts
+                    if model.architecture == crate::state::ModelArchitecture::Gemini {
+                        if let Some(candidate) = response.candidates.first() {
+                            if let Some(parts) = &candidate.content.parts {
+                                for part in parts {
+                                    if let Part::Text { text, thought, .. } = part {
+                                        let is_thought = thought.unwrap_or(false);
+                                        if is_thought {
+                                            thinking_text.push_str(text);
+                                        } else if !text.is_empty() {
+                                            db::update_summary_chunk(db_pool, identifier, text)
+                                                .await
+                                                .map_err(|e| SummaryError::ApiError(format!("DB error: {}", e)))?;
+                                            summary_text.push_str(text);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // For Gemma or others, store the entire text in summary progressively
+                        let chunk_text = response.text();
+                        if !chunk_text.is_empty() {
+                            db::update_summary_chunk(db_pool, identifier, &chunk_text)
+                                .await
+                                .map_err(|e| SummaryError::ApiError(format!("DB error: {}", e)))?;
+                            summary_text.push_str(&chunk_text);
+                        }
                     }
 
                     // Extract token counts from usage metadata (last chunk typically has them)
@@ -141,6 +180,9 @@ impl SummaryService {
                         }
                         if let Some(candidates_tokens) = usage.candidates_token_count {
                             output_tokens = candidates_tokens as u64;
+                        }
+                        if let Some(thoughts_tokens) = usage.thoughts_token_count {
+                            thinking_tokens = thoughts_tokens as u64;
                         }
                     }
                 }
@@ -160,7 +202,7 @@ impl SummaryService {
             }
         }
 
-        if summary_text.is_empty() {
+        if summary_text.is_empty() && thinking_text.is_empty() {
             return Err(SummaryError::ApiError(
                 "Gemini returned empty response".to_string(),
             ));
@@ -182,6 +224,7 @@ impl SummaryService {
             identifier = identifier,
             input_tokens = input_tokens,
             output_tokens = output_tokens,
+            thinking_tokens = thinking_tokens,
             cost = cost,
             duration_secs = duration_secs,
             "Summary generation complete"
@@ -191,6 +234,8 @@ impl SummaryService {
             summary_text,
             input_tokens,
             output_tokens,
+            thinking_text,
+            thinking_tokens,
             cost,
             duration_secs,
         })

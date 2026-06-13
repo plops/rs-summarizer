@@ -89,13 +89,15 @@ async fn test_summary_generation() {
         original_source_link: "https://www.youtube.com/watch?v=test123test".to_string(),
         transcript: Some(transcript.to_string()),
         model: model.name.clone(),
+        google_search_grounding: false,
+        url_context: false,
     };
     let id = db::insert_new_summary(&db_pool, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
         .expect("Failed to insert test row");
 
     // Generate summary
-    let result = svc.generate_summary(&db_pool, id, transcript, &model).await;
+    let result = svc.generate_summary(&db_pool, id, transcript, &model, false, false).await;
 
     match result {
         Ok(summary_result) => {
@@ -205,12 +207,14 @@ async fn test_full_pipeline_end_to_end() {
         original_source_link: "https://www.youtube.com/watch?v=LlzXCE02swU".to_string(),
         transcript: Some(transcript.clone()),
         model: model.name.clone(),
+        google_search_grounding: false,
+        url_context: false,
     };
     let id = db::insert_new_summary(&db_pool, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
         .expect("Failed to insert");
 
-    let summary_result = match summary_svc.generate_summary(&db_pool, id, &transcript, &model).await {
+    let summary_result = match summary_svc.generate_summary(&db_pool, id, &transcript, &model, false, false).await {
         Ok(r) => r,
         Err(e) => {
             let err_str = e.to_string();
@@ -290,6 +294,8 @@ async fn test_summary_done_flag_transitions() {
         original_source_link: "https://www.youtube.com/watch?v=test_done_flag".to_string(),
         transcript: Some(transcript.to_string()),
         model: test_model().name,
+        google_search_grounding: false,
+        url_context: false,
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -338,6 +344,8 @@ async fn test_timestamps_done_after_pipeline() {
         original_source_link: "https://www.youtube.com/watch?v=test_timestamps".to_string(),
         transcript: Some(transcript.to_string()),
         model: test_model().name,
+        google_search_grounding: false,
+        url_context: false,
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -380,6 +388,8 @@ async fn test_error_sets_summary_done() {
         original_source_link: "https://www.youtube.com/watch?v=test_error".to_string(),
         transcript: Some(short_transcript.to_string()),
         model: test_model().name,
+        google_search_grounding: false,
+        url_context: false,
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -421,7 +431,9 @@ async fn test_invalid_model_sets_summary_done() {
     let form = rs_summarizer::models::SubmitForm {
         original_source_link: "https://www.youtube.com/watch?v=test_bad_model".to_string(),
         transcript: Some(transcript.to_string()),
-        model: "nonexistent-model-xyz".to_string(), // model not in app.model_options
+        model: "nonexistent-model-xyz".to_string(),
+        google_search_grounding: false,
+        url_context: false,
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -464,6 +476,8 @@ async fn test_polling_lifecycle_simulation() {
         original_source_link: "https://www.youtube.com/watch?v=test_polling".to_string(),
         transcript: Some(transcript.to_string()),
         model: test_model().name,
+        google_search_grounding: false,
+        url_context: false,
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -542,6 +556,8 @@ async fn test_pasted_transcript_pipeline() {
         original_source_link: "".to_string(),
         transcript: Some(transcript.to_string()),
         model: test_model().name,
+        google_search_grounding: false,
+        url_context: false,
     };
     let id_no_url = db::insert_new_summary(&app.db, &form_no_url, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
