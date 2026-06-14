@@ -29,3 +29,7 @@ Thumbs.db
 third_party/fast-umap/figures/
 third_party/fast-umap/*.bin.gz
 third_party/fast-umap/benchmark_model.bin.gz
+
+# Extension build artifacts
+/dist/
+/temp_ext_build/

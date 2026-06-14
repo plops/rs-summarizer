@@ -1,0 +1,445 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>rs-summarizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-gradient: radial-gradient(circle at top left, #1a1528, #0b0914);
+      --card-bg: rgba(255, 255, 255, 0.03);
+      --card-border: rgba(255, 255, 255, 0.08);
+      --text-color: #f1f0f5;
+      --text-muted: #9f9baa;
+      --primary-gradient: linear-gradient(135deg, #7c3aed, #4f46e5);
+      --primary-hover: linear-gradient(135deg, #9061f9, #6366f1);
+      --primary-shadow: 0 0 16px rgba(124, 58, 237, 0.4);
+      --input-bg: rgba(0, 0, 0, 0.25);
+      --input-border: rgba(255, 255, 255, 0.15);
+      --input-focus: #7c3aed;
+      --success: #10b981;
+      --error: #ef4444;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg-gradient);
+      color: var(--text-color);
+      width: 340px;
+      min-height: 480px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      overflow-x: hidden;
+    }
+
+    /* Scrollbar Styling */
+    ::-webkit-scrollbar {
+      width: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.1);
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--card-border);
+      padding-bottom: 12px;
+    }
+
+    .logo-img {
+      width: 28px;
+      height: 28px;
+    }
+
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.5px;
+      background: linear-gradient(135deg, #a78bfa, #818cf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    /* Card Layout */
+    .card {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3);
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    .form-group:last-child {
+      margin-bottom: 0;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    input[type="text"], select {
+      width: 100%;
+      background: var(--input-bg);
+      border: 1px solid var(--input-border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--text-color);
+      outline: none;
+      transition: all 0.25s ease;
+    }
+
+    input[type="text"]:focus, select:focus {
+      border-color: var(--input-focus);
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.2);
+    }
+
+    /* Advanced details */
+    details {
+      margin-top: 10px;
+    }
+
+    details summary {
+      font-size: 12px;
+      font-weight: 500;
+      color: #a78bfa;
+      cursor: pointer;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      user-select: none;
+      outline: none;
+      padding: 4px 0;
+    }
+
+    details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details summary::before {
+      content: '▶';
+      font-size: 9px;
+      display: inline-block;
+      transition: transform 0.2s ease;
+    }
+
+    details[open] summary::before {
+      transform: rotate(90deg);
+    }
+
+    .advanced-content {
+      padding: 12px 0 0 0;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    /* Checkbox Switches */
+    .switch-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 0;
+    }
+
+    .switch-label {
+      font-size: 13px;
+      color: var(--text-color);
+      text-transform: none;
+      letter-spacing: normal;
+      margin-bottom: 0;
+      cursor: pointer;
+    }
+
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: rgba(255, 255, 255, 0.1);
+      transition: .3s;
+      border-radius: 20px;
+      border: 1px solid var(--input-border);
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 14px;
+      width: 14px;
+      left: 2px;
+      bottom: 2px;
+      background-color: var(--text-color);
+      transition: .3s;
+      border-radius: 50%;
+    }
+
+    input:checked + .slider {
+      background: var(--primary-gradient);
+      border-color: transparent;
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(16px);
+    }
+
+    /* Button */
+    .btn {
+      width: 100%;
+      background: var(--primary-gradient);
+      border: none;
+      border-radius: 10px;
+      padding: 12px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      color: #ffffff;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      transition: all 0.25s ease;
+      box-shadow: var(--primary-shadow);
+    }
+
+    .btn:hover:not(:disabled) {
+      background: var(--primary-hover);
+      transform: translateY(-1px);
+      box-shadow: 0 0 20px rgba(124, 58, 237, 0.6);
+    }
+
+    .btn:active:not(:disabled) {
+      transform: translateY(1px);
+    }
+
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+
+    /* Result Block */
+    .result-container {
+      margin-top: 16px;
+      display: none;
+      flex-direction: column;
+      max-height: 280px;
+    }
+
+    .result-header {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.8px;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .result-body {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 12px;
+      font-size: 13px;
+      line-height: 1.5;
+      overflow-y: auto;
+      flex-grow: 1;
+      color: #e0dcf0;
+    }
+
+    .result-body article {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .result-body header {
+      font-weight: 600;
+      border: none;
+      margin: 0;
+      padding: 0;
+      color: #a78bfa;
+      font-size: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .result-body footer {
+      margin-top: 10px;
+      padding-top: 10px;
+      border-top: 1px dashed rgba(255, 255, 255, 0.1);
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .result-body footer a {
+      color: #818cf8;
+      text-decoration: none;
+    }
+
+    .result-body footer a:hover {
+      text-decoration: underline;
+    }
+
+    /* Spinner */
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.3);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      display: inline-block;
+    }
+
+    .spinner-large {
+      width: 24px;
+      height: 24px;
+      border-width: 3px;
+      border-top-color: #a78bfa;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .loading-pulse {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background-color: var(--success);
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+      animation: pulse 1.5s infinite;
+      margin-right: 6px;
+    }
+
+    @keyframes pulse {
+      0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+      }
+      70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+      }
+      100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <img src="images/icon48.png" class="logo-img" alt="logo">
+    <h1>rs-summarizer</h1>
+  </header>
+
+  <div class="card">
+    <div class="form-group">
+      <label for="modelSelect">Summarization Model</label>
+      <select id="modelSelect">
+        <!-- Dynamically populated -->
+      </select>
+    </div>
+
+    <details>
+      <summary>Advanced Options</summary>
+      <div class="advanced-content">
+        <div class="form-group">
+          <label for="serverUrlInput">Rust Server URL</label>
+          <input type="text" id="serverUrlInput" placeholder="https://rocketrecap.com">
+        </div>
+
+        <div class="switch-container" id="grounding-container">
+          <span class="switch-label" id="grounding-label-text">Google Search Grounding</span>
+          <label class="switch">
+            <input type="checkbox" id="groundingCheckbox">
+            <span class="slider"></span>
+          </label>
+        </div>
+
+        <div class="switch-container" id="url-context-container">
+          <span class="switch-label" id="url-context-label-text">URL Context (Gemini only)</span>
+          <label class="switch">
+            <input type="checkbox" id="urlContextCheckbox">
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+    </details>
+  </div>
+
+  <button id="summarizeBtn" class="btn">
+    <span>Summarize Current Page</span>
+  </button>
+
+  <div class="result-container" id="resultContainer">
+    <div class="result-header">
+      <span id="statusLabel">Status</span>
+      <div id="pulseIndicator" class="loading-pulse" style="display:none;"></div>
+    </div>
+    <div class="result-body" id="resultBody">
+      <!-- Summary output goes here -->
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
