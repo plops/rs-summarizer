@@ -291,6 +291,8 @@ async fn load_viz_data(
 async fn handle_export_command(args: &[String]) -> anyhow::Result<()> {
     let mut source = None;
     let mut output = None;
+    let mut include_embeddings = false;
+    let mut compress = false;
     
     let mut i = 2; // Skip "export-db"
     while i < args.len() {
@@ -311,9 +313,17 @@ async fn handle_export_command(args: &[String]) -> anyhow::Result<()> {
                 output = Some(PathBuf::from(&args[i + 1]));
                 i += 2;
             }
+            "--include-embeddings" => {
+                include_embeddings = true;
+                i += 1;
+            }
+            "--compress" => {
+                compress = true;
+                i += 1;
+            }
             _ => {
                 eprintln!("Error: Unknown argument '{}'", args[i]);
-                eprintln!("Usage: {} export-db --source <path> --output <path>", args[0]);
+                eprintln!("Usage: {} export-db --source <path> --output <path> [--include-embeddings] [--compress]", args[0]);
                 std::process::exit(1);
             }
         }
@@ -327,7 +337,12 @@ async fn handle_export_command(args: &[String]) -> anyhow::Result<()> {
         anyhow::anyhow!("--output argument is required")
     })?;
     
-    let export_args = ExportDbArgs { source, output };
+    let export_args = ExportDbArgs {
+        source,
+        output,
+        include_embeddings,
+        compress,
+    };
     run_export(export_args).await?;
     
     Ok(())

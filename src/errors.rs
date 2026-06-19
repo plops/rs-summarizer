@@ -65,7 +65,7 @@ pub enum ExportError {
     #[error("Output directory does not exist: {0}")]
     OutputDirMissing(std::path::PathBuf),
 
-    #[error("No qualifying rows found (embedding IS NOT NULL AND summary_done = 1)")]
+    #[error("No qualifying rows found (summary_done = 1)")]
     NoQualifyingRows,
 
     #[error("Database error: {0}")]

@@ -6,6 +6,8 @@ use crate::errors::ExportError;
 pub struct ExportDbArgs {
     pub source: PathBuf,
     pub output: PathBuf,
+    pub include_embeddings: bool,
+    pub compress: bool,
 }
 
 pub async fn run_export(args: ExportDbArgs) -> Result<()> {
@@ -17,6 +19,18 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
     // 2. Validate output file doesn't exist
     if args.output.exists() {
         return Err(ExportError::OutputExists(args.output).into());
+    }
+    if args.compress {
+        let mut zstd_output = args.output.clone();
+        if let Some(ext) = zstd_output.extension() {
+            let new_ext = format!("{}.zst", ext.to_string_lossy());
+            zstd_output.set_extension(new_ext);
+        } else {
+            zstd_output.set_extension("zst");
+        }
+        if zstd_output.exists() {
+            return Err(ExportError::OutputExists(zstd_output).into());
+        }
     }
 
     // 3. Validate output directory exists
@@ -62,7 +76,7 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
     .execute(&output_pool)
     .await?;
 
-    // 7. Copy rows with WHERE embedding IS NOT NULL AND summary_done = 1
+    // 7. Copy rows with WHERE summary_done = 1
     let rows = sqlx::query(
         r#"
         SELECT 
@@ -77,7 +91,7 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
             cost,
             timestamped_summary_in_youtube_format
         FROM summaries 
-        WHERE embedding IS NOT NULL AND summary_done = 1
+        WHERE summary_done = 1
         "#
     )
     .fetch_all(&source_pool)
@@ -91,6 +105,17 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
     // 9. Insert rows into output database
     let mut exported_count = 0;
     for row in rows {
+        let embedding = if args.include_embeddings {
+            row.get::<Option<Vec<u8>>, _>("embedding")
+        } else {
+            None
+        };
+        let embedding_model = if args.include_embeddings {
+            row.get::<String, _>("embedding_model")
+        } else {
+            String::new()
+        };
+
         sqlx::query(
             r#"
             INSERT INTO summaries (
@@ -110,8 +135,8 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
         .bind(row.get::<i64, _>("identifier"))
         .bind(row.get::<String, _>("original_source_link"))
         .bind(row.get::<String, _>("model"))
-        .bind(row.get::<Option<Vec<u8>>, _>("embedding"))
-        .bind(row.get::<String, _>("embedding_model"))
+        .bind(embedding)
+        .bind(embedding_model)
         .bind(row.get::<String, _>("summary"))
         .bind(row.get::<String, _>("summary_timestamp_start"))
         .bind(row.get::<String, _>("summary_timestamp_end"))
@@ -134,6 +159,27 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
     source_pool.close().await;
     output_pool.close().await;
 
+    // 12. If compress option is enabled, run zstd to compress the database
+    if args.compress {
+        println!("Compressing output file with zstd...");
+        let status = std::process::Command::new("zstd")
+            .arg("--rm")
+            .arg("-f")
+            .arg(&args.output)
+            .status()?;
+        if !status.success() {
+            return Err(anyhow::anyhow!("zstd compression failed with status: {:?}", status));
+        }
+        let mut zstd_output = args.output.clone();
+        if let Some(ext) = zstd_output.extension() {
+            let new_ext = format!("{}.zst", ext.to_string_lossy());
+            zstd_output.set_extension(new_ext);
+        } else {
+            zstd_output.set_extension("zst");
+        }
+        println!("Successfully compressed database to {}", zstd_output.display());
+    }
+
     Ok(())
 }
 
@@ -143,23 +189,7 @@ mod tests {
     use sqlx::{SqlitePool, sqlite::SqliteJournalMode};
     use tempfile::TempDir;
     use std::fs;
-    use proptest::prelude::*;
     
-    #[derive(Debug, Clone)]
-    struct TestRow {
-        identifier: i64,
-        original_source_link: String,
-        model: String,
-        embedding: Vec<f32>,
-        embedding_model: String,
-        summary: String,
-        summary_timestamp_start: String,
-        summary_timestamp_end: String,
-        cost: f64,
-        timestamped_summary_in_youtube_format: String,
-        transcript: String,
-    }
-
     #[test]
     fn test_output_exists_error() {
         let temp_dir = TempDir::new().unwrap();
@@ -175,6 +205,8 @@ mod tests {
         let args = ExportDbArgs {
             source: source_path,
             output: output_path,
+            include_embeddings: false,
+            compress: false,
         };
         
         let result = std::thread::spawn(move || {
@@ -197,6 +229,8 @@ mod tests {
         let args = ExportDbArgs {
             source: source_path,
             output: output_path,
+            include_embeddings: false,
+            compress: false,
         };
         
         let result = std::thread::spawn(move || {
@@ -222,6 +256,8 @@ mod tests {
         let args = ExportDbArgs {
             source: source_path,
             output: output_path,
+            include_embeddings: false,
+            compress: false,
         };
         
         let result = std::thread::spawn(move || {
@@ -293,6 +329,31 @@ mod tests {
         .bind(1) // summary_done = 1
         .execute(&source_pool)
         .await?;
+
+        // Close source pool connection so the exporter can open it
+        source_pool.close().await;
+
+        let args = ExportDbArgs {
+            source: source_path,
+            output: output_path.clone(),
+            include_embeddings: true,
+            compress: false,
+        };
+        
+        run_export(args).await?;
+        
+        assert!(output_path.exists());
+        
+        // Open output db and verify row
+        let output_opts = SqliteConnectOptions::new()
+            .filename(&output_path)
+            .read_only(true);
+        let output_pool = SqlitePool::connect_with(output_opts).await?;
+        let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM summaries")
+            .fetch_one(&output_pool)
+            .await?;
+        assert_eq!(count, 1);
+        output_pool.close().await;
 
         Ok(())
     }
