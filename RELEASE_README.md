@@ -27,3 +27,61 @@ To stop the server cleanly:
 - Press `Ctrl-C` (or send `SIGTERM`).
 - Wait for the server to log `Cleaning up database connections...` and `Shutdown complete`.
 - This will merge all transaction data back into the main `summaries.db` file and cleanly remove the auxiliary files.
+
+## Systemd Service Installation
+
+To run `rs-summarizer` as a background system service that starts automatically on system boot and restarts if it crashes, use the included `rs-summarizer.service` template.
+
+### Steps to Install:
+
+1. **Set Up the Environment File**:
+   Create a file named `.env` in the same directory as the server binary (usually `/home/kiel/host/.env`) and add your API key:
+   ```env
+   GEMINI_API_KEY=your_gemini_api_key_here
+   ```
+
+2. **Copy the Service File**:
+   Copy the `rs-summarizer.service` file to systemd:
+   ```bash
+   sudo cp rs-summarizer.service /etc/systemd/system/
+   ```
+
+3. **Reload and Enable the Service**:
+   Reload systemd to detect the new service configuration, then enable it to start on boot:
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable rs-summarizer.service
+   ```
+
+4. **Start and Monitor the Service**:
+   Start the service and check its logs using journalctl:
+   ```bash
+   sudo systemctl start rs-summarizer.service
+   sudo systemctl status rs-summarizer.service
+   # View live logs:
+   sudo journalctl -u rs-summarizer.service -f
+   ```
+
+## SQLite Database Backups
+
+Because the database runs in SQLite WAL (Write-Ahead Log) mode, standard file-copy backups (`cp`) of `summaries.db` might produce an inconsistent or corrupted backup copy if write transactions are active.
+
+A safe backup script `sqlite-backup.sh` is included in this package. It performs an online "hot-backup" using SQLite's backup API, safely incorporating any active transactions.
+
+### Running a Backup:
+
+```bash
+# Execute backup to default path (data/summaries_backup.db)
+./sqlite-backup.sh
+
+# Or specify custom source and destination paths:
+./sqlite-backup.sh /path/to/source.db /path/to/destination.db
+```
+
+### Automating with Cron:
+
+To automate backups every day at 2:00 AM, add a cron job:
+```bash
+0 2 * * * /home/kiel/host/sqlite-backup.sh /home/kiel/host/data/summaries.db /home/kiel/backups/summaries_$(date +\%F).db
+```
+

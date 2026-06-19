@@ -108,6 +108,18 @@ jobs:
             cp RELEASE_README.md staging/README.md
           fi
 
+          # Copy systemd service file if present
+          if [ -f rs-summarizer.service ]; then
+            cp rs-summarizer.service staging/
+          fi
+
+          # Copy SQLite backup script if present
+          if [ -f scripts/sqlite-backup.sh ]; then
+            cp scripts/sqlite-backup.sh staging/
+            chmod +x staging/sqlite-backup.sh
+          fi
+
+
           # Create platform-specific asset name
           case "${{ matrix.target }}" in
             x86_64-unknown-linux-gnu)

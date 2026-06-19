@@ -1,0 +1,15 @@
+[Unit]
+Description=RocketRecap Summarizer Web Service
+After=network.target
+
+[Service]
+Type=simple
+User=kiel
+WorkingDirectory=/home/kiel/host
+ExecStart=/home/kiel/host/rs-summarizer
+Restart=always
+RestartSec=3
+EnvironmentFile=/home/kiel/host/.env
+
+[Install]
+WantedBy=multi-user.target

@@ -52,7 +52,7 @@ async fn main() -> anyhow::Result<()> {
     let app = build_router(state);
 
     // Start server
-    let addr = SocketAddr::from(([0, 0, 0, 0], 5001));
+    let addr = SocketAddr::from(([127, 0, 0, 1], 5001));
     tracing::info!("Listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     
