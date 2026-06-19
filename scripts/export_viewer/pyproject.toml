@@ -1,0 +1,8 @@
+[project]
+name = "export-viewer"
+version = "0.1.0"
+description = "A simple script to view rs-summarizer SQLite database exports using pandas"
+requires-python = ">=3.10"
+dependencies = [
+    "pandas>=2.0",
+]
