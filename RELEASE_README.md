@@ -85,3 +85,36 @@ To automate backups every day at 2:00 AM, add a cron job:
 0 2 * * * /home/kiel/host/sqlite-backup.sh /home/kiel/host/data/summaries.db /home/kiel/backups/summaries_$(date +\%F).db
 ```
 
+## Database Exports (Compact & Compressed)
+
+To download your summaries for offline use or local experimentation without downloading heavy YouTube transcripts, you can run the `export-db` CLI task. This runs safely in the background alongside the hosting process.
+
+### 1. Export WITHOUT Embeddings (Recommended, ~25MB)
+Excludes raw transcripts and float vector embeddings. This is the smallest file format, ideal for text-based analysis:
+```bash
+./rs-summarizer export-db \
+  --source data/summaries.db \
+  --output data/summaries_compact.db \
+  --compress
+```
+* **Output**: `data/summaries_compact.db.zst` (~25.7 MB)
+
+### 2. Export WITH Embeddings (~170MB)
+Excludes raw transcripts but retains dense vector embeddings. Ideal for semantic search and clustering experiments locally:
+```bash
+./rs-summarizer export-db \
+  --source data/summaries.db \
+  --output data/summaries_compact.db \
+  --include-embeddings \
+  --compress
+```
+* **Output**: `data/summaries_compact.db.zst` (~170.0 MB)
+
+### Decompression at Home:
+Download the `.zst` file from the host and run `zstd -d` to extract it:
+```bash
+zstd -d summaries_compact.db.zst
+```
+This yields a standard SQLite database (`summaries_compact.db`) compatible with Python, pandas, or standard SQLite GUI editors.
+
+
