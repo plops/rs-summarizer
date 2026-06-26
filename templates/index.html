@@ -11,13 +11,15 @@
     <main class="container">
         <h1>YouTube Transcript Summarizer</h1>
         <form hx-post="/process_transcript" hx-target="#result" hx-swap="innerHTML">
-            <label for="url">YouTube URL</label>
-            <input type="text" id="url" name="original_source_link" placeholder="https://www.youtube.com/watch?v=...">
+            <label for="url">YouTube URLs / Video-IDs</label>
+            <textarea id="url" name="original_source_link" rows="3" placeholder="https://www.youtube.com/watch?v=...&#10;_Qeur243coc"></textarea>
             
             <label for="model">Model</label>
             <select id="model" name="model">
                 {% for model in models %}
-                <option value="{{ model.name }}" data-architecture="{{ model.architecture.as_str() }}">{{ model.name }}</option>
+                <option value="{{ model.name }}" data-architecture="{{ model.architecture.as_str() }}">
+                    {% if model.name == "auto" %}Auto (Heuristik){% else %}{{ model.name }}{% endif %}
+                </option>
                 {% endfor %}
             </select>
 
@@ -72,6 +74,14 @@
                     form.addEventListener('click', updateRequired);
                     form.addEventListener('keyup', updateRequired);
                     updateRequired();
+
+                    // Allow Enter to submit, while Shift+Enter inserts newline
+                    urlInput.addEventListener('keydown', function(e) {
+                        if (e.key === 'Enter' && !e.shiftKey) {
+                            e.preventDefault();
+                            form.requestSubmit();
+                        }
+                    });
                 }
 
                 // Toggle visibility of Grounding and URL Context options

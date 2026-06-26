@@ -25,11 +25,13 @@ pub fn validate_youtube_url(url: &str) -> Option<String> {
         r"^https://(?:www\.)?youtu\.be/([A-Za-z0-9_-]{11}).*",
         // Shorts URL (www or m subdomain optional)
         r"^https://(?:(?:www|m)\.)?youtube\.com/shorts/([A-Za-z0-9_-]{11}).*",
+        // Raw 11-character video ID
+        r"^([A-Za-z0-9_-]{11})$",
     ];
 
     for pattern in &patterns {
         let re = Regex::new(pattern).ok()?;
-        if let Some(captures) = re.captures(url) {
+        if let Some(captures) = re.captures(url.trim()) {
             if let Some(id_match) = captures.get(1) {
                 return Some(id_match.as_str().to_string());
             }
@@ -38,6 +40,22 @@ pub fn validate_youtube_url(url: &str) -> Option<String> {
 
     None
 }
+
+/// Normalizes a YouTube URL or a raw video ID to a canonical https://www.youtube.com/watch?v=ID format.
+pub fn normalize_youtube_url(url: &str) -> Option<String> {
+    validate_youtube_url(url).map(|id| format!("https://www.youtube.com/watch?v={}", id))
+}
+
+/// Splits a string of space/newline/tab/comma-separated YouTube URLs or video IDs.
+pub fn split_urls(input: &str) -> Vec<String> {
+    input
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect()
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -121,5 +139,41 @@ mod tests {
             Some("Dgj2jivpaJk".to_string()),
             validate_youtube_url("https://www.youtube.com/shorts/Dgj2jivpaJk")
         );
+    }
+
+    #[test]
+    fn test_raw_id() {
+        assert_eq!(
+            Some("_Qeur243coc".to_string()),
+            validate_youtube_url("_Qeur243coc")
+        );
+    }
+
+    #[test]
+    fn test_normalize_youtube_url() {
+        assert_eq!(
+            Some("https://www.youtube.com/watch?v=_Qeur243coc".to_string()),
+            normalize_youtube_url("_Qeur243coc")
+        );
+        assert_eq!(
+            Some("https://www.youtube.com/watch?v=Dgj2jivpaJk".to_string()),
+            normalize_youtube_url("https://www.youtube.com/watch?v=Dgj2jivpaJk")
+        );
+        assert_eq!(
+            None,
+            normalize_youtube_url("not-an-id")
+        );
+    }
+
+    #[test]
+    fn test_split_urls() {
+        let input = "https://www.youtube.com/watch?v=123, _Qeur243coc\nhttps://youtu.be/abc   xyz12345678";
+        let res = split_urls(input);
+        assert_eq!(res, vec![
+            "https://www.youtube.com/watch?v=123",
+            "_Qeur243coc",
+            "https://youtu.be/abc",
+            "xyz12345678"
+        ]);
     }
 }

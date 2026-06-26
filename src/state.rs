@@ -46,6 +46,16 @@ pub struct AppState {
 /// Retrieve default baseline configurations reflecting the model list
 pub fn get_default_models() -> Vec<ModelOption> {
     vec![
+        // Auto Model Selection (Heuristic)
+        ModelOption {
+            name: "auto".to_string(),
+            input_price_per_mtoken: 0.0,
+            output_price_per_mtoken: 0.0,
+            context_window: 1_048_576,
+            rpm_limit: 15,
+            rpd_limit: 1000,
+            architecture: ModelArchitecture::Gemini,
+        },
         // 1. Gemini 3.5 Flash (Text-out models)
         ModelOption {
             name: "gemini-3.5-flash".to_string(),

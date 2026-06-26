@@ -81,6 +81,28 @@ pub async fn update_summary_chunk(db: &SqlitePool, identifier: i64, chunk: &str)
     Ok(())
 }
 
+/// Overwrite the summary field completely (e.g. for errors).
+pub async fn update_summary_full(db: &SqlitePool, identifier: i64, summary: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE summaries SET summary = ? WHERE identifier = ?")
+        .bind(summary)
+        .bind(identifier)
+        .execute(db)
+        .await?;
+
+    Ok(())
+}
+
+/// Update the model field for a summary.
+pub async fn update_model(db: &SqlitePool, identifier: i64, model: &str) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE summaries SET model = ? WHERE identifier = ?")
+        .bind(model)
+        .bind(identifier)
+        .execute(db)
+        .await?;
+
+    Ok(())
+}
+
 /// Mark summary as done with token counts, cost, and end timestamp.
 pub async fn mark_summary_done(
     db: &SqlitePool,

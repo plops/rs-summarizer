@@ -31,7 +31,7 @@ pub async fn index(State(app): State<AppState>) -> impl IntoResponse {
 pub async fn process_transcript(
     State(app): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    Form(input): Form<SubmitForm>,
+    Form(mut input): Form<SubmitForm>,
 ) -> impl IntoResponse {
     // Find the model option
     let model = app.model_options.iter().find(|m| m.name == input.model);
@@ -59,6 +59,23 @@ pub async fn process_transcript(
     if url_empty && transcript_empty {
         return Html("<p>Error: Please provide either a YouTube URL or paste a transcript.</p>".to_string());
     }
+
+    // Split, validate, and normalize input URLs/IDs
+    let mut normalized_links = Vec::new();
+    if !url_empty {
+        let items = crate::utils::url_validator::split_urls(&input.original_source_link);
+        for item in &items {
+            if let Some(normalized) = crate::utils::url_validator::normalize_youtube_url(item) {
+                normalized_links.push(normalized);
+            } else {
+                return Html(format!(
+                    "<p>Fehler: Der eingegebene Wert '{}' ist weder eine gültige YouTube-URL noch eine 11-stellige Video-ID.</p>",
+                    item
+                ));
+            }
+        }
+    }
+    input.original_source_link = normalized_links.join(" ");
 
     // Check for duplicates
     let dedup_svc = DeduplicationService::new(Duration::from_secs(300));

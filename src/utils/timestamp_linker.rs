@@ -7,21 +7,62 @@ fn youtube_url_with_t(video_id: &str, seconds: u32) -> String {
     format!("https://www.youtube.com/watch?v={}&t={}s", video_id, seconds)
 }
 
+use super::url_validator::split_urls;
+
 /// Replaces timestamps in HTML (MM:SS or HH:MM:SS) with anchor tags linking
 /// to the given YouTube video at that timestamp offset.
 ///
 /// If the provided URL is not a valid YouTube URL, the HTML is returned unchanged.
 pub fn replace_timestamps_in_html(html: &str, youtube_url: &str) -> String {
-    let video_id = match validate_youtube_url(youtube_url) {
-        Some(id) => id,
-        None => return html.to_string(),
-    };
+    let urls = split_urls(youtube_url);
+    if urls.is_empty() {
+        return html.to_string();
+    }
 
+    if urls.len() == 1 {
+        let video_id = match validate_youtube_url(&urls[0]) {
+            Some(id) => id,
+            None => return html.to_string(),
+        };
+        return replace_timestamps_for_video(html, &video_id);
+    }
+
+    // Multiple URLs: parse and map each URL to its video ID.
+    let url_mappings: Vec<(String, String)> = urls
+        .iter()
+        .filter_map(|url| {
+            validate_youtube_url(url).map(|id| (url.clone(), id))
+        })
+        .collect();
+
+    if url_mappings.is_empty() {
+        return html.to_string();
+    }
+
+    // Line-by-line scanning to track the active video ID.
+    let mut active_video_id = url_mappings[0].1.clone();
+    let mut result_lines = Vec::new();
+
+    for line in html.lines() {
+        for (url, id) in &url_mappings {
+            if line.contains(url) {
+                active_video_id = id.clone();
+                break;
+            }
+        }
+        let replaced_line = replace_timestamps_for_video(line, &active_video_id);
+        result_lines.push(replaced_line);
+    }
+
+    result_lines.join("\n")
+}
+
+fn replace_timestamps_for_video(html: &str, video_id: &str) -> String {
     // Match mm:ss or hh:mm:ss where mm and ss are 0-59, hours optional 1-2 digits.
     let pattern = Regex::new(r"\b(?:\d{1,2}:)?[0-5]?\d:[0-5]\d\b").unwrap();
 
     let result = pattern.replace_all(html, |caps: &regex::Captures| {
-        let ts_text = &caps[0];
+        let ts_text = caps.get(0).unwrap().as_str();
         let parts: Vec<&str> = ts_text.split(':').collect();
         let total = if parts.len() == 3 {
             let h: u32 = parts[0].parse().unwrap_or(0);
@@ -33,7 +74,7 @@ pub fn replace_timestamps_in_html(html: &str, youtube_url: &str) -> String {
             let ss: u32 = parts[1].parse().unwrap_or(0);
             mm * 60 + ss
         };
-        let link = youtube_url_with_t(&video_id, total);
+        let link = youtube_url_with_t(video_id, total);
         format!("<a href=\"{}\">{}</a>", link, ts_text)
     });
 
@@ -94,5 +135,20 @@ mod tests {
         assert_eq!(out, html);
         assert!(!out.contains("<a href=\""));
         assert!(out.contains("01:00"));
+    }
+
+    #[test]
+    fn test_multiple_urls_timestamp_linking() {
+        let youtube_urls = "https://www.youtube.com/watch?v=8S4a_LdHhsc https://www.youtube.com/watch?v=Dgj2jivpaJk";
+        let html = r#"<h3>Summary for https://www.youtube.com/watch?v=8S4a_LdHhsc</h3>
+<p><strong>01:30 Video 1 segment</strong></p>
+<h3>Summary for https://www.youtube.com/watch?v=Dgj2jivpaJk</h3>
+<p><strong>02:45 Video 2 segment</strong></p>"#;
+        
+        let out = replace_timestamps_in_html(html, youtube_urls);
+        // Video 1 segment: 1*60 + 30 = 90
+        assert!(out.contains("watch?v=8S4a_LdHhsc&t=90s"));
+        // Video 2 segment: 2*60 + 45 = 165
+        assert!(out.contains("watch?v=Dgj2jivpaJk&t=165s"));
     }
 }
