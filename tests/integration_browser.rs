@@ -79,6 +79,7 @@ async fn test_app_state() -> AppState {
         gemini_api_key,
         nn_mapper: None,
         viz_data: None,
+        model_locks: Arc::new(RwLock::new(HashMap::new())),
     }
 }
 
@@ -226,6 +227,7 @@ async fn test_app_state_with_low_limit() -> AppState {
         gemini_api_key,
         nn_mapper: None,
         viz_data: None,
+        model_locks: Arc::new(RwLock::new(HashMap::new())),
     }
 }
 

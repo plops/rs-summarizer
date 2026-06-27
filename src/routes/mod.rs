@@ -116,9 +116,6 @@ pub async fn process_transcript(
         Err(e) => return Html(format!("<p>Error: {}</p>", e)),
     };
 
-    // Increment rate limit counter
-    RateLimiter::increment_counter(&input.model, &app.model_counts).await;
-
     // Spawn background task
     let app_clone = app.clone();
     let db_clone = app.db.clone();

@@ -46,6 +46,7 @@ async fn main() -> anyhow::Result<()> {
         gemini_api_key,
         nn_mapper,
         viz_data,
+        model_locks: Arc::new(RwLock::new(HashMap::new())),
     };
 
     // Build router

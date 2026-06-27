@@ -41,7 +41,24 @@ pub struct AppState {
     pub gemini_api_key: String,
     pub nn_mapper: Option<std::sync::Arc<std::sync::Mutex<crate::services::nn_mapper::NnMapper>>>,
     pub viz_data: Option<std::sync::Arc<crate::models::VizData>>,
+    pub model_locks: Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<Option<std::time::Instant>>>>>>,
 }
+
+impl AppState {
+    pub async fn get_model_lock(&self, model_name: &str) -> Arc<tokio::sync::Mutex<Option<std::time::Instant>>> {
+        {
+            let locks = self.model_locks.read().await;
+            if let Some(lock) = locks.get(model_name) {
+                return lock.clone();
+            }
+        }
+        let mut locks = self.model_locks.write().await;
+        locks.entry(model_name.to_string())
+            .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
+            .clone()
+    }
+}
+
 
 /// Retrieve default baseline configurations reflecting the model list
 pub fn get_default_models() -> Vec<ModelOption> {

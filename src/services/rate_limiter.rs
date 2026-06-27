@@ -59,11 +59,28 @@ impl RateLimiter {
     ///
     /// Uses a fixed UTC-8 offset (PST) as an approximation.
     /// For DST-aware handling, the `chrono-tz` crate could be added.
-    fn today_la() -> NaiveDate {
+    pub fn today_la() -> NaiveDate {
+        use chrono::{Datelike, Weekday};
         let utc_now = chrono::Utc::now();
-        // Pacific time is UTC-8 (PST) or UTC-7 (PDT).
-        // Using fixed offset of -8 hours as an approximation for MVP.
-        let la_time = utc_now - chrono::Duration::hours(8);
+        let date = utc_now.date_naive();
+        let year = date.year();
+        
+        // PDT starts on the second Sunday of March
+        let mut march_sunday = NaiveDate::from_ymd_opt(year, 3, 8).unwrap();
+        while march_sunday.weekday() != Weekday::Sun {
+            march_sunday = march_sunday.succ_opt().unwrap();
+        }
+        
+        // PDT ends on the first Sunday of November
+        let mut nov_sunday = NaiveDate::from_ymd_opt(year, 11, 1).unwrap();
+        while nov_sunday.weekday() != Weekday::Sun {
+            nov_sunday = nov_sunday.succ_opt().unwrap();
+        }
+        
+        let is_pdt = date >= march_sunday && date < nov_sunday;
+        let offset_hours = if is_pdt { 7 } else { 8 };
+        
+        let la_time = utc_now - chrono::Duration::hours(offset_hours);
         la_time.date_naive()
     }
 }

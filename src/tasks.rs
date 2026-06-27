@@ -6,7 +6,7 @@ use tokio::time::sleep;
 use tracing;
 
 use crate::db;
-use crate::errors::{ProcessError, TranscriptError, SummaryError, EmbeddingError};
+use crate::errors::{ProcessError, TranscriptError, SummaryError};
 use crate::models::Summary;
 use crate::services::embedding::{embedding_to_bytes, EmbeddingService};
 use crate::services::summary::SummaryService;
@@ -61,150 +61,94 @@ fn get_transcript_duration_secs(transcript: &str) -> u32 {
     }
 }
 
-/// Formats a ProcessError into a user-friendly markdown string.
+/// Formats a ProcessError into a user-friendly raw error message.
 fn format_process_error(e: &ProcessError) -> String {
-    let (title, detail, action) = match e {
-        ProcessError::TranscriptTooShort => (
-            "Transkript zu kurz".to_string(),
-            "Das heruntergeladene Transkript enthält weniger als 30 Wörter.".to_string(),
-            "Bitte wähle ein Video mit mehr gesprochenem Inhalt.".to_string(),
-        ),
-        ProcessError::TranscriptTooLong(words) => (
-            "Transkript zu lang".to_string(),
-            format!("Das Transkript enthält {} Wörter. Das Limit liegt bei 280.000 Wörtern.", words),
-            "Bitte wähle ein kürzeres Video.".to_string(),
-        ),
-        ProcessError::RowNotFound => (
-            "Eintrag nicht gefunden".to_string(),
-            "Der Eintrag in der Datenbank konnte nicht geladen werden.".to_string(),
-            "Bitte versuche es noch einmal.".to_string(),
-        ),
-        ProcessError::Database(db_err) => (
-            "Datenbankfehler".to_string(),
-            db_err.to_string(),
-            "Bitte versuche es später noch einmal.".to_string(),
-        ),
-        ProcessError::Transcript(t_err) => match t_err {
-            TranscriptError::InvalidUrl(url) => (
-                "Ungültige Video-URL oder ID".to_string(),
-                format!("Der Wert '{}' ist weder eine gültige YouTube-URL noch eine 11-stellige Video-ID.", url),
-                "Bitte überprüfe deine Eingabe.".to_string(),
-            ),
-            TranscriptError::NoSubtitles => (
-                "Keine Untertitel vorhanden".to_string(),
-                "Für dieses Video sind keine Untertitel oder automatischen Transkripte verfügbar.".to_string(),
-                "Bitte stelle sicher, dass Untertitel auf YouTube für dieses Video aktiviert sind.".to_string(),
-            ),
-            TranscriptError::Timeout(secs) => (
-                "Zeitüberschreitung beim Download".to_string(),
-                format!("Das Herunterladen des Transkripts hat länger als {} Sekunden gedauert.", secs),
-                "Bitte versuche es später noch einmal.".to_string(),
-            ),
-            TranscriptError::ParseError(msg) => (
-                "Fehler beim Verarbeiten des Transkripts".to_string(),
-                msg.clone(),
-                "Bitte versuche es später noch einmal oder wähle ein anderes Video.".to_string(),
-            ),
-            TranscriptError::YtDlpFailed(msg) => {
-                if msg.contains("Sign in to confirm") || msg.contains("bot") || msg.contains("requires authentication") {
-                    (
-                        "YouTube-Download blockiert (Authentifizierung erforderlich)".to_string(),
-                        "YouTube verlangt eine Anmeldung/Bestätigung (Bot-Schutz). Der Download wurde blockiert.".to_string(),
-                        "Bitte versuche es später noch einmal.".to_string(),
-                    )
-                } else if msg.contains("429") || msg.contains("Too Many Requests") {
-                    (
-                        "YouTube Rate-Limit überschritten (429)".to_string(),
-                        "Es wurden zu viele Anfragen an YouTube gesendet (Rate Limit).".to_string(),
-                        "Bitte warte einen Moment und versuche es später noch einmal.".to_string(),
-                    )
-                } else if msg.contains("not available") || msg.contains("deleted") || msg.contains("private") {
-                    (
-                        "Video nicht verfügbar".to_string(),
-                        "Das angegebene YouTube-Video ist nicht verfügbar (gelöscht oder privat).".to_string(),
-                        "Bitte überprüfe die URL/ID.".to_string(),
-                    )
-                } else {
-                    (
-                        "Fehler beim Transkript-Download".to_string(),
-                        msg.clone(),
-                        "Bitte überprüfe die URL/ID oder versuche es später noch einmal.".to_string(),
-                    )
-                }
-            }
-        },
-        ProcessError::Summary(s_err) => match s_err {
-            SummaryError::RateLimited => (
-                "Gemini API Rate-Limit überschritten".to_string(),
-                "Das Kontingent der Gemini API für Anfragen (ResourceExhausted) wurde überschritten.".to_string(),
-                "Bitte warte einen Moment und versuche es später noch einmal.".to_string(),
-            ),
-            SummaryError::TranscriptTooShort => (
-                "Transkript zu kurz".to_string(),
-                "Das Transkript enthält weniger als 30 Wörter.".to_string(),
-                "Bitte wähle ein Video mit mehr gesprochenem Inhalt.".to_string(),
-            ),
-            SummaryError::TranscriptTooLong(words, max_words) => (
-                "Transkript zu lang".to_string(),
-                format!("Das Transkript enthält {} Wörter. Das Gemini-Limit liegt bei {} Wörtern.", words, max_words),
-                "Bitte wähle ein kürzeres Video.".to_string(),
-            ),
-            SummaryError::ApiError(msg) => {
-                if msg.contains("Internal error encountered") {
-                    (
-                        "Interner Fehler bei der Gemini API".to_string(),
-                        "Der Gemini API-Server hat einen internen Fehler gemeldet.".to_string(),
-                        "Bitte versuche es später noch einmal.".to_string(),
-                    )
-                } else if msg.contains("high demand") || msg.contains("experiencing high demand") {
-                    (
-                        "Gemini API überlastet (High Demand)".to_string(),
-                        "Die Gemini API ist derzeit wegen hoher Nachfrage überlastet.".to_string(),
-                        "Bitte versuche es in wenigen Minuten noch einmal.".to_string(),
-                    )
-                } else if msg.contains("quota") || msg.contains("exceeded your current quota") {
-                    (
-                        "Abrechnungs- oder Quoten-Limit überschritten".to_string(),
-                        "Das Quoten-Limit deines Gemini API-Kontos wurde überschritten.".to_string(),
-                        "Bitte überprüfe dein API-Konto und deine Abrechnungsdetails.".to_string(),
-                    )
-                } else {
-                    (
-                        "Fehler bei der Gemini API".to_string(),
-                        msg.clone(),
-                        "Bitte überprüfe deinen API-Schlüssel oder versuche es später noch einmal.".to_string(),
-                    )
-                }
-            }
-        },
-        ProcessError::Embedding(e_err) => match e_err {
-            EmbeddingError::ApiError(msg) => {
-                if msg.contains("quota") || msg.contains("quota exceeded") {
-                    (
-                        "Abrechnungs- oder Quoten-Limit überschritten (Embeddings)".to_string(),
-                        "Das Quoten-Limit deines Gemini API-Kontos wurde überschritten.".to_string(),
-                        "Bitte überprüfe dein API-Konto und deine Abrechnungsdetails.".to_string(),
-                    )
-                } else {
-                    (
-                        "Fehler beim Berechnen des Embeddings".to_string(),
-                        msg.clone(),
-                        "Bitte versuche es später noch einmal.".to_string(),
-                    )
-                }
-            }
-            _ => (
-                "Fehler beim Berechnen des Embeddings".to_string(),
-                e_err.to_string(),
-                "Bitte versuche es später noch einmal.".to_string(),
-            ),
-        },
-    };
+    match e {
+        ProcessError::Summary(SummaryError::ApiError(msg)) => msg.clone(),
+        ProcessError::Transcript(TranscriptError::YtDlpFailed(msg)) => msg.clone(),
+        other => other.to_string(),
+    }
+}
 
-    format!(
-        "### ⚠️ {}\n\n**Grund:** {}\n\n**Empfehlung:** {}",
-        title, detail, action
-    )
+/// Helper to construct the daily rate limit fallback chain for a starting model.
+fn get_fallback_chain(model_name: &str) -> Vec<&str> {
+    match model_name {
+        "gemini-3.5-flash" => vec![
+            "gemini-3.5-flash",
+            "gemini-3-flash-preview",
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite",
+        ],
+        "gemini-3-flash-preview" => vec![
+            "gemini-3-flash-preview",
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite",
+        ],
+        "gemini-2.5-flash" => vec![
+            "gemini-2.5-flash",
+            "gemini-3.1-flash-lite",
+        ],
+        "gemini-3.1-flash-lite" => vec![
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
+            "gemini-3.5-flash",
+            "gemini-3-flash-preview",
+            "gemini-2.5-flash",
+        ],
+        "gemini-2.5-flash-lite" => vec![
+            "gemini-2.5-flash-lite",
+            "gemini-3.1-flash-lite",
+        ],
+        other => vec![other],
+    }
+}
+
+/// Resolves the model name to use, falling back to alternatives if a model's daily rate limit has been hit.
+async fn resolve_model_with_fallback(
+    initial_model_name: &str,
+    app: &AppState,
+) -> Result<String, ProcessError> {
+    let chain = get_fallback_chain(initial_model_name);
+    for model_name in chain {
+        if let Some(model) = app.model_options.iter().find(|m| m.name == model_name) {
+            let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
+                model,
+                &app.model_counts,
+                &app.last_reset_day,
+            )
+            .await;
+            if allowed {
+                return Ok(model_name.to_string());
+            }
+        }
+    }
+    // Default to the initial model if all are exhausted
+    Ok(initial_model_name.to_string())
+}
+
+/// Global rate limiter implementation to ensure requests to a specific model do not exceed its RPM limit.
+async fn enforce_rpm_limit(model_name: &str, rpm_limit: u32, app: &AppState) {
+    if rpm_limit == 0 {
+        return;
+    }
+    let delay_per_request = Duration::from_secs_f64(60.0 / (rpm_limit as f64));
+    let lock = app.get_model_lock(model_name).await;
+    let mut last_request_time = lock.lock().await;
+    let now = std::time::Instant::now();
+    if let Some(last_time) = *last_request_time {
+        if let Some(elapsed) = now.checked_duration_since(last_time) {
+            if elapsed < delay_per_request {
+                let sleep_dur = delay_per_request - elapsed;
+                tracing::info!(
+                    model = model_name,
+                    sleep_ms = sleep_dur.as_millis(),
+                    "RPM limit delay active, sleeping"
+                );
+                tokio::time::sleep(sleep_dur).await;
+            }
+        }
+    }
+    *last_request_time = Some(std::time::Instant::now());
 }
 
 /// Inner implementation that returns Result for clean error handling.
@@ -225,22 +169,164 @@ async fn process_summary_inner(
         3072,
     );
 
-    // Step 2: Download transcripts if not provided
-    let mut transcripts = Vec::new();
     let urls = split_urls(&summary.original_source_link);
+    let mut downloaded_transcripts = Vec::new();
+
+    let mut total_input_tokens = 0;
+    let mut total_output_tokens = 0;
+    let mut total_thinking_tokens = 0;
+    let mut total_cost = 0.0;
+    let mut combined_thinking = String::new();
+    let mut combined_summary = String::new();
 
     if summary.transcript.is_empty() {
+        // Sequential download and summarization loop
         for url in &urls {
-            let t = transcript_svc
-                .download_transcript(url, identifier)
-                .await?;
-            transcripts.push((url.clone(), t));
+            let process_video_result = async {
+                // Download transcript
+                let transcript = transcript_svc
+                    .download_transcript(url, identifier)
+                    .await?;
+
+                // Validate transcript length
+                let word_count = transcript.split_whitespace().count();
+                if word_count < 30 {
+                    return Err(ProcessError::TranscriptTooShort);
+                }
+                if word_count > 280_000 {
+                    return Err(ProcessError::TranscriptTooLong(word_count));
+                }
+
+                // Parse model option & apply heuristic if model is "auto"
+                let mut model_name = summary.model.clone();
+                if model_name == "auto" {
+                    let duration_secs = get_transcript_duration_secs(&transcript);
+                    model_name = if duration_secs < 1800 {
+                        "gemini-3.1-flash-lite".to_string()
+                    } else {
+                        "gemini-3.5-flash".to_string()
+                    };
+                }
+
+                // Resolve model name using the daily rate limit fallback chain
+                let resolved_model_name = resolve_model_with_fallback(&model_name, app).await?;
+                let model = parse_model_option(&resolved_model_name, &app.model_options)?;
+
+                // Check rate limit for the actual chosen model
+                let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
+                    &model,
+                    &app.model_counts,
+                    &app.last_reset_day,
+                )
+                .await;
+                if !allowed {
+                    return Err(ProcessError::Summary(SummaryError::RateLimited));
+                }
+
+                // Increment the actual model's counter
+                crate::services::rate_limiter::RateLimiter::increment_counter(
+                    &model.name,
+                    &app.model_counts,
+                )
+                .await;
+
+                // Update database model name to the resolved model
+                db::update_model(db_pool, identifier, &model.name).await?;
+
+                // Add header for this video if there are multiple
+                if urls.len() > 1 {
+                    let header = format!("\n\n### Summary for {}\n", url);
+                    db::update_summary_chunk(db_pool, identifier, &header).await?;
+                }
+
+                // Generate summary (streaming, updates DB progressively)
+                let mut attempts = 0;
+                let result = loop {
+                    attempts += 1;
+
+                    // Enforce RPM limit
+                    enforce_rpm_limit(&model.name, model.rpm_limit, app).await;
+
+                    match summary_svc
+                        .generate_summary(
+                            db_pool,
+                            identifier,
+                            &transcript,
+                            &model,
+                            summary.google_search_grounding,
+                            summary.url_context,
+                        )
+                        .await
+                    {
+                        Ok(res) => break res,
+                        Err(e) => {
+                            let err_str = e.to_string();
+                            if err_str.contains("experiencing high demand") || err_str.contains("high demand") {
+                                if attempts < 3 {
+                                    let sleep_dur = if attempts == 1 {
+                                        if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
+                                            Duration::from_millis(10)
+                                        } else {
+                                            Duration::from_secs(600)
+                                        }
+                                    } else {
+                                        if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
+                                            Duration::from_millis(20)
+                                        } else {
+                                            Duration::from_secs(14400)
+                                        }
+                                    };
+                                    tracing::warn!(
+                                        model = %model.name,
+                                        attempt = attempts,
+                                        sleep_secs = sleep_dur.as_secs(),
+                                        "Gemini high demand error, retrying later"
+                                    );
+                                    tokio::time::sleep(sleep_dur).await;
+                                    continue;
+                                }
+                            }
+                            return Err(ProcessError::Summary(e));
+                        }
+                    }
+                };
+
+                Ok((transcript, result))
+            }.await;
+
+            match process_video_result {
+                Ok((transcript, result)) => {
+                    downloaded_transcripts.push((url.clone(), transcript));
+
+                    total_input_tokens += result.input_tokens;
+                    total_output_tokens += result.output_tokens;
+                    total_thinking_tokens += result.thinking_tokens;
+                    total_cost += result.cost;
+
+                    if !combined_thinking.is_empty() {
+                        combined_thinking.push_str("\n\n");
+                    }
+                    combined_thinking.push_str(&format!("--- Thinking for {} ---\n", url));
+                    combined_thinking.push_str(&result.thinking_text);
+                    combined_summary.push_str(&result.summary_text);
+                }
+                Err(err) => {
+                    tracing::error!(url = %url, error = %err, "Failed to process video");
+                    let error_card = format!(
+                        "\n\n### Error for {}\nError: {}\n",
+                        url,
+                        format_process_error(&err)
+                    );
+                    let _ = db::update_summary_chunk(db_pool, identifier, &error_card).await;
+                    combined_summary.push_str(&error_card);
+                }
+            }
         }
 
         // Save the combined transcript to the DB
         let mut combined_transcript = String::new();
-        for (i, (url, t)) in transcripts.iter().enumerate() {
-            if transcripts.len() > 1 {
+        for (i, (url, t)) in downloaded_transcripts.iter().enumerate() {
+            if urls.len() > 1 {
                 if i > 0 {
                     combined_transcript.push_str("\n\n");
                 }
@@ -250,45 +336,36 @@ async fn process_summary_inner(
         }
         db::update_transcript(db_pool, identifier, &combined_transcript).await?;
     } else {
+        // Paste mode: transcript is already in DB
         let url = urls.first().cloned().unwrap_or_default();
-        transcripts.push((url, summary.transcript.clone()));
-    }
+        let process_video_result = async {
+            let transcript = &summary.transcript;
 
-    let mut total_input_tokens = 0;
-    let mut total_output_tokens = 0;
-    let mut total_thinking_tokens = 0;
-    let mut total_cost = 0.0;
-    let mut combined_thinking = String::new();
-    let mut combined_summary = String::new();
+            // Validate transcript length
+            let word_count = transcript.split_whitespace().count();
+            if word_count < 30 {
+                return Err(ProcessError::TranscriptTooShort);
+            }
+            if word_count > 280_000 {
+                return Err(ProcessError::TranscriptTooLong(word_count));
+            }
 
-    // Step 3-5: Validate, select model, and generate summary for each transcript serially
-    for (_i, (url, transcript)) in transcripts.iter().enumerate() {
-        // Validate transcript length
-        let word_count = transcript.split_whitespace().count();
-        if word_count < 30 {
-            return Err(ProcessError::TranscriptTooShort);
-        }
-        if word_count > 280_000 {
-            return Err(ProcessError::TranscriptTooLong(word_count));
-        }
+            // Parse model option & apply heuristic if model is "auto"
+            let mut model_name = summary.model.clone();
+            if model_name == "auto" {
+                let duration_secs = get_transcript_duration_secs(transcript);
+                model_name = if duration_secs < 1800 {
+                    "gemini-3.1-flash-lite".to_string()
+                } else {
+                    "gemini-3.5-flash".to_string()
+                };
+            }
 
-        // Parse model option & apply heuristic if model is "auto"
-        let mut model_name = summary.model.clone();
-        let was_auto = model_name == "auto";
-        if was_auto {
-            let duration_secs = get_transcript_duration_secs(transcript);
-            model_name = if duration_secs < 1800 {
-                "gemini-3.1-flash-lite".to_string()
-            } else {
-                "gemini-3.5-flash".to_string()
-            };
-            db::update_model(db_pool, identifier, &model_name).await?;
-        }
+            // Resolve model name using the daily rate limit fallback chain
+            let resolved_model_name = resolve_model_with_fallback(&model_name, app).await?;
+            let model = parse_model_option(&resolved_model_name, &app.model_options)?;
 
-        let model = parse_model_option(&model_name, &app.model_options)?;
-
-        if was_auto {
-            // Check local rate limit for the actual chosen model
+            // Check rate limit for the actual chosen model
             let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
                 &model,
                 &app.model_counts,
@@ -298,44 +375,92 @@ async fn process_summary_inner(
             if !allowed {
                 return Err(ProcessError::Summary(SummaryError::RateLimited));
             }
+
             // Increment the actual model's counter
             crate::services::rate_limiter::RateLimiter::increment_counter(
                 &model.name,
                 &app.model_counts,
             )
             .await;
+
+            // Update database model name to the resolved model
+            db::update_model(db_pool, identifier, &model.name).await?;
+
+            // Generate summary (streaming, updates DB progressively)
+            let mut attempts = 0;
+            let result = loop {
+                attempts += 1;
+
+                // Enforce RPM limit
+                enforce_rpm_limit(&model.name, model.rpm_limit, app).await;
+
+                match summary_svc
+                    .generate_summary(
+                        db_pool,
+                        identifier,
+                        transcript,
+                        &model,
+                        summary.google_search_grounding,
+                        summary.url_context,
+                    )
+                    .await
+                {
+                    Ok(res) => break res,
+                    Err(e) => {
+                        let err_str = e.to_string();
+                        if err_str.contains("experiencing high demand") || err_str.contains("high demand") {
+                            if attempts < 3 {
+                                let sleep_dur = if attempts == 1 {
+                                    if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
+                                        Duration::from_millis(10)
+                                    } else {
+                                        Duration::from_secs(600)
+                                    }
+                                } else {
+                                    if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
+                                        Duration::from_millis(20)
+                                    } else {
+                                        Duration::from_secs(14400)
+                                    }
+                                };
+                                tracing::warn!(
+                                    model = %model.name,
+                                    attempt = attempts,
+                                    sleep_secs = sleep_dur.as_secs(),
+                                    "Gemini high demand error, retrying later"
+                                );
+                                tokio::time::sleep(sleep_dur).await;
+                                continue;
+                            }
+                        }
+                        return Err(ProcessError::Summary(e));
+                    }
+                }
+            };
+
+            Ok(result)
+        }.await;
+
+        match process_video_result {
+            Ok(result) => {
+                total_input_tokens += result.input_tokens;
+                total_output_tokens += result.output_tokens;
+                total_thinking_tokens += result.thinking_tokens;
+                total_cost += result.cost;
+
+                combined_thinking.push_str(&result.thinking_text);
+                combined_summary.push_str(&result.summary_text);
+            }
+            Err(err) => {
+                tracing::error!(url = %url, error = %err, "Failed to process video");
+                let error_card = format!(
+                    "Error: {}",
+                    format_process_error(&err)
+                );
+                let _ = db::update_summary_full(db_pool, identifier, &error_card).await;
+                combined_summary.push_str(&error_card);
+            }
         }
-
-        // Add header for this video if there are multiple
-        if transcripts.len() > 1 {
-            let header = format!("\n\n### Summary for {}\n", url);
-            db::update_summary_chunk(db_pool, identifier, &header).await?;
-            combined_summary.push_str(&header);
-        }
-
-        // Generate summary (streaming, updates DB progressively)
-        let result = summary_svc
-            .generate_summary(
-                db_pool,
-                identifier,
-                transcript,
-                &model,
-                summary.google_search_grounding,
-                summary.url_context,
-            )
-            .await?;
-
-        total_input_tokens += result.input_tokens;
-        total_output_tokens += result.output_tokens;
-        total_thinking_tokens += result.thinking_tokens;
-        total_cost += result.cost;
-
-        if !combined_thinking.is_empty() {
-            combined_thinking.push_str("\n\n");
-        }
-        combined_thinking.push_str(&format!("--- Thinking for {} ---\n", url));
-        combined_thinking.push_str(&result.thinking_text);
-        combined_summary.push_str(&result.summary_text);
     }
 
     // Step 5b: Mark summary as done (stops HTMX polling on the frontend)
@@ -437,15 +562,14 @@ mod tests {
     fn test_format_process_error_rate_limit() {
         let err = ProcessError::Summary(SummaryError::RateLimited);
         let formatted = format_process_error(&err);
-        assert!(formatted.contains("Rate-Limit"));
-        assert!(formatted.contains("⚠️"));
+        assert!(formatted.contains("rate limited"));
     }
 
     #[test]
     fn test_format_process_error_quota() {
         let err = ProcessError::Summary(SummaryError::ApiError("You exceeded your current quota, please check your plan and billing details.".to_string()));
         let formatted = format_process_error(&err);
-        assert!(formatted.contains("Quoten-Limit"));
-        assert!(formatted.contains("⚠️"));
+        assert_eq!(formatted, "You exceeded your current quota, please check your plan and billing details.");
     }
 }
+
