@@ -46,7 +46,7 @@ pub fn normalize_youtube_url(url: &str) -> Option<String> {
     validate_youtube_url(url).map(|id| format!("https://www.youtube.com/watch?v={}", id))
 }
 
-/// Splits a string of space/newline/tab/comma-separated YouTube URLs or video IDs.
+/// Splits a string of space/newline/tab/comma-separated URLs or video IDs.
 pub fn split_urls(input: &str) -> Vec<String> {
     input
         .split(|c: char| c.is_whitespace() || c == ',')
@@ -56,10 +56,104 @@ pub fn split_urls(input: &str) -> Vec<String> {
         .collect()
 }
 
+/// Validates Hacker News URL formats or item IDs and extracts the item ID.
+pub fn validate_hn_url(url: &str) -> Option<u64> {
+    let patterns = [
+        r"^(?:https?://)?(?:news\.)?ycombinator\.com/item\?id=([0-9]+).*",
+        r"^(?:https?://)?(?:news\.)?ycombinator\.com/item/([0-9]+).*",
+        r"^item\?id=([0-9]+).*",
+        r"^([0-9]{6,10})$",
+    ];
+
+    let trimmed = url.trim();
+    for pattern in &patterns {
+        if let Ok(re) = Regex::new(pattern) {
+            if let Some(captures) = re.captures(trimmed) {
+                if let Some(id_match) = captures.get(1) {
+                    if let Ok(id) = id_match.as_str().parse::<u64>() {
+                        return Some(id);
+                    }
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Normalizes a Hacker News URL or item ID to canonical https://news.ycombinator.com/item?id=ID format.
+pub fn normalize_hn_url(url: &str) -> Option<String> {
+    validate_hn_url(url).map(|id| format!("https://news.ycombinator.com/item?id={}", id))
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum ParsedSource {
+    YouTube(String),
+    HackerNews(u64, String),
+    Unknown(String),
+}
+
+/// Identifies whether a given URL or ID is a YouTube link/ID or a Hacker News link/ID.
+pub fn parse_source_url(url: &str) -> ParsedSource {
+    let trimmed = url.trim();
+    if trimmed.contains("ycombinator.com") || trimmed.starts_with("item?id=") {
+        if let Some(hn_id) = validate_hn_url(url) {
+            return ParsedSource::HackerNews(hn_id, format!("https://news.ycombinator.com/item?id={}", hn_id));
+        }
+    }
+
+    if let Some(yt_norm) = normalize_youtube_url(url) {
+        return ParsedSource::YouTube(yt_norm);
+    }
+
+    if let Some(hn_id) = validate_hn_url(url) {
+        return ParsedSource::HackerNews(hn_id, format!("https://news.ycombinator.com/item?id={}", hn_id));
+    }
+
+    ParsedSource::Unknown(url.to_string())
+}
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_validate_hn_url() {
+        assert_eq!(validate_hn_url("https://news.ycombinator.com/item?id=40000000"), Some(40000000));
+        assert_eq!(validate_hn_url("http://news.ycombinator.com/item?id=123456"), Some(123456));
+        assert_eq!(validate_hn_url("news.ycombinator.com/item?id=789012"), Some(789012));
+        assert_eq!(validate_hn_url("item?id=999999"), Some(999999));
+        assert_eq!(validate_hn_url("40000000"), Some(40000000));
+        assert_eq!(validate_hn_url("https://example.com/not-hn"), None);
+    }
+
+    #[test]
+    fn test_normalize_hn_url() {
+        assert_eq!(
+            normalize_hn_url("item?id=40000000"),
+            Some("https://news.ycombinator.com/item?id=40000000".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_source_url() {
+        assert_eq!(
+            parse_source_url("https://news.ycombinator.com/item?id=40000000"),
+            ParsedSource::HackerNews(40000000, "https://news.ycombinator.com/item?id=40000000".to_string())
+        );
+        assert_eq!(
+            parse_source_url("https://www.youtube.com/watch?v=Dgj2jivpaJk"),
+            ParsedSource::YouTube("https://www.youtube.com/watch?v=Dgj2jivpaJk".to_string())
+        );
+        assert_eq!(
+            parse_source_url("Dgj2jivpaJk"),
+            ParsedSource::YouTube("https://www.youtube.com/watch?v=Dgj2jivpaJk".to_string())
+        );
+        assert_eq!(
+            parse_source_url("invalid_random_string"),
+            ParsedSource::Unknown("invalid_random_string".to_string())
+        );
+    }
 
     #[test]
     fn test_live_url() {

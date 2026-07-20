@@ -178,8 +178,73 @@ async fn process_summary_inner(
     let mut total_cost = 0.0;
     let mut combined_thinking = String::new();
     let mut combined_summary = String::new();
+    let first_url = urls.first().cloned().unwrap_or_default();
+    let is_hn_url = crate::utils::url_validator::validate_hn_url(&first_url).is_some();
 
-    if summary.transcript.is_empty() {
+    if is_hn_url {
+        let hn_id = crate::utils::url_validator::validate_hn_url(&first_url).unwrap();
+        let hn_svc = crate::services::hacker_news::HackerNewsService::new();
+        let user_pasted = if summary.transcript.trim().is_empty() {
+            None
+        } else {
+            Some(summary.transcript.as_str())
+        };
+
+        let hn_res = hn_svc
+            .fetch_hn_submission(hn_id, user_pasted)
+            .await
+            .map_err(|e| ProcessError::Summary(SummaryError::ApiError(e)))?;
+
+        let transcript = hn_res.combined_text;
+        db::update_transcript(db_pool, identifier, &transcript).await?;
+
+        let mut model_name = summary.model.clone();
+        if model_name == "auto" {
+            model_name = "gemini-3.5-flash".to_string();
+        }
+
+        let resolved_model_name = resolve_model_with_fallback(&model_name, app).await?;
+        let model = parse_model_option(&resolved_model_name, &app.model_options)?;
+
+        let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
+            &model,
+            &app.model_counts,
+            &app.last_reset_day,
+        )
+        .await;
+        if !allowed {
+            return Err(ProcessError::Summary(SummaryError::RateLimited));
+        }
+
+        crate::services::rate_limiter::RateLimiter::increment_counter(
+            &model.name,
+            &app.model_counts,
+        )
+        .await;
+
+        db::update_model(db_pool, identifier, &model.name).await?;
+
+        enforce_rpm_limit(&model.name, model.rpm_limit, app).await;
+
+        let result = summary_svc
+            .generate_summary(
+                db_pool,
+                identifier,
+                &transcript,
+                &model,
+                summary.google_search_grounding,
+                summary.url_context,
+            )
+            .await
+            .map_err(ProcessError::Summary)?;
+
+        total_input_tokens = result.input_tokens;
+        total_output_tokens = result.output_tokens;
+        total_thinking_tokens = result.thinking_tokens;
+        total_cost = result.cost;
+        combined_thinking = result.thinking_text;
+        combined_summary = result.summary_text;
+    } else if summary.transcript.is_empty() {
         // Sequential download and summarization loop
         for url in &urls {
             let process_video_result = async {
