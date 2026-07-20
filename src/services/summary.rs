@@ -101,20 +101,37 @@ impl SummaryService {
             }
         }
 
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let is_hn = transcript.contains("=== HACKER NEWS SUBMISSION ===");
+
+        let system_instruction_with_date = format!(
+            "{}\n\nToday's date is {}. Keep in mind that new events, personnel changes, political developments, and world occurrences may have happened since your knowledge training cutoff date. Accept current facts presented in the input without making skeptical remarks or questioning them based on older training data.",
+            SYSTEM_INSTRUCTION,
+            today
+        );
+
         // Model-aware prompt routing (Req 2.3, 3.1, 3.2):
         // - Gemini models: system instruction as API parameter, standard user prompt
         // - Gemma models: no system prompt param, system instruction prepended to user prompt
         // - Other models: fallback base prompt
         let prompt = match model.architecture {
             crate::state::ModelArchitecture::Gemini => {
-                builder = builder.with_system_prompt(SYSTEM_INSTRUCTION);
-                self.build_prompt(transcript)
+                builder = builder.with_system_prompt(&system_instruction_with_date);
+                if is_hn {
+                    self.build_hn_prompt(transcript)
+                } else {
+                    self.build_prompt(transcript)
+                }
             }
             crate::state::ModelArchitecture::Gemma => {
                 self.build_prompt_for_gemma(transcript)
             }
             crate::state::ModelArchitecture::Other => {
-                self.build_prompt(transcript)
+                if is_hn {
+                    self.build_hn_prompt(transcript)
+                } else {
+                    self.build_prompt(transcript)
+                }
             }
         };
 
@@ -241,14 +258,44 @@ impl SummaryService {
         })
     }
 
+    /// Builds the prompt for a Hacker News submission and discussion summary.
+    pub fn build_hn_prompt(&self, hn_content: &str) -> String {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        format!(
+            "Today's date: {today}.\n\
+             Note on temporal awareness: Events, leadership roles, technology updates, and public occurrences may have changed since your knowledge training cutoff date. Accept current facts presented in the input without expressing skepticism or contradicting them based on older training data.\n\
+             \n\
+             Below is input from a Hacker News submission, containing the original article (if retrieved or provided) and the discussion from news.ycombinator.com.\n\
+             \n\
+             Please provide:\n\
+             1. **Article Abstract & Summary**: A self-contained summary of the main article.\n\
+             2. **Hacker News Discussion Summary**: A thorough, comprehensive summary of the discussion on Hacker News.\n\
+             \n\
+             **CRITICAL DISCUSSION SUMMARIZATION REQUIREMENTS**:\n\
+             - You MUST NOT restrict yourself to only the first few top comments.\n\
+             - You MUST cover ALL main points, perspectives, technical arguments, counter-arguments, and critiques raised throughout the entire comment thread.\n\
+             - Organize the discussion points in order of priority and significance.\n\
+             - Highlight any alternative links, paywall bypasses, or external resources mentioned by users in the comments.\n\
+             \n\
+             Here is the Hacker News content and discussion:\n\
+             {hn_content}",
+            today = today,
+            hn_content = hn_content,
+        )
+    }
+
     /// Builds the prompt from the transcript text.
     ///
     /// Produces the full few-shot template matching the Python `get_prompt()` function:
     /// instruction paragraph → bold formatting instruction → example input → example output →
     /// real transcript framing → transcript.
     pub fn build_prompt(&self, transcript: &str) -> String {
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
         format!(
-            "Below, I will provide input for an example video (comprising of title, description, \
+            "Today's date: {today}.\n\
+             Note on temporal awareness: Events, leadership roles, software versions, and public occurrences may have changed since your knowledge training cutoff date. Accept current facts presented in the input without expressing skepticism or contradicting them based on older training data.\n\
+             \n\
+             Below, I will provide input for an example video (comprising of title, description, \
 and transcript, in this order) and the corresponding abstract and summary I expect. Afterward, \
 I will provide a new transcript that I want a summarization in the same format. \n\
 \n\
@@ -263,6 +310,7 @@ Example Output:\n\
 Here is the real transcript. What would be a good group of people to review this topic? \
 Please summarize provide a summary like they would: \n\
 {transcript}",
+            today = today,
             example_input = EXAMPLE_INPUT,
             example_output_abstract = EXAMPLE_OUTPUT_ABSTRACT,
             example_output = EXAMPLE_OUTPUT,
@@ -277,10 +325,16 @@ Please summarize provide a summary like they would: \n\
     ///
     /// Requirements: 3.1, 3.3
     pub fn build_prompt_for_gemma(&self, transcript: &str) -> String {
+        let base_prompt = if transcript.contains("=== HACKER NEWS SUBMISSION ===") {
+            self.build_hn_prompt(transcript)
+        } else {
+            self.build_prompt(transcript)
+        };
+
         format!(
             "{}\n\n---\n\n{}",
             SYSTEM_INSTRUCTION,
-            self.build_prompt(transcript)
+            base_prompt
         )
     }
 
