@@ -411,6 +411,20 @@ mod tests {
     }
 
     #[test]
+    fn test_build_hn_prompt_content() {
+        let svc = SummaryService::new("test-key".to_string());
+        let content = "=== HACKER NEWS SUBMISSION ===\nTitle: Test Post";
+        let prompt = svc.build_hn_prompt(content);
+
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        assert!(prompt.contains(&today), "HN Prompt should contain today's date");
+        assert!(prompt.contains("temporal awareness"), "HN Prompt should contain temporal awareness note");
+        assert!(prompt.contains("CRITICAL DISCUSSION SUMMARIZATION REQUIREMENTS"), "HN Prompt should contain discussion requirements");
+        assert!(prompt.contains("MUST NOT restrict yourself to only the first few top comments"), "HN Prompt should instruct full discussion coverage");
+        assert!(prompt.contains("order of priority"), "HN Prompt should specify priority ordering");
+    }
+
+    #[test]
     fn test_build_prompt_contains_transcript() {
         let svc = SummaryService::new("test-key".to_string());
         let transcript = "00:00:00 Hello world\n00:01:00 This is a test";
