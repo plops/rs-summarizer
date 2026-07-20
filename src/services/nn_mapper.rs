@@ -21,6 +21,9 @@ pub struct NnMapper {
     embedding_dim: usize,
 }
 
+unsafe impl Send for NnMapper {}
+unsafe impl Sync for NnMapper {}
+
 impl NnMapper {
     /// Lädt Modell + Sidecar-Config aus dem Dateisystem.
     /// Benötigt die Modelldatei (.bin) und die Sidecar-Config-Datei (_nn_mapper_config.json).
