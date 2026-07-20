@@ -583,3 +583,17 @@ async fn test_pasted_transcript_pipeline() {
     assert!(!row_no_url.summary.is_empty(), "summary should not be empty");
     assert_eq!(row_no_url.original_source_link, "", "original source link should be empty");
 }
+
+/// Test fetching a Hacker News submission and discussion via HackerNewsService.
+#[tokio::test]
+#[ignore]
+async fn test_hn_submission_fetch() {
+    let svc = rs_summarizer::services::hacker_news::HackerNewsService::new();
+    // HN item 1 (famous Ask HN: "What to use instead of Google?")
+    let res = svc.fetch_hn_submission(1, None).await;
+    assert!(res.is_ok(), "HN fetch should succeed: {:?}", res.err());
+    let fetch_res = res.unwrap();
+    assert_eq!(fetch_res.story_id, 1);
+    assert!(!fetch_res.discussion_text.is_empty(), "Discussion text should not be empty");
+    assert!(fetch_res.combined_text.contains("=== HACKER NEWS SUBMISSION ==="));
+}

@@ -57,7 +57,7 @@ pub async fn process_transcript(
     let url_empty = input.original_source_link.trim().is_empty();
     let transcript_empty = input.transcript.as_ref().map_or(true, |t| t.trim().is_empty());
     if url_empty && transcript_empty {
-        return Html("<p>Error: Please provide either a YouTube URL or paste a transcript.</p>".to_string());
+        return Html("<p>Error: Please provide either a YouTube URL, Hacker News URL, or paste content.</p>".to_string());
     }
 
     // Split, validate, and normalize input URLs/IDs
@@ -65,13 +65,19 @@ pub async fn process_transcript(
     if !url_empty {
         let items = crate::utils::url_validator::split_urls(&input.original_source_link);
         for item in &items {
-            if let Some(normalized) = crate::utils::url_validator::normalize_youtube_url(item) {
-                normalized_links.push(normalized);
-            } else {
-                return Html(format!(
-                    "<p>Fehler: Der eingegebene Wert '{}' ist weder eine gültige YouTube-URL noch eine 11-stellige Video-ID.</p>",
-                    item
-                ));
+            match crate::utils::url_validator::parse_source_url(item) {
+                crate::utils::url_validator::ParsedSource::YouTube(norm) => {
+                    normalized_links.push(norm);
+                }
+                crate::utils::url_validator::ParsedSource::HackerNews(_, norm) => {
+                    normalized_links.push(norm);
+                }
+                crate::utils::url_validator::ParsedSource::Unknown(u) => {
+                    return Html(format!(
+                        "<p>Fehler: Der eingegebene Wert '{}' ist weder eine gültige YouTube-URL, Video-ID noch eine Hacker News-URL.</p>",
+                        u
+                    ));
+                }
             }
         }
     }
