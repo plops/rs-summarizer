@@ -73,30 +73,67 @@ fn format_process_error(e: &ProcessError) -> String {
 /// Helper to construct the daily rate limit fallback chain for a starting model.
 fn get_fallback_chain(model_name: &str) -> Vec<&str> {
     match model_name {
+        "gemini-3.6-flash" => vec![
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3-flash-preview",
+            "gemini-2.5-flash",
+            "gemini-3.6-flash-lite",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
+        ],
+        "gemini-3.6-flash-lite" => vec![
+            "gemini-3.6-flash-lite",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+        ],
+        "gemini-3.5-flash-lite" => vec![
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
+            "gemini-3.5-flash",
+            "gemini-3.6-flash",
+        ],
         "gemini-3.5-flash" => vec![
             "gemini-3.5-flash",
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
+            "gemini-3.6-flash-lite",
+            "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
         ],
         "gemini-3-flash-preview" => vec![
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
+            "gemini-3.6-flash-lite",
+            "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
         ],
         "gemini-2.5-flash" => vec![
             "gemini-2.5-flash",
+            "gemini-3.6-flash-lite",
+            "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
         ],
         "gemini-3.1-flash-lite" => vec![
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
+            "gemini-3.6-flash-lite",
+            "gemini-3.5-flash-lite",
+            "gemini-3.6-flash",
             "gemini-3.5-flash",
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
         ],
         "gemini-2.5-flash-lite" => vec![
             "gemini-2.5-flash-lite",
+            "gemini-3.6-flash-lite",
+            "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
         ],
         other => vec![other],
@@ -200,7 +237,7 @@ async fn process_summary_inner(
 
         let mut model_name = summary.model.clone();
         if model_name == "auto" {
-            model_name = "gemini-3.5-flash".to_string();
+            model_name = "gemini-3.6-flash".to_string();
         }
 
         let resolved_model_name = resolve_model_with_fallback(&model_name, app).await?;
@@ -262,14 +299,13 @@ async fn process_summary_inner(
                     return Err(ProcessError::TranscriptTooLong(word_count));
                 }
 
-                // Parse model option & apply heuristic if model is "auto"
                 let mut model_name = summary.model.clone();
                 if model_name == "auto" {
                     let duration_secs = get_transcript_duration_secs(&transcript);
                     model_name = if duration_secs < 1800 {
-                        "gemini-3.1-flash-lite".to_string()
+                        "gemini-3.6-flash-lite".to_string()
                     } else {
-                        "gemini-3.5-flash".to_string()
+                        "gemini-3.6-flash".to_string()
                     };
                 }
 
@@ -420,9 +456,9 @@ async fn process_summary_inner(
             if model_name == "auto" {
                 let duration_secs = get_transcript_duration_secs(transcript);
                 model_name = if duration_secs < 1800 {
-                    "gemini-3.1-flash-lite".to_string()
+                    "gemini-3.6-flash-lite".to_string()
                 } else {
-                    "gemini-3.5-flash".to_string()
+                    "gemini-3.6-flash".to_string()
                 };
             }
 
@@ -635,6 +671,20 @@ mod tests {
         let err = ProcessError::Summary(SummaryError::ApiError("You exceeded your current quota, please check your plan and billing details.".to_string()));
         let formatted = format_process_error(&err);
         assert_eq!(formatted, "You exceeded your current quota, please check your plan and billing details.");
+    }
+
+    #[test]
+    fn test_get_fallback_chain_new_models() {
+        let chain_36_flash = get_fallback_chain("gemini-3.6-flash");
+        assert_eq!(chain_36_flash[0], "gemini-3.6-flash");
+        assert!(chain_36_flash.contains(&"gemini-3.5-flash"));
+        assert!(chain_36_flash.contains(&"gemini-3.6-flash-lite"));
+        assert!(chain_36_flash.contains(&"gemini-3.5-flash-lite"));
+
+        let chain_36_lite = get_fallback_chain("gemini-3.6-flash-lite");
+        assert_eq!(chain_36_lite[0], "gemini-3.6-flash-lite");
+        assert!(chain_36_lite.contains(&"gemini-3.5-flash-lite"));
+        assert!(chain_36_lite.contains(&"gemini-3.1-flash-lite"));
     }
 }
 
