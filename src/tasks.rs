@@ -78,22 +78,12 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash",
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
-            "gemini-3.6-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
-        ],
-        "gemini-3.6-flash-lite" => vec![
-            "gemini-3.6-flash-lite",
-            "gemini-3.5-flash-lite",
-            "gemini-3.1-flash-lite",
-            "gemini-2.5-flash-lite",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
         ],
         "gemini-3.5-flash-lite" => vec![
             "gemini-3.5-flash-lite",
-            "gemini-3.6-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
             "gemini-3.5-flash",
@@ -103,27 +93,23 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash",
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
-            "gemini-3.6-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
         ],
         "gemini-3-flash-preview" => vec![
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
-            "gemini-3.6-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
         ],
         "gemini-2.5-flash" => vec![
             "gemini-2.5-flash",
-            "gemini-3.6-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
         ],
         "gemini-3.1-flash-lite" => vec![
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
-            "gemini-3.6-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
@@ -132,7 +118,6 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
         ],
         "gemini-2.5-flash-lite" => vec![
             "gemini-2.5-flash-lite",
-            "gemini-3.6-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
         ],
@@ -303,7 +288,7 @@ async fn process_summary_inner(
                 if model_name == "auto" {
                     let duration_secs = get_transcript_duration_secs(&transcript);
                     model_name = if duration_secs < 1800 {
-                        "gemini-3.6-flash-lite".to_string()
+                        "gemini-3.5-flash-lite".to_string()
                     } else {
                         "gemini-3.6-flash".to_string()
                     };
@@ -456,7 +441,7 @@ async fn process_summary_inner(
             if model_name == "auto" {
                 let duration_secs = get_transcript_duration_secs(transcript);
                 model_name = if duration_secs < 1800 {
-                    "gemini-3.6-flash-lite".to_string()
+                    "gemini-3.5-flash-lite".to_string()
                 } else {
                     "gemini-3.6-flash".to_string()
                 };
@@ -678,13 +663,12 @@ mod tests {
         let chain_36_flash = get_fallback_chain("gemini-3.6-flash");
         assert_eq!(chain_36_flash[0], "gemini-3.6-flash");
         assert!(chain_36_flash.contains(&"gemini-3.5-flash"));
-        assert!(chain_36_flash.contains(&"gemini-3.6-flash-lite"));
         assert!(chain_36_flash.contains(&"gemini-3.5-flash-lite"));
 
-        let chain_36_lite = get_fallback_chain("gemini-3.6-flash-lite");
-        assert_eq!(chain_36_lite[0], "gemini-3.6-flash-lite");
-        assert!(chain_36_lite.contains(&"gemini-3.5-flash-lite"));
-        assert!(chain_36_lite.contains(&"gemini-3.1-flash-lite"));
+        let chain_35_lite = get_fallback_chain("gemini-3.5-flash-lite");
+        assert_eq!(chain_35_lite[0], "gemini-3.5-flash-lite");
+        assert!(chain_35_lite.contains(&"gemini-3.1-flash-lite"));
+        assert!(chain_35_lite.contains(&"gemini-2.5-flash-lite"));
     }
 }
 
