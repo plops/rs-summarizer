@@ -173,6 +173,247 @@ async fn enforce_rpm_limit(model_name: &str, rpm_limit: u32, app: &AppState) {
     *last_request_time = Some(std::time::Instant::now());
 }
 
+use crate::services::hacker_news::HackerNewsService;
+
+/// Represents the aggregated output of the model pipeline run.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SummaryOutput {
+    pub summary_text: String,
+    pub thinking_text: String,
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    pub thinking_tokens: u64,
+    pub cost: f64,
+}
+
+/// Extracts YouTube transcript for a given URL using TranscriptService.
+pub async fn fetch_youtube_content(
+    url: &str,
+    identifier: i64,
+) -> Result<String, ProcessError> {
+    let transcript_svc = TranscriptService::new("/dev/shm");
+    tracing::info!(
+        identifier = identifier,
+        url = %url,
+        "Downloading transcript for video"
+    );
+
+    let text = transcript_svc
+        .download_transcript(url, identifier)
+        .await?;
+
+    let size_bytes = text.len();
+    let word_count = text.split_whitespace().count();
+
+    tracing::info!(
+        identifier = identifier,
+        url = %url,
+        size_bytes = size_bytes,
+        word_count = word_count,
+        "Downloaded transcript successfully"
+    );
+
+    Ok(text)
+}
+
+/// Fetches Hacker News submission, comments, and linked article content.
+pub async fn fetch_hn_content(
+    hn_id: u64,
+    user_pasted: Option<&str>,
+    hn_svc: &HackerNewsService,
+) -> Result<String, ProcessError> {
+    tracing::info!(story_id = hn_id, "Fetching Hacker News submission");
+
+    let hn_res = hn_svc
+        .fetch_hn_submission(hn_id, user_pasted)
+        .await
+        .map_err(|e| ProcessError::Summary(SummaryError::ApiError(e)))?;
+
+    let text = hn_res.combined_text;
+    let size_bytes = text.len();
+    let word_count = text.split_whitespace().count();
+
+    tracing::info!(
+        story_id = hn_id,
+        size_bytes = size_bytes,
+        word_count = word_count,
+        "Fetched Hacker News submission successfully"
+    );
+
+    Ok(text)
+}
+
+/// Validates transcript text length and returns it if within bounds (30 to 280,000 words).
+pub fn process_pasted_transcript(raw_text: &str) -> Result<String, ProcessError> {
+    let word_count = raw_text.split_whitespace().count();
+    if word_count < 30 {
+        return Err(ProcessError::TranscriptTooShort);
+    }
+    if word_count > 280_000 {
+        return Err(ProcessError::TranscriptTooLong(word_count));
+    }
+    Ok(raw_text.to_string())
+}
+
+/// Encapsulates model resolution, fallback chain execution, rate limiting, and streaming summary generation.
+#[allow(clippy::too_many_arguments)]
+pub async fn run_model_pipeline(
+    db_pool: &SqlitePool,
+    identifier: i64,
+    app: &AppState,
+    input_text: &str,
+    initial_model_name: &str,
+    is_hn: bool,
+    google_search_grounding: bool,
+    url_context: bool,
+) -> Result<SummaryOutput, ProcessError> {
+    let summary_svc = SummaryService::new(app.gemini_api_key.clone());
+
+    let mut model_name = initial_model_name.to_string();
+    if model_name == "auto" {
+        if is_hn {
+            model_name = "gemini-3.6-flash".to_string();
+        } else {
+            let duration_secs = get_transcript_duration_secs(input_text);
+            model_name = if duration_secs < 1800 {
+                "gemini-3.5-flash-lite".to_string()
+            } else {
+                "gemini-3.6-flash".to_string()
+            };
+        }
+    }
+
+    // Resolve model name using the daily rate limit fallback chain
+    let resolved_model_name = resolve_model_with_fallback(&model_name, app).await?;
+    let model = parse_model_option(&resolved_model_name, &app.model_options)?;
+
+    // Check rate limit for the actual chosen model
+    let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
+        &model,
+        &app.model_counts,
+        &app.last_reset_day,
+    )
+    .await;
+    if !allowed {
+        return Err(ProcessError::Summary(SummaryError::RateLimited));
+    }
+
+    // Increment the actual model's counter
+    crate::services::rate_limiter::RateLimiter::increment_counter(
+        &model.name,
+        &app.model_counts,
+    )
+    .await;
+
+    // Update database model name to the resolved model
+    db::update_model(db_pool, identifier, &model.name).await?;
+
+    // Generate summary (streaming, updates DB progressively)
+    let mut attempts = 0;
+    let result = loop {
+        attempts += 1;
+
+        // Enforce RPM limit
+        enforce_rpm_limit(&model.name, model.rpm_limit, app).await;
+
+        match summary_svc
+            .generate_summary(
+                db_pool,
+                identifier,
+                input_text,
+                &model,
+                google_search_grounding,
+                url_context,
+            )
+            .await
+        {
+            Ok(res) => break res,
+            Err(e) => {
+                let err_str = e.to_string();
+                if (err_str.contains("experiencing high demand") || err_str.contains("high demand"))
+                    && attempts < 3
+                {
+                    let sleep_dur = if attempts == 1 {
+                        if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
+                            Duration::from_millis(10)
+                        } else {
+                            Duration::from_secs(600)
+                        }
+                    } else {
+                        if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
+                            Duration::from_millis(20)
+                        } else {
+                            Duration::from_secs(14400)
+                        }
+                    };
+                    tracing::warn!(
+                        model = %model.name,
+                        attempt = attempts,
+                        sleep_secs = sleep_dur.as_secs(),
+                        "Gemini high demand error, retrying later"
+                    );
+                    tokio::time::sleep(sleep_dur).await;
+                    continue;
+                }
+                return Err(ProcessError::Summary(e));
+            }
+        }
+    };
+
+    Ok(SummaryOutput {
+        summary_text: result.summary_text,
+        thinking_text: result.thinking_text,
+        input_tokens: result.input_tokens,
+        output_tokens: result.output_tokens,
+        thinking_tokens: result.thinking_tokens,
+        cost: result.cost,
+    })
+}
+
+/// Saves final summary state to database, converts markdown for YouTube format, and generates vector embeddings.
+pub async fn finalize_and_embed(
+    db_pool: &SqlitePool,
+    app: &AppState,
+    identifier: i64,
+    summary: &SummaryOutput,
+) -> Result<(), ProcessError> {
+    let timestamp_end = Utc::now().to_rfc3339();
+    db::mark_summary_done(
+        db_pool,
+        identifier,
+        summary.input_tokens as i64,
+        summary.output_tokens as i64,
+        summary.thinking_tokens as i64,
+        &summary.thinking_text,
+        summary.cost,
+        &timestamp_end,
+    )
+    .await?;
+
+    let youtube_text = convert_markdown_to_youtube_format(&summary.summary_text);
+    db::mark_timestamps_done(db_pool, identifier, &youtube_text).await?;
+
+    let embedding_svc = EmbeddingService::new(
+        app.gemini_api_key.clone(),
+        "gemini-embedding-001",
+        3072,
+    );
+
+    match embedding_svc.embed_text(&summary.summary_text).await {
+        Ok(embedding) => {
+            let bytes = embedding_to_bytes(&embedding);
+            if let Err(e) = db::store_embedding(db_pool, identifier, &bytes, "gemini-embedding-001").await {
+                tracing::warn!(identifier = identifier, error = %e, "Failed to store embedding");
+            }
+        }
+        Err(e) => {
+            tracing::warn!(identifier = identifier, error = %e, "Failed to compute embedding");
+        }
+    }
+
+    Ok(())
+}
+
 /// Inner implementation that returns Result for clean error handling.
 async fn process_summary_inner(
     db_pool: &SqlitePool,
@@ -182,210 +423,65 @@ async fn process_summary_inner(
     // Step 1: Ensure row exists (retry with backoff)
     let summary = wait_until_row_exists(db_pool, identifier, Duration::from_millis(100), 400).await?;
 
-    // Create services on-the-fly from AppState
-    let transcript_svc = TranscriptService::new("/dev/shm");
-    let summary_svc = SummaryService::new(app.gemini_api_key.clone());
-    let embedding_svc = EmbeddingService::new(
-        app.gemini_api_key.clone(),
-        "gemini-embedding-001",
-        3072,
-    );
-
     let urls = split_urls(&summary.original_source_link);
-    let mut downloaded_transcripts = Vec::new();
-
-    let mut total_input_tokens = 0;
-    let mut total_output_tokens = 0;
-    let mut total_thinking_tokens = 0;
-    let mut total_cost = 0.0;
-    let mut combined_thinking = String::new();
-    let mut combined_summary = String::new();
     let first_url = urls.first().cloned().unwrap_or_default();
     let is_hn_url = crate::utils::url_validator::validate_hn_url(&first_url).is_some();
 
+    let mut combined_output = SummaryOutput::default();
+    let hn_svc = HackerNewsService::new();
+
     if summary.transcript.is_empty() {
         // Sequential download and summarization loop
+        let mut downloaded_transcripts = Vec::new();
+
         for url in &urls {
             let is_hn = crate::utils::url_validator::validate_hn_url(url).is_some();
             let process_result = async {
-                let transcript = if is_hn {
+                let raw_transcript = if is_hn {
                     let hn_id = crate::utils::url_validator::validate_hn_url(url).unwrap();
-                    let hn_svc = crate::services::hacker_news::HackerNewsService::new();
-                    
-                    tracing::info!(
-                        identifier = identifier,
-                        url = %url,
-                        story_id = hn_id,
-                        "Fetching Hacker News submission"
-                    );
-
-                    let hn_res = hn_svc
-                        .fetch_hn_submission(hn_id, None)
-                        .await
-                        .map_err(|e| ProcessError::Summary(SummaryError::ApiError(e)))?;
-
-                    let text = hn_res.combined_text;
-                    let size_bytes = text.len();
-                    let word_count = text.split_whitespace().count();
-                    
-                    tracing::info!(
-                        identifier = identifier,
-                        url = %url,
-                        size_bytes = size_bytes,
-                        word_count = word_count,
-                        "Fetched Hacker News submission successfully"
-                    );
-
-                    text
+                    fetch_hn_content(hn_id, None, &hn_svc).await?
                 } else {
-                    tracing::info!(
-                        identifier = identifier,
-                        url = %url,
-                        "Downloading transcript for video"
-                    );
-
-                    let text = transcript_svc
-                        .download_transcript(url, identifier)
-                        .await?;
-
-                    let size_bytes = text.len();
-                    let word_count = text.split_whitespace().count();
-
-                    tracing::info!(
-                        identifier = identifier,
-                        url = %url,
-                        size_bytes = size_bytes,
-                        word_count = word_count,
-                        "Downloaded transcript successfully"
-                    );
-
-                    text
+                    fetch_youtube_content(url, identifier).await?
                 };
 
-                // Validate transcript length
-                let word_count = transcript.split_whitespace().count();
-                if word_count < 30 {
-                    return Err(ProcessError::TranscriptTooShort);
-                }
-                if word_count > 280_000 {
-                    return Err(ProcessError::TranscriptTooLong(word_count));
-                }
+                let transcript = process_pasted_transcript(&raw_transcript)?;
 
-                let mut model_name = summary.model.clone();
-                if model_name == "auto" {
-                    if is_hn {
-                        model_name = "gemini-3.6-flash".to_string();
-                    } else {
-                        let duration_secs = get_transcript_duration_secs(&transcript);
-                        model_name = if duration_secs < 1800 {
-                            "gemini-3.5-flash-lite".to_string()
-                        } else {
-                            "gemini-3.6-flash".to_string()
-                        };
-                    }
-                }
-
-                // Resolve model name using the daily rate limit fallback chain
-                let resolved_model_name = resolve_model_with_fallback(&model_name, app).await?;
-                let model = parse_model_option(&resolved_model_name, &app.model_options)?;
-
-                // Check rate limit for the actual chosen model
-                let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
-                    &model,
-                    &app.model_counts,
-                    &app.last_reset_day,
-                )
-                .await;
-                if !allowed {
-                    return Err(ProcessError::Summary(SummaryError::RateLimited));
-                }
-
-                // Increment the actual model's counter
-                crate::services::rate_limiter::RateLimiter::increment_counter(
-                    &model.name,
-                    &app.model_counts,
-                )
-                .await;
-
-                // Update database model name to the resolved model
-                db::update_model(db_pool, identifier, &model.name).await?;
-
-                // Add header for this item if there are multiple
                 if urls.len() > 1 {
                     let header = format!("\n\n### Summary for {}\n", url);
                     db::update_summary_chunk(db_pool, identifier, &header).await?;
                 }
 
-                // Generate summary (streaming, updates DB progressively)
-                let mut attempts = 0;
-                let result = loop {
-                    attempts += 1;
+                let pipeline_res = run_model_pipeline(
+                    db_pool,
+                    identifier,
+                    app,
+                    &transcript,
+                    &summary.model,
+                    is_hn,
+                    summary.google_search_grounding,
+                    summary.url_context,
+                )
+                .await?;
 
-                    // Enforce RPM limit
-                    enforce_rpm_limit(&model.name, model.rpm_limit, app).await;
-
-                    match summary_svc
-                        .generate_summary(
-                            db_pool,
-                            identifier,
-                            &transcript,
-                            &model,
-                            summary.google_search_grounding,
-                            summary.url_context,
-                        )
-                        .await
-                    {
-                        Ok(res) => break res,
-                        Err(e) => {
-                            let err_str = e.to_string();
-                            if err_str.contains("experiencing high demand") || err_str.contains("high demand") {
-                                if attempts < 3 {
-                                    let sleep_dur = if attempts == 1 {
-                                        if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
-                                            Duration::from_millis(10)
-                                        } else {
-                                            Duration::from_secs(600)
-                                        }
-                                    } else {
-                                        if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
-                                            Duration::from_millis(20)
-                                        } else {
-                                            Duration::from_secs(14400)
-                                        }
-                                    };
-                                    tracing::warn!(
-                                        model = %model.name,
-                                        attempt = attempts,
-                                        sleep_secs = sleep_dur.as_secs(),
-                                        "Gemini high demand error, retrying later"
-                                    );
-                                    tokio::time::sleep(sleep_dur).await;
-                                    continue;
-                                }
-                            }
-                            return Err(ProcessError::Summary(e));
-                        }
-                    }
-                };
-
-                Ok((transcript, result))
-            }.await;
+                Ok((transcript, pipeline_res))
+            }
+            .await;
 
             match process_result {
-                Ok((transcript, result)) => {
+                Ok((transcript, res)) => {
                     downloaded_transcripts.push((url.clone(), transcript));
 
-                    total_input_tokens += result.input_tokens;
-                    total_output_tokens += result.output_tokens;
-                    total_thinking_tokens += result.thinking_tokens;
-                    total_cost += result.cost;
+                    combined_output.input_tokens += res.input_tokens;
+                    combined_output.output_tokens += res.output_tokens;
+                    combined_output.thinking_tokens += res.thinking_tokens;
+                    combined_output.cost += res.cost;
 
-                    if !combined_thinking.is_empty() {
-                        combined_thinking.push_str("\n\n");
+                    if !combined_output.thinking_text.is_empty() {
+                        combined_output.thinking_text.push_str("\n\n");
                     }
-                    combined_thinking.push_str(&format!("--- Thinking for {} ---\n", url));
-                    combined_thinking.push_str(&result.thinking_text);
-                    combined_summary.push_str(&result.summary_text);
+                    combined_output.thinking_text.push_str(&format!("--- Thinking for {} ---\n", url));
+                    combined_output.thinking_text.push_str(&res.thinking_text);
+                    combined_output.summary_text.push_str(&res.summary_text);
                 }
                 Err(err) => {
                     tracing::error!(url = %url, error = %err, "Failed to process item");
@@ -395,7 +491,7 @@ async fn process_summary_inner(
                         format_process_error(&err)
                     );
                     let _ = db::update_summary_chunk(db_pool, identifier, &error_card).await;
-                    combined_summary.push_str(&error_card);
+                    combined_output.summary_text.push_str(&error_card);
                 }
             }
         }
@@ -414,182 +510,51 @@ async fn process_summary_inner(
         db::update_transcript(db_pool, identifier, &combined_transcript).await?;
     } else if is_hn_url {
         let hn_id = crate::utils::url_validator::validate_hn_url(&first_url).unwrap();
-        let hn_svc = crate::services::hacker_news::HackerNewsService::new();
         let user_pasted = if summary.transcript.trim().is_empty() {
             None
         } else {
             Some(summary.transcript.as_str())
         };
 
-        let hn_res = hn_svc
-            .fetch_hn_submission(hn_id, user_pasted)
-            .await
-            .map_err(|e| ProcessError::Summary(SummaryError::ApiError(e)))?;
-
-        let transcript = hn_res.combined_text;
+        let transcript = fetch_hn_content(hn_id, user_pasted, &hn_svc).await?;
         db::update_transcript(db_pool, identifier, &transcript).await?;
 
-        let mut model_name = summary.model.clone();
-        if model_name == "auto" {
-            model_name = "gemini-3.6-flash".to_string();
-        }
-
-        let resolved_model_name = resolve_model_with_fallback(&model_name, app).await?;
-        let model = parse_model_option(&resolved_model_name, &app.model_options)?;
-
-        let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
-            &model,
-            &app.model_counts,
-            &app.last_reset_day,
+        combined_output = run_model_pipeline(
+            db_pool,
+            identifier,
+            app,
+            &transcript,
+            &summary.model,
+            true,
+            summary.google_search_grounding,
+            summary.url_context,
         )
-        .await;
-        if !allowed {
-            return Err(ProcessError::Summary(SummaryError::RateLimited));
-        }
-
-        crate::services::rate_limiter::RateLimiter::increment_counter(
-            &model.name,
-            &app.model_counts,
-        )
-        .await;
-
-        db::update_model(db_pool, identifier, &model.name).await?;
-
-        enforce_rpm_limit(&model.name, model.rpm_limit, app).await;
-
-        let result = summary_svc
-            .generate_summary(
-                db_pool,
-                identifier,
-                &transcript,
-                &model,
-                summary.google_search_grounding,
-                summary.url_context,
-            )
-            .await
-            .map_err(ProcessError::Summary)?;
-
-        total_input_tokens = result.input_tokens;
-        total_output_tokens = result.output_tokens;
-        total_thinking_tokens = result.thinking_tokens;
-        total_cost = result.cost;
-        combined_thinking = result.thinking_text;
-        combined_summary = result.summary_text;
+        .await?;
     } else {
         // Paste mode: transcript is already in DB
         let url = urls.first().cloned().unwrap_or_default();
         let process_video_result = async {
-            let transcript = &summary.transcript;
+            let transcript = process_pasted_transcript(&summary.transcript)?;
 
-            // Validate transcript length
-            let word_count = transcript.split_whitespace().count();
-            if word_count < 30 {
-                return Err(ProcessError::TranscriptTooShort);
-            }
-            if word_count > 280_000 {
-                return Err(ProcessError::TranscriptTooLong(word_count));
-            }
-
-            // Parse model option & apply heuristic if model is "auto"
-            let mut model_name = summary.model.clone();
-            if model_name == "auto" {
-                let duration_secs = get_transcript_duration_secs(transcript);
-                model_name = if duration_secs < 1800 {
-                    "gemini-3.5-flash-lite".to_string()
-                } else {
-                    "gemini-3.6-flash".to_string()
-                };
-            }
-
-            // Resolve model name using the daily rate limit fallback chain
-            let resolved_model_name = resolve_model_with_fallback(&model_name, app).await?;
-            let model = parse_model_option(&resolved_model_name, &app.model_options)?;
-
-            // Check rate limit for the actual chosen model
-            let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
-                &model,
-                &app.model_counts,
-                &app.last_reset_day,
+            let res = run_model_pipeline(
+                db_pool,
+                identifier,
+                app,
+                &transcript,
+                &summary.model,
+                false,
+                summary.google_search_grounding,
+                summary.url_context,
             )
-            .await;
-            if !allowed {
-                return Err(ProcessError::Summary(SummaryError::RateLimited));
-            }
+            .await?;
 
-            // Increment the actual model's counter
-            crate::services::rate_limiter::RateLimiter::increment_counter(
-                &model.name,
-                &app.model_counts,
-            )
-            .await;
-
-            // Update database model name to the resolved model
-            db::update_model(db_pool, identifier, &model.name).await?;
-
-            // Generate summary (streaming, updates DB progressively)
-            let mut attempts = 0;
-            let result = loop {
-                attempts += 1;
-
-                // Enforce RPM limit
-                enforce_rpm_limit(&model.name, model.rpm_limit, app).await;
-
-                match summary_svc
-                    .generate_summary(
-                        db_pool,
-                        identifier,
-                        transcript,
-                        &model,
-                        summary.google_search_grounding,
-                        summary.url_context,
-                    )
-                    .await
-                {
-                    Ok(res) => break res,
-                    Err(e) => {
-                        let err_str = e.to_string();
-                        if err_str.contains("experiencing high demand") || err_str.contains("high demand") {
-                            if attempts < 3 {
-                                let sleep_dur = if attempts == 1 {
-                                    if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
-                                        Duration::from_millis(10)
-                                    } else {
-                                        Duration::from_secs(600)
-                                    }
-                                } else {
-                                    if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
-                                        Duration::from_millis(20)
-                                    } else {
-                                        Duration::from_secs(14400)
-                                    }
-                                };
-                                tracing::warn!(
-                                    model = %model.name,
-                                    attempt = attempts,
-                                    sleep_secs = sleep_dur.as_secs(),
-                                    "Gemini high demand error, retrying later"
-                                );
-                                tokio::time::sleep(sleep_dur).await;
-                                continue;
-                            }
-                        }
-                        return Err(ProcessError::Summary(e));
-                    }
-                }
-            };
-
-            Ok(result)
-        }.await;
+            Ok(res)
+        }
+        .await;
 
         match process_video_result {
-            Ok(result) => {
-                total_input_tokens += result.input_tokens;
-                total_output_tokens += result.output_tokens;
-                total_thinking_tokens += result.thinking_tokens;
-                total_cost += result.cost;
-
-                combined_thinking.push_str(&result.thinking_text);
-                combined_summary.push_str(&result.summary_text);
+            Ok(res) => {
+                combined_output = res;
             }
             Err(err) => {
                 tracing::error!(url = %url, error = %err, "Failed to process video");
@@ -598,41 +563,13 @@ async fn process_summary_inner(
                     format_process_error(&err)
                 );
                 let _ = db::update_summary_full(db_pool, identifier, &error_card).await;
-                combined_summary.push_str(&error_card);
+                combined_output.summary_text.push_str(&error_card);
             }
         }
     }
 
-    // Step 5b: Mark summary as done (stops HTMX polling on the frontend)
-    let timestamp_end = Utc::now().to_rfc3339();
-    db::mark_summary_done(
-        db_pool,
-        identifier,
-        total_input_tokens as i64,
-        total_output_tokens as i64,
-        total_thinking_tokens as i64,
-        &combined_thinking,
-        total_cost,
-        &timestamp_end,
-    )
-    .await?;
-
-    // Step 6: Convert to YouTube format and mark timestamps_done
-    let youtube_text = convert_markdown_to_youtube_format(&combined_summary);
-    db::mark_timestamps_done(db_pool, identifier, &youtube_text).await?;
-
-    // Step 7: Compute and store embedding (non-fatal)
-    match embedding_svc.embed_text(&combined_summary).await {
-        Ok(embedding) => {
-            let bytes = embedding_to_bytes(&embedding);
-            if let Err(e) = db::store_embedding(db_pool, identifier, &bytes, "gemini-embedding-001").await {
-                tracing::warn!(identifier = identifier, error = %e, "Failed to store embedding");
-            }
-        }
-        Err(e) => {
-            tracing::warn!(identifier = identifier, error = %e, "Failed to compute embedding");
-        }
-    }
+    // Step 5b, 6 & 7: Finalize database records, formatting, and generate embeddings
+    finalize_and_embed(db_pool, app, identifier, &combined_output).await?;
 
     Ok(())
 }
@@ -723,6 +660,20 @@ mod tests {
         assert_eq!(chain_35_lite[0], "gemini-3.5-flash-lite");
         assert!(chain_35_lite.contains(&"gemini-3.1-flash-lite"));
         assert!(chain_35_lite.contains(&"gemini-2.5-flash-lite"));
+    }
+
+    #[test]
+    fn test_process_pasted_transcript_bounds() {
+        let text_short = "hello world ";
+        assert!(matches!(process_pasted_transcript(text_short), Err(ProcessError::TranscriptTooShort)));
+
+        let words_valid = "word ".repeat(50);
+        let res = process_pasted_transcript(&words_valid);
+        assert!(res.is_ok());
+        assert_eq!(res.unwrap(), words_valid);
+
+        let words_too_long = "word ".repeat(280_001);
+        assert!(matches!(process_pasted_transcript(&words_too_long), Err(ProcessError::TranscriptTooLong(280001))));
     }
 }
 
