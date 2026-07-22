@@ -21,7 +21,7 @@ impl ModelArchitecture {
     }
 }
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ModelOption {
     pub name: String,
     pub input_price_per_mtoken: f64,
@@ -167,6 +167,47 @@ pub fn get_default_models() -> Vec<ModelOption> {
     ]
 }
 
+/// Load model configurations from external JSON file with fallback logic.
+pub fn load_models_config(config_path: Option<&std::path::Path>) -> Vec<ModelOption> {
+    let path_buf;
+    let path: &std::path::Path = match config_path {
+        Some(p) => p,
+        None => {
+            if let Ok(env_path) = std::env::var("MODELS_CONFIG_PATH") {
+                path_buf = std::path::PathBuf::from(env_path);
+                &path_buf
+            } else {
+                std::path::Path::new("config/models.json")
+            }
+        }
+    };
+
+    match std::fs::read_to_string(path) {
+        Ok(content) => match serde_json::from_str::<Vec<ModelOption>>(&content) {
+            Ok(models) => {
+                tracing::info!("Loaded model configurations from {:?}", path);
+                models
+            }
+            Err(err) => {
+                tracing::warn!(
+                    "Failed to parse model config at {:?}: {}. Falling back to default models.",
+                    path,
+                    err
+                );
+                get_default_models()
+            }
+        },
+        Err(err) => {
+            tracing::warn!(
+                "Failed to read model config at {:?}: {}. Falling back to default models.",
+                path,
+                err
+            );
+            get_default_models()
+        }
+    }
+}
+
 #[cfg(test)]
 mod model_checks {
     use super::*;
@@ -213,4 +254,27 @@ mod model_checks {
         assert_eq!(gemma_4.rpm_limit, 30);
         assert_eq!(gemma_4.rpd_limit, 14400);
     }
+
+    #[test]
+    fn test_load_models_config() {
+        let models = load_models_config(Some(std::path::Path::new("config/models.json")));
+        let default_models = get_default_models();
+        assert_eq!(models, default_models);
+    }
+
+    #[test]
+    fn test_load_models_config_fallback() {
+        // Test fallback on missing file
+        let fallback_missing = load_models_config(Some(std::path::Path::new("non_existent_models_path.json")));
+        let default_models = get_default_models();
+        assert_eq!(fallback_missing, default_models);
+
+        // Test fallback on invalid JSON content
+        use std::io::Write;
+        let mut temp_file = tempfile::NamedTempFile::new().unwrap();
+        write!(temp_file, "invalid json content").unwrap();
+        let fallback_invalid = load_models_config(Some(temp_file.path()));
+        assert_eq!(fallback_invalid, default_models);
+    }
 }
+

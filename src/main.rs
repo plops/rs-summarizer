@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let (nn_mapper, viz_data) = load_visualization_components().await;
 
     // Configure model options
-    let model_options = rs_summarizer::state::get_default_models();
+    let model_options = rs_summarizer::state::load_models_config(None);
 
     // Build application state
     let state = AppState {
