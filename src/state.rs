@@ -42,6 +42,7 @@ pub struct AppState {
     pub nn_mapper: Option<std::sync::Arc<std::sync::Mutex<crate::services::nn_mapper::NnMapper>>>,
     pub viz_data: Option<std::sync::Arc<crate::models::VizData>>,
     pub model_locks: Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<Option<std::time::Instant>>>>>>,
+    pub dedup_service: crate::services::deduplication::DeduplicationService,
 }
 
 impl AppState {

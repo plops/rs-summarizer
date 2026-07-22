@@ -57,12 +57,33 @@ pub fn replace_timestamps_in_html(html: &str, youtube_url: &str) -> String {
     result_lines.join("\n")
 }
 
+use std::sync::OnceLock;
+
 fn replace_timestamps_for_video(html: &str, video_id: &str) -> String {
-    // Match mm:ss or hh:mm:ss where mm and ss are 0-59, hours optional 1-2 digits.
-    let pattern = Regex::new(r"\b(?:\d{1,2}:)?[0-5]?\d:[0-5]\d\b").unwrap();
+    // Match mm:ss or hh:mm:ss where mm and ss are 0-59 (2 digits for seconds).
+    static PATTERN: OnceLock<Regex> = OnceLock::new();
+    let pattern = PATTERN.get_or_init(|| {
+        Regex::new(r"\b(?:\d{1,2}:)?[0-5]\d:[0-5]\d\b").unwrap()
+    });
 
     let result = pattern.replace_all(html, |caps: &regex::Captures| {
-        let ts_text = caps.get(0).unwrap().as_str();
+        let mat = caps.get(0).unwrap();
+        let ts_text = mat.as_str();
+
+        // Extra check: Ensure no preceding/following dash, slash, colon, dot, or following letters (e.g. 16:09px)
+        let start = mat.start();
+        let end = mat.end();
+        if let Some(c) = html[..start].chars().last() {
+            if c == '-' || c == '/' || c == ':' || c == '.' {
+                return ts_text.to_string();
+            }
+        }
+        if let Some(c) = html[end..].chars().next() {
+            if c == '-' || c == '/' || c == ':' || c == '.' || c.is_alphabetic() {
+                return ts_text.to_string();
+            }
+        }
+
         let parts: Vec<&str> = ts_text.split(':').collect();
         let total = if parts.len() == 3 {
             let h: u32 = parts[0].parse().unwrap_or(0);
@@ -150,5 +171,13 @@ mod tests {
         assert!(out.contains("watch?v=8S4a_LdHhsc&t=90s"));
         // Video 2 segment: 2*60 + 45 = 165
         assert!(out.contains("watch?v=Dgj2jivpaJk&t=165s"));
+    }
+
+    #[test]
+    fn test_timestamp_regex_avoids_ratios_and_css() {
+        let youtube = "https://www.youtube.com/watch?v=8S4a_LdHhsc";
+        let html = "<div style=\"aspect-ratio: 16:9; width: 16:09px;\">Ratio text 16:9</div>";
+        let out = replace_timestamps_in_html(html, youtube);
+        assert_eq!(out, html);
     }
 }

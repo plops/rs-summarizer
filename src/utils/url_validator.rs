@@ -1,4 +1,5 @@
 use regex::Regex;
+use std::sync::OnceLock;
 
 /// Validates various YouTube URL formats and extracts the 11-character video ID.
 /// Returns `Some(video_id)` if the URL matches a recognized YouTube pattern,
@@ -16,22 +17,25 @@ use regex::Regex;
 /// Only HTTPS URLs are accepted. The video ID must be exactly 11 characters
 /// from the set [A-Za-z0-9_-].
 pub fn validate_youtube_url(url: &str) -> Option<String> {
-    let patterns = [
-        // Standard watch URL (www or m subdomain optional)
-        r"^https://(?:(?:www|m)\.)?youtube\.com/watch\?v=([A-Za-z0-9_-]{11}).*",
-        // Live URL (www or m subdomain optional)
-        r"^https://(?:(?:www|m)\.)?youtube\.com/live/([A-Za-z0-9_-]{11}).*",
-        // Short URL youtu.be (www subdomain optional, no m.)
-        r"^https://(?:www\.)?youtu\.be/([A-Za-z0-9_-]{11}).*",
-        // Shorts URL (www or m subdomain optional)
-        r"^https://(?:(?:www|m)\.)?youtube\.com/shorts/([A-Za-z0-9_-]{11}).*",
-        // Raw 11-character video ID
-        r"^([A-Za-z0-9_-]{11})$",
-    ];
+    static PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
+    let patterns = PATTERNS.get_or_init(|| {
+        vec![
+            // Standard watch URL (www or m subdomain optional)
+            Regex::new(r"^https://(?:(?:www|m)\.)?youtube\.com/watch\?v=([A-Za-z0-9_-]{11}).*").unwrap(),
+            // Live URL (www or m subdomain optional)
+            Regex::new(r"^https://(?:(?:www|m)\.)?youtube\.com/live/([A-Za-z0-9_-]{11}).*").unwrap(),
+            // Short URL youtu.be (www subdomain optional, no m.)
+            Regex::new(r"^https://(?:www\.)?youtu\.be/([A-Za-z0-9_-]{11}).*").unwrap(),
+            // Shorts URL (www or m subdomain optional)
+            Regex::new(r"^https://(?:(?:www|m)\.)?youtube\.com/shorts/([A-Za-z0-9_-]{11}).*").unwrap(),
+            // Raw 11-character video ID
+            Regex::new(r"^([A-Za-z0-9_-]{11})$").unwrap(),
+        ]
+    });
 
-    for pattern in &patterns {
-        let re = Regex::new(pattern).ok()?;
-        if let Some(captures) = re.captures(url.trim()) {
+    let trimmed = url.trim();
+    for re in patterns {
+        if let Some(captures) = re.captures(trimmed) {
             if let Some(id_match) = captures.get(1) {
                 return Some(id_match.as_str().to_string());
             }
@@ -58,21 +62,22 @@ pub fn split_urls(input: &str) -> Vec<String> {
 
 /// Validates Hacker News URL formats or item IDs and extracts the item ID.
 pub fn validate_hn_url(url: &str) -> Option<u64> {
-    let patterns = [
-        r"^(?:https?://)?(?:news\.)?ycombinator\.com/item\?id=([0-9]+).*",
-        r"^(?:https?://)?(?:news\.)?ycombinator\.com/item/([0-9]+).*",
-        r"^item\?id=([0-9]+).*",
-        r"^([0-9]{6,10})$",
-    ];
+    static PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
+    let patterns = PATTERNS.get_or_init(|| {
+        vec![
+            Regex::new(r"^(?:https?://)?(?:news\.)?ycombinator\.com/item\?id=([0-9]+).*").unwrap(),
+            Regex::new(r"^(?:https?://)?(?:news\.)?ycombinator\.com/item/([0-9]+).*").unwrap(),
+            Regex::new(r"^item\?id=([0-9]+).*").unwrap(),
+            Regex::new(r"^([0-9]{6,10})$").unwrap(),
+        ]
+    });
 
     let trimmed = url.trim();
-    for pattern in &patterns {
-        if let Ok(re) = Regex::new(pattern) {
-            if let Some(captures) = re.captures(trimmed) {
-                if let Some(id_match) = captures.get(1) {
-                    if let Ok(id) = id_match.as_str().parse::<u64>() {
-                        return Some(id);
-                    }
+    for re in patterns {
+        if let Some(captures) = re.captures(trimmed) {
+            if let Some(id_match) = captures.get(1) {
+                if let Ok(id) = id_match.as_str().parse::<u64>() {
+                    return Some(id);
                 }
             }
         }

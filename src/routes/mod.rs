@@ -5,11 +5,9 @@ use axum::{
 use askama::Template;
 use chrono::Utc;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 use crate::db;
 use crate::models::{BrowseParams, SearchForm, SubmitForm};
-use crate::services::deduplication::DeduplicationService;
 use crate::services::embedding::EmbeddingService;
 use crate::services::rate_limiter::RateLimiter;
 use crate::state::AppState;
@@ -18,12 +16,22 @@ use crate::templates::{BrowseTemplate, BrowseSummaryItem, GenerationPartialTempl
 use crate::utils::markdown_renderer::render_markdown_to_html;
 use crate::utils::timestamp_linker::replace_timestamps_in_html;
 
+fn render_template<T: Template>(template: &T) -> Html<String> {
+    match template.render() {
+        Ok(html) => Html(html),
+        Err(e) => {
+            tracing::error!("Template render failed: {e}");
+            Html("<p>Internal rendering error</p>".into())
+        }
+    }
+}
+
 /// GET / — renders the index page with the submission form.
 pub async fn index(State(app): State<AppState>) -> impl IntoResponse {
     let template = IndexTemplate {
         models: app.model_options.as_ref().clone(),
     };
-    Html(template.render().unwrap_or_default())
+    render_template(&template)
 }
 
 /// POST /process_transcript — accepts a form submission, checks for duplicates,
@@ -55,7 +63,7 @@ pub async fn process_transcript(
 
     // Check at least one of original_source_link or transcript is provided
     let url_empty = input.original_source_link.trim().is_empty();
-    let transcript_empty = input.transcript.as_ref().map_or(true, |t| t.trim().is_empty());
+    let transcript_empty = input.transcript.as_ref().is_none_or(|t| t.trim().is_empty());
     if url_empty && transcript_empty {
         return Html("<p>Error: Please provide either a YouTube URL, Hacker News URL, or paste content.</p>".to_string());
     }
@@ -74,7 +82,7 @@ pub async fn process_transcript(
                 }
                 crate::utils::url_validator::ParsedSource::Unknown(u) => {
                     return Html(format!(
-                        "<p>Fehler: Der eingegebene Wert '{}' ist weder eine gültige YouTube-URL, Video-ID noch eine Hacker News-URL.</p>",
+                        "<p>Error: The provided value '{}' is neither a valid YouTube URL, video ID, nor a Hacker News URL.</p>",
                         u
                     ));
                 }
@@ -83,14 +91,14 @@ pub async fn process_transcript(
     }
     input.original_source_link = normalized_links.join(" ");
 
-    // Check for duplicates
-    let dedup_svc = DeduplicationService::new(Duration::from_secs(300));
+    // Check for duplicates using state's DeduplicationService
     let mut duplicate_id = None;
 
     if let Some(ref transcript) = input.transcript {
         let trimmed_transcript = transcript.trim();
         if !trimmed_transcript.is_empty() {
-            if let Ok(Some(existing_id)) = dedup_svc
+            if let Ok(Some(existing_id)) = app
+                .dedup_service
                 .check_duplicate_by_transcript(&app.db, trimmed_transcript, &input.model)
                 .await
             {
@@ -100,7 +108,8 @@ pub async fn process_transcript(
     }
 
     if duplicate_id.is_none() && !input.original_source_link.trim().is_empty() {
-        if let Ok(Some(existing_id)) = dedup_svc
+        if let Ok(Some(existing_id)) = app
+            .dedup_service
             .check_duplicate(&app.db, input.original_source_link.trim(), &input.model)
             .await
         {
@@ -136,7 +145,7 @@ pub async fn process_transcript(
         summary_done: false,
         timestamps: String::new(),
     };
-    Html(template.render().unwrap_or_default())
+    render_template(&template)
 }
 
 /// POST /generations/{identifier} — polling endpoint that returns the current
@@ -154,10 +163,11 @@ pub async fn browse_summaries(
     Query(params): Query<BrowseParams>,
 ) -> impl IntoResponse {
     let page = params.page.unwrap_or(0);
-    let summaries = db::fetch_browse_page(&app.db, page)
+    let page_size = 20;
+    let summaries = db::fetch_browse_page(&app.db, page, page_size)
         .await
         .unwrap_or_default();
-    let has_next = summaries.len() == 20;
+    let has_next = summaries.len() == page_size as usize;
 
     let items: Vec<BrowseSummaryItem> = summaries
         .into_iter()
@@ -185,7 +195,7 @@ pub async fn browse_summaries(
         page,
         has_next,
     };
-    Html(template.render().unwrap_or_default())
+    render_template(&template)
 }
 
 /// POST /search — similarity search endpoint using embeddings.
@@ -228,7 +238,7 @@ pub async fn search_similar(
     };
 
     let template = SearchResultsTemplate { results };
-    Html(template.render().unwrap_or_default())
+    render_template(&template)
 }
 
 /// Helper to render the generation partial for a given identifier.
@@ -258,7 +268,7 @@ async fn render_generation_partial(app: &AppState, identifier: i64) -> Html<Stri
                 summary_done: s.summary_done,
                 timestamps: timestamps_html,
             };
-            Html(template.render().unwrap_or_default())
+            render_template(&template)
         }
         None => Html("<p>Summary not found.</p>".to_string()),
     }

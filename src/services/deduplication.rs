@@ -2,6 +2,7 @@ use sqlx::SqlitePool;
 use std::time::Duration;
 use chrono::{TimeDelta, Utc};
 
+#[derive(Clone, Debug)]
 pub struct DeduplicationService {
     window: Duration, // default: 5 minutes
 }

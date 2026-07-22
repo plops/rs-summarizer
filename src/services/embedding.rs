@@ -46,7 +46,9 @@ impl EmbeddingService {
     /// Supports Matryoshka truncation: if vectors differ in length, truncates to the shorter.
     /// Returns 0.0 if either vector has zero magnitude.
     pub fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
-        assert!(!a.is_empty() && !b.is_empty());
+        if a.is_empty() || b.is_empty() {
+            return 0.0;
+        }
 
         // Handle Matryoshka dimension mismatch: truncate to shorter vector
         let len = a.len().min(b.len());
@@ -172,10 +174,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn test_cosine_similarity_empty_vector_panics() {
+    fn test_cosine_similarity_empty_vectors() {
         let a: Vec<f32> = vec![];
         let b = vec![1.0, 2.0];
-        EmbeddingService::cosine_similarity(&a, &b);
+        assert_eq!(EmbeddingService::cosine_similarity(&a, &b), 0.0);
+        assert_eq!(EmbeddingService::cosine_similarity(&b, &a), 0.0);
+        assert_eq!(EmbeddingService::cosine_similarity(&a, &a), 0.0);
     }
 }

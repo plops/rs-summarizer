@@ -259,27 +259,35 @@ impl HackerNewsService {
 
 /// Helper to strip HTML tags, convert block elements to newlines, and unescape HTML entities.
 pub fn clean_html_to_text(html: &str) -> String {
-    let tag_blocks = [
-        regex::Regex::new(r"(?is)<script\b[^>]*>.*?</script>").unwrap(),
-        regex::Regex::new(r"(?is)<style\b[^>]*>.*?</style>").unwrap(),
-        regex::Regex::new(r"(?is)<header\b[^>]*>.*?</header>").unwrap(),
-        regex::Regex::new(r"(?is)<footer\b[^>]*>.*?</footer>").unwrap(),
-        regex::Regex::new(r"(?is)<nav\b[^>]*>.*?</nav>").unwrap(),
-        regex::Regex::new(r"(?is)<noscript\b[^>]*>.*?</noscript>").unwrap(),
-    ];
+    use regex::Regex;
+    use std::sync::OnceLock;
+
+    static TAG_BLOCKS: OnceLock<Vec<Regex>> = OnceLock::new();
+    let tag_blocks = TAG_BLOCKS.get_or_init(|| vec![
+        Regex::new(r"(?is)<script\b[^>]*>.*?</script>").unwrap(),
+        Regex::new(r"(?is)<style\b[^>]*>.*?</style>").unwrap(),
+        Regex::new(r"(?is)<header\b[^>]*>.*?</header>").unwrap(),
+        Regex::new(r"(?is)<footer\b[^>]*>.*?</footer>").unwrap(),
+        Regex::new(r"(?is)<nav\b[^>]*>.*?</nav>").unwrap(),
+        Regex::new(r"(?is)<noscript\b[^>]*>.*?</noscript>").unwrap(),
+    ]);
+
+    static LINE_BREAKS: OnceLock<Regex> = OnceLock::new();
+    let line_breaks = LINE_BREAKS.get_or_init(|| Regex::new(r"(?i)<(?:p|br|h[1-6]|li|div|tr)\b[^>]*>").unwrap());
+
+    static LINK_RE: OnceLock<Regex> = OnceLock::new();
+    let link_re = LINK_RE.get_or_init(|| Regex::new(r#"(?i)<a\b[^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>"#).unwrap());
+
+    static STRIP_TAGS: OnceLock<Regex> = OnceLock::new();
+    let strip_tags = STRIP_TAGS.get_or_init(|| Regex::new(r"<[^>]+>").unwrap());
 
     let mut current = html.to_string();
-    for re in &tag_blocks {
+    for re in tag_blocks {
         current = re.replace_all(&current, "").to_string();
     }
 
-    let line_breaks = regex::Regex::new(r"(?i)<(?:p|br|h[1-6]|li|div|tr)\b[^>]*>").unwrap();
     current = line_breaks.replace_all(&current, "\n").to_string();
-
-    let link_re = regex::Regex::new(r#"(?i)<a\b[^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>"#).unwrap();
     current = link_re.replace_all(&current, "$2 ($1)").to_string();
-
-    let strip_tags = regex::Regex::new(r"<[^>]+>").unwrap();
     current = strip_tags.replace_all(&current, "").to_string();
 
     let text = decode_html_entities(&current);

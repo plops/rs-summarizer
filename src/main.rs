@@ -47,13 +47,22 @@ async fn main() -> anyhow::Result<()> {
         nn_mapper,
         viz_data,
         model_locks: Arc::new(RwLock::new(HashMap::new())),
+        dedup_service: rs_summarizer::services::deduplication::DeduplicationService::new(
+            std::time::Duration::from_secs(300),
+        ),
     };
 
     // Build router
     let app = build_router(state);
 
     // Start server
-    let addr = SocketAddr::from(([127, 0, 0, 1], 5001));
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let port = std::env::var("PORT").unwrap_or_else(|_| "5001".to_string());
+    let addr_str = format!("{}:{}", host, port);
+    let addr: SocketAddr = addr_str
+        .parse()
+        .map_err(|e| anyhow::anyhow!("Invalid socket address '{addr_str}': {e}"))?;
+
     tracing::info!("Listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
     
@@ -103,21 +112,21 @@ async fn load_visualization_components() -> (
     let compact_db_path = match std::env::var("COMPACT_DB_PATH") {
         Ok(path) => path,
         Err(_) => {
-            tracing::info!("COMPACT_DB_PATH nicht gesetzt, Visualisierungskomponenten werden nicht geladen");
+            tracing::info!("COMPACT_DB_PATH not set, visualization components will not be loaded");
             return (None, None);
         }
     };
 
-    tracing::info!("Lade Visualisierungskomponenten von: {}", compact_db_path);
+    tracing::info!("Loading visualization components from: {}", compact_db_path);
     
     let db_path = std::path::Path::new(&compact_db_path);
     let stem = db_path.file_stem().and_then(|s| s.to_str()).unwrap_or("compact");
     let parent_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
 
-    // NN Mapper laden
+    // Load NN Mapper
     let nn_mapper = load_nn_mapper(parent_dir, stem).await;
     
-    // VizData laden
+    // Load VizData
     let viz_data = load_viz_data(&compact_db_path, parent_dir, stem).await;
 
     (nn_mapper, viz_data)
@@ -130,17 +139,17 @@ async fn load_nn_mapper(
     let model_path = parent_dir.join(format!("{}_nn_mapper.bin", stem));
     
     if !model_path.exists() {
-        tracing::info!("NN-Mapper Datei nicht gefunden: {:?}", model_path);
+        tracing::info!("NN mapper file not found: {:?}", model_path);
         return None;
     }
 
     match rs_summarizer::services::nn_mapper::NnMapper::load(&model_path) {
         Ok(mapper) => {
-            tracing::info!("NN-Mapper erfolgreich geladen von: {:?}", model_path);
+            tracing::info!("NN mapper loaded successfully from: {:?}", model_path);
             Some(std::sync::Arc::new(std::sync::Mutex::new(mapper)))
         }
         Err(e) => {
-            tracing::error!("Fehler beim Laden des NN-Mappers: {:?}", e);
+            tracing::error!("Error loading NN mapper: {:?}", e);
             None
         }
     }
@@ -160,7 +169,7 @@ async fn load_viz_data(
     parent_dir: &std::path::Path,
     stem: &str,
 ) -> Option<std::sync::Arc<rs_summarizer::models::VizData>> {
-    // Zuerst die Compact DB laden
+    // Connect to Compact DB
     let db = match sqlx::SqlitePool::connect_with(
         sqlx::sqlite::SqliteConnectOptions::new()
             .filename(compact_db_path)
@@ -169,12 +178,12 @@ async fn load_viz_data(
     ).await {
         Ok(db) => db,
         Err(e) => {
-            tracing::error!("Konnte Compact DB nicht öffnen: {:?}", e);
+            tracing::error!("Could not open Compact DB: {:?}", e);
             return None;
         }
     };
 
-    // 2D-Punkte aus der Datenbank laden
+    // Load 2D points from database
     let points_2d: Vec<Point2D> = match sqlx::query("SELECT identifier, umap_2d_x, umap_2d_y FROM summaries WHERE umap_2d_x IS NOT NULL AND umap_2d_y IS NOT NULL")
         .fetch_all(&db)
         .await {
@@ -191,17 +200,17 @@ async fn load_viz_data(
             points
         }
         Err(e) => {
-            tracing::error!("Fehler beim Laden der 2D-Punkte: {:?}", e);
+            tracing::error!("Error loading 2D points: {:?}", e);
             return None;
         }
     };
 
     if points_2d.is_empty() {
-        tracing::info!("Keine 2D-Punkte in der Datenbank gefunden");
+        tracing::info!("No 2D points found in database");
         return None;
     }
 
-    // Cluster-Labels laden
+    // Load cluster labels
     let cluster_labels: std::collections::HashMap<i64, i32> = match sqlx::query("SELECT identifier, dbscan_label FROM summaries WHERE dbscan_label IS NOT NULL")
         .fetch_all(&db)
         .await {
@@ -217,47 +226,47 @@ async fn load_viz_data(
             labels
         }
         Err(e) => {
-            tracing::error!("Fehler beim Laden der Cluster-Labels: {:?}", e);
+            tracing::error!("Error loading cluster labels: {:?}", e);
             return None;
         }
     };
 
-    // Cluster-Titel aus JSON-Datei laden
+    // Load cluster titles from JSON file
     let titles_path = parent_dir.join(format!("{}_cluster_titles.json", stem));
     let cluster_titles: std::collections::HashMap<i32, String> = if titles_path.exists() {
-        match std::fs::read_to_string(&titles_path) {
+        match tokio::fs::read_to_string(&titles_path).await {
             Ok(content) => match serde_json::from_str(&content) {
                 Ok(titles) => {
-                    tracing::info!("Cluster-Titel geladen von: {:?}", titles_path);
+                    tracing::info!("Cluster titles loaded from: {:?}", titles_path);
                     titles
                 }
                 Err(e) => {
-                    tracing::error!("Fehler beim Parsen der Cluster-Titel: {:?}", e);
+                    tracing::error!("Error parsing cluster titles: {:?}", e);
                     std::collections::HashMap::new()
                 }
             },
             Err(e) => {
-                tracing::error!("Fehler beim Lesen der Cluster-Titel: {:?}", e);
+                tracing::error!("Error reading cluster titles: {:?}", e);
                 std::collections::HashMap::new()
             }
         }
     } else {
-        tracing::info!("Keine Cluster-Titel Datei gefunden: {:?}", titles_path);
+        tracing::info!("No cluster titles file found: {:?}", titles_path);
         std::collections::HashMap::new()
     };
 
-    // Cluster-Zentroide berechnen
+    // Calculate cluster centroids
     let mut cluster_centroids: std::collections::HashMap<i32, (f32, f32)> = std::collections::HashMap::new();
     let mut cluster_points: std::collections::HashMap<i32, Vec<(f32, f32)>> = std::collections::HashMap::new();
 
-    // Punkte nach Cluster gruppieren
+    // Group points by cluster
     for point in &points_2d {
         if let Some(&label) = cluster_labels.get(&point.identifier) {
             cluster_points.entry(label).or_default().push((point.umap_2d_x, point.umap_2d_y));
         }
     }
 
-    // Zentroide berechnen
+    // Calculate centroids
     for (label, points) in cluster_points {
         if !points.is_empty() {
             let sum_x: f32 = points.iter().map(|(x, _)| x).sum();
@@ -267,7 +276,7 @@ async fn load_viz_data(
         }
     }
 
-    // Konvertiere Point2D structs zu (i64, f32, f32) tuples
+    // Convert Point2D structs to (i64, f32, f32) tuples
     let points_2d_tuples: Vec<(i64, f32, f32)> = points_2d.into_iter()
         .map(|point| (point.identifier, point.umap_2d_x, point.umap_2d_y))
         .collect();
@@ -280,7 +289,7 @@ async fn load_viz_data(
     };
 
     tracing::info!(
-        "VizData geladen: {} Punkte, {} Cluster, {} Titel",
+        "VizData loaded: {} points, {} clusters, {} titles",
         viz_data.points_2d.len(),
         viz_data.cluster_labels.len(),
         viz_data.cluster_titles.len()

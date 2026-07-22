@@ -1,4 +1,5 @@
 use regex::Regex;
+use std::sync::OnceLock;
 
 /// Converts markdown-formatted text to YouTube comment format.
 ///
@@ -12,7 +13,7 @@ use regex::Regex;
 /// 1. Reposition punctuation adjacent to `**` bold markers
 /// 2. Convert `**` to `*`
 /// 3. Reposition punctuation adjacent to `*` bold markers
-/// 4. Convert `## Heading` at start of text to `*Heading*`
+/// 4. Convert `## Heading` (including multiline) to `*Heading*`
 /// 5. Replace dots in URLs with `-dot-`
 pub fn convert_markdown_to_youtube_format(text: &str) -> String {
     let mut text = text.to_string();
@@ -36,14 +37,18 @@ pub fn convert_markdown_to_youtube_format(text: &str) -> String {
     text = text.replace("*.", ".*");
 
     // Markdown title starting with ## converted to bold text
-    // Note: ^ matches start of string only (not multiline), matching Python behavior
-    let heading_re = Regex::new(r"^##\s*(.*)").unwrap();
-    text = heading_re.replace(&text, "*$1*").to_string();
+    static HEADING_RE: OnceLock<Regex> = OnceLock::new();
+    let heading_re = HEADING_RE.get_or_init(|| Regex::new(r"(?m)^##\s*(.*)").unwrap());
+    text = heading_re.replace_all(&text, "*$1*").to_string();
 
     // Find any text that looks like a URL and replace the dot before TLD with -dot-
-    let url_re = Regex::new(
-        r"((?:https?://)?(?:www\.)?\S+)\.(com|org|de|us|gov|net|edu|info|io|co\.uk|ca|fr|au|jp|ru|ch|it|nl|se|es|br|mx|in|kr)"
-    ).unwrap();
+    static URL_RE: OnceLock<Regex> = OnceLock::new();
+    let url_re = URL_RE.get_or_init(|| {
+        Regex::new(
+            r"((?:https?://)?(?:www\.)?\S+)\.(com|org|de|us|gov|net|edu|info|io|co\.uk|ca|fr|au|jp|ru|ch|it|nl|se|es|br|mx|in|kr)",
+        )
+        .unwrap()
+    });
     text = url_re.replace_all(&text, "$1-dot-$2").to_string();
 
     text
@@ -74,10 +79,10 @@ mod tests {
     }
 
     #[test]
-    fn test_heading_only_at_start() {
-        // ## not at start of string should not be converted
-        let result = convert_markdown_to_youtube_format("Hello\n## Not a heading");
-        assert_eq!("Hello\n## Not a heading", result);
+    fn test_heading_multiline() {
+        // ## after newline should also be converted with multiline flag
+        let result = convert_markdown_to_youtube_format("Hello\n## Second heading");
+        assert_eq!("Hello\n*Second heading*", result);
     }
 
     #[test]

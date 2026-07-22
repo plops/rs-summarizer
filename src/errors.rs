@@ -77,21 +77,21 @@ pub enum ExportError {
 
 #[derive(Debug, Error)]
 pub enum NnMapperError {
-    #[error("Modell-Datei konnte nicht geladen werden: {0}")]
+    #[error("Failed to load model file: {0}")]
     ModelLoadError(String),
 
-    #[error("Konfigurations-Datei konnte nicht geladen werden: {0}")]
+    #[error("Failed to load configuration file: {0}")]
     ConfigLoadError(String),
 
-    #[error("Projektionsfehler: {0}")]
+    #[error("Projection error: {0}")]
     ProjectionError(String),
 
-    #[error("Ungültige Embedding-Dimension: erwartet {expected}, erhalten {actual}")]
+    #[error("Invalid embedding dimension: expected {expected}, got {actual}")]
     DimensionMismatch { expected: usize, actual: usize },
 
-    #[error("I/O-Fehler: {0}")]
+    #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Serialisierungsfehler: {0}")]
+    #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
 }

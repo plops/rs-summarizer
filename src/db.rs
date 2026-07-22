@@ -177,13 +177,18 @@ pub async fn fetch_all_embeddings(db: &SqlitePool) -> Result<Vec<(i64, Vec<u8>)>
     Ok(rows)
 }
 
-/// Fetch a page of summaries for browsing (20 per page, ordered by id DESC).
-pub async fn fetch_browse_page(db: &SqlitePool, page: u32) -> Result<Vec<Summary>, sqlx::Error> {
-    let offset = page * 20;
+/// Fetch a page of summaries for browsing (ordered by id DESC).
+pub async fn fetch_browse_page(
+    db: &SqlitePool,
+    page: u32,
+    page_size: u32,
+) -> Result<Vec<Summary>, sqlx::Error> {
+    let offset = page * page_size;
 
     let rows = sqlx::query_as::<_, Summary>(
-        "SELECT * FROM summaries ORDER BY identifier DESC LIMIT 20 OFFSET ?"
+        "SELECT * FROM summaries ORDER BY identifier DESC LIMIT ? OFFSET ?"
     )
+    .bind(page_size)
     .bind(offset)
     .fetch_all(db)
     .await?;

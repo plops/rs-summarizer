@@ -80,6 +80,9 @@ async fn test_app_state() -> AppState {
         nn_mapper: None,
         viz_data: None,
         model_locks: Arc::new(RwLock::new(HashMap::new())),
+        dedup_service: rs_summarizer::services::deduplication::DeduplicationService::new(
+            std::time::Duration::from_secs(300),
+        ),
     }
 }
 
@@ -228,6 +231,9 @@ async fn test_app_state_with_low_limit() -> AppState {
         nn_mapper: None,
         viz_data: None,
         model_locks: Arc::new(RwLock::new(HashMap::new())),
+        dedup_service: rs_summarizer::services::deduplication::DeduplicationService::new(
+            std::time::Duration::from_secs(300),
+        ),
     }
 }
 
