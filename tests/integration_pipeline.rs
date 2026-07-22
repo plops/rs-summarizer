@@ -597,3 +597,35 @@ async fn test_hn_submission_fetch() {
     assert!(!fetch_res.discussion_text.is_empty(), "Discussion text should not be empty");
     assert!(fetch_res.combined_text.contains("=== HACKER NEWS SUBMISSION ==="));
 }
+
+/// Test batch processing of multiple Hacker News submissions.
+#[tokio::test]
+#[ignore]
+async fn test_hn_batch_processing() {
+    let app = build_test_app_state().await;
+
+    // Use two valid Hacker News links
+    let links = "https://news.ycombinator.com/item?id=1 https://news.ycombinator.com/item?id=47143754";
+    let form = rs_summarizer::models::SubmitForm {
+        original_source_link: links.to_string(),
+        transcript: None,
+        model: "auto".to_string(),
+        google_search_grounding: false,
+        url_context: false,
+    };
+
+    let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2026-07-22T00:00:00Z")
+        .await
+        .expect("Failed to insert summary");
+
+    // Run the full background task
+    tasks::process_summary(app.db.clone(), id, app.clone()).await;
+
+    // Verify final state: summary_done should be true
+    let row = db::fetch_summary(&app.db, id).await.unwrap().unwrap();
+    assert!(row.summary_done, "summary_done should be true after process_summary completes");
+    assert!(!row.summary.is_empty(), "summary should not be empty after processing");
+    // Verify both summaries are referenced in the output
+    assert!(row.summary.contains("Summary for https://news.ycombinator.com/item?id=1"));
+    assert!(row.summary.contains("Summary for https://news.ycombinator.com/item?id=47143754"));
+}

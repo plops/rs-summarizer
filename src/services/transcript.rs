@@ -32,6 +32,12 @@ impl TranscriptService {
         url: &str,
         identifier: i64,
     ) -> Result<String, TranscriptError> {
+        tracing::info!(
+            identifier = identifier,
+            url = %url,
+            "Downloading transcript for video"
+        );
+
         // Step 1: List available subtitles
         let list_output = self.list_subtitles(url).await?;
 
@@ -85,6 +91,16 @@ impl TranscriptService {
                 "Parsed transcript is empty".to_string(),
             ));
         }
+
+        let size_bytes = transcript.len();
+        let word_count = transcript.split_whitespace().count();
+        tracing::info!(
+            identifier = identifier,
+            url = %url,
+            size_bytes = size_bytes,
+            word_count = word_count,
+            "Downloaded transcript successfully"
+        );
 
         Ok(transcript)
     }

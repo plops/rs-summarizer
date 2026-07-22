@@ -1,0 +1,20 @@
+read ../20260720_01_hn/prompt.tx
+i would like to allow batch processing with a list of hackernews urls (or hn and youtube urls mixed).
+
+i just tried with this list:
+https://news.ycombinator.com/item?id=47143754
+https://news.ycombinator.com/item?id=48847407
+https://news.ycombinator.com/item?id=47461565
+https://news.ycombinator.com/item?id=47146936
+https://news.ycombinator.com/item?id=48927620
+
+and only one summary was created. the logging is insufficient to tell which one:
+Jul 22 05:25:04 ubuntu-2gb-ash-1 rs-summarizer[204834]: 2026-07-22T05:25:04.294700Z  INFO rs_summarizer::services::summary: Starting summary generation identifier=16439 model=gemini-3.6-flash word_count=6717
+Jul 22 05:25:30 ubuntu-2gb-ash-1 rs-summarizer[204834]: 2026-07-22T05:25:30.593344Z  INFO rs_summarizer::services::summary: Summary generation complete identifier=16439 input_tokens=14537 output_tokens=2411 thinking_tokens=3121 cost=0.0024181000000000003 duration_secs=26.338282188
+Jul 22 05:29:22 ubuntu-2gb-ash-1 rs-summarizer[204834]: 2026-07-22T05:29:22.132261Z  INFO rs_summarizer::services::summary: Starting summary generation identifier=16440 model=gemini-3.6-flash word_count=4451
+Jul 22 05:29:45 ubuntu-2gb-ash-1 rs-summarizer[204834]: 2026-07-22T05:29:45.735096Z  INFO rs_summarizer::services::summary: Summary generation complete identifier=16440 input_tokens=9972 output_tokens=1474 thinking_tokens=3213 cost=0.0015868 duration_secs=23.639553344
+
+i would like to see which urls are downloaded (and what their size is after conversion to text) to appear in the log
+so that in the future we can understand such things better.
+
+analyze the code base and write a plan similar to plan/20260721_01_gemini36/plan.md (which will also create a walktrhough document in the end). commit the changes as  conventional commit messages

@@ -53,6 +53,7 @@ impl HackerNewsService {
         story_id: u64,
         user_pasted_content: Option<&str>,
     ) -> Result<HnFetchResult, String> {
+        tracing::info!(story_id = story_id, "Fetching Hacker News story metadata");
         let story_url = format!("https://hacker-news.firebaseio.com/v0/item/{}.json", story_id);
         let story_res = self
             .client
@@ -81,6 +82,14 @@ impl HackerNewsService {
 
         // Fetch comments
         let discussion_text = self.fetch_comments(&story).await;
+
+        let disc_word_count = discussion_text.split_whitespace().count();
+        tracing::info!(
+            story_id = story_id,
+            size_bytes = discussion_text.len(),
+            word_count = disc_word_count,
+            "Fetched Hacker News discussion comments successfully"
+        );
 
         // Fetch article content if external URL exists
         let mut article_text = None;
@@ -211,6 +220,7 @@ impl HackerNewsService {
 
     /// Fetch external article and convert HTML to plain text.
     async fn fetch_external_article(&self, url: &str) -> Result<String, String> {
+        tracing::info!(url = %url, "Downloading external article for Hacker News submission");
         let res = self
             .client
             .get(url)
@@ -231,6 +241,15 @@ impl HackerNewsService {
         if clean_text.trim().is_empty() {
             return Err("Extracted text content was empty".to_string());
         }
+
+        let size_bytes = clean_text.len();
+        let word_count = clean_text.split_whitespace().count();
+        tracing::info!(
+            url = %url,
+            size_bytes = size_bytes,
+            word_count = word_count,
+            "Downloaded and parsed external article successfully"
+        );
 
         // Limit to first 25,000 words (~100KB)
         let words: Vec<&str> = clean_text.split_whitespace().take(25_000).collect();
