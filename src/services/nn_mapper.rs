@@ -21,7 +21,17 @@ pub struct NnMapper {
     embedding_dim: usize,
 }
 
+// SAFETY: `NnMapper` holds a trained `FittedUmap` model and configuration metadata.
+// `FittedUmap` is constructed once during loading (`NnMapper::load`) and remains immutable
+// for the entire lifecycle of `NnMapper`. Transferring `NnMapper` across thread boundaries
+// does not trigger any concurrent state mutation or un-synchronized pointer access.
 unsafe impl Send for NnMapper {}
+
+// SAFETY: `NnMapper` exposes only immutable read-only operations (`project` and `embedding_dim`).
+// During runtime projection (`NnMapper::project`), the underlying `FittedUmap` executes a forward pass
+// through the neural network layers (`UMAPModel::forward`). This read-only evaluation does not use
+// any unsynchronized interior mutability (such as `Cell`, `RefCell`, or raw pointer mutation).
+// Therefore, sharing `NnMapper` across Tokio worker threads via `AppState` is safe and data-race free.
 unsafe impl Sync for NnMapper {}
 
 impl NnMapper {
@@ -86,3 +96,16 @@ impl NnMapper {
         self.embedding_dim
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    #[test]
+    fn test_nn_mapper_send_sync() {
+        assert_send_sync::<NnMapper>();
+    }
+}
+
