@@ -276,6 +276,8 @@ impl SummaryService {
              - You MUST cover ALL main points, perspectives, technical arguments, counter-arguments, and critiques raised throughout the entire comment thread.\n\
              - Organize the discussion points in order of priority and significance.\n\
              - Highlight any alternative links, paywall bypasses, or external resources mentioned by users in the comments.\n\
+             - Include concrete numbers, benchmark statistics, tool names, and technical details where discussed.\n\
+             - Do NOT include greetings, conversational filler, closing remarks, or follow-up questions.\n\
              \n\
              Here is the Hacker News content and discussion:\n\
              {hn_content}",
@@ -308,7 +310,7 @@ Example Output:\n\
 {example_output_abstract}\n\
 {example_output}\n\
 Here is the real transcript. What would be a good group of people to review this topic? \
-Please summarize provide a summary like they would: \n\
+Please provide a summary like they would: \n\
 {transcript}",
             today = today,
             example_input = EXAMPLE_INPUT,
@@ -520,6 +522,18 @@ mod tests {
         assert!(
             SYSTEM_INSTRUCTION.contains("CORE INSTRUCTION"),
             "SYSTEM_INSTRUCTION should contain 'CORE INSTRUCTION'"
+        );
+        assert!(
+            SYSTEM_INSTRUCTION.contains("Single-Pass Output Directive"),
+            "SYSTEM_INSTRUCTION should contain 'Single-Pass Output Directive'"
+        );
+        assert!(
+            SYSTEM_INSTRUCTION.contains("Specifics Over Generalities"),
+            "SYSTEM_INSTRUCTION should contain 'Specifics Over Generalities'"
+        );
+        assert!(
+            SYSTEM_INSTRUCTION.contains("Strict Objectivity & High Data Density"),
+            "SYSTEM_INSTRUCTION should contain 'Strict Objectivity & High Data Density'"
         );
     }
 
