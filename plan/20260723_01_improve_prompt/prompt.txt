@@ -1,0 +1,6 @@
+look at /workspace/src/system_prompts_leaks/Google/gemini-3.5-flash.md
+this is the system prompt that is being used by google when we make our requests. we have no control over that and can't change it.
+
+consider our own system prompt that we use in rs-summarizer to request summaries. can we improve, clarify or make our prompt more precise so that we get an even better summary? obviously googles system prompt is meant for interactive chats. whereas i want just a single summary.
+
+analyze the code base and write a plan similar to plan/20260721_01_gemini36/plan.md (which will also create a walktrhough document in the end). commit the changes as  conventional commit messages
