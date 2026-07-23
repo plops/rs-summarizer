@@ -267,17 +267,23 @@ impl SummaryService {
              \n\
              Below is input from a Hacker News submission, containing the original article (if retrieved or provided) and the discussion from news.ycombinator.com.\n\
              \n\
-             Please provide the following exact, repeatable section structure:\n\
-             1. **## Article Abstract & Summary**: A self-contained summary of the main article.\n\
-             2. **## Hacker News Discussion Summary**: A thorough, comprehensive summary of the discussion on Hacker News.\n\
+             This is an ARTICLE, not a video transcript. Do NOT include any timestamps in the output.\n\
              \n\
-             **CRITICAL DISCUSSION SUMMARIZATION REQUIREMENTS**:\n\
-             - You MUST NOT restrict yourself to only the first few top comments.\n\
-             - You MUST cover ALL main points, perspectives, technical arguments, counter-arguments, and critiques raised throughout the entire comment thread.\n\
-             - Organize the discussion points in order of priority and significance.\n\
-             - Highlight any alternative links, paywall bypasses, or external resources mentioned by users in the comments.\n\
+             Please provide the following exact, repeatable section structure:\n\
+             1. **## Abstract**: A concise, high-density executive summary of the main article (3-5 sentences max).\n\
+             2. **## Key Points**: A bulleted list of the most important findings, claims, and technical details from the article. Each bullet begins with a bolded concept name. NO timestamps.\n\
+             3. **## Discussion Highlights**: A concise bulleted summary of the most significant perspectives, technical arguments, and counter-arguments from the Hacker News comments.\n\
+             \n\
+             **DISCUSSION REQUIREMENTS**:\n\
+             - Cover the full breadth of the discussion, not just the top few comments.\n\
+             - Prioritize substantive technical arguments and novel perspectives over repetitive agreement.\n\
+             - Highlight any alternative links, paywall bypasses, or external resources mentioned.\n\
              - Include concrete numbers, benchmark statistics, tool names, and technical details where discussed.\n\
-             - Maintain strict structural repeatability across all outputs.\n\
+             \n\
+             **CONCISENESS REQUIREMENTS**:\n\
+             - Be ruthlessly concise. Every sentence must carry unique information.\n\
+             - Merge similar discussion points into single bullets rather than listing each comment separately.\n\
+             - Omit low-signal commentary (e.g., jokes, tangential anecdotes, meta-discussion about HN itself).\n\
              - Do NOT include greetings, conversational filler, closing remarks, or follow-up questions.\n\
              \n\
              Here is the Hacker News content and discussion:\n\
@@ -423,9 +429,10 @@ mod tests {
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
         assert!(prompt.contains(&today), "HN Prompt should contain today's date");
         assert!(prompt.contains("temporal awareness"), "HN Prompt should contain temporal awareness note");
-        assert!(prompt.contains("CRITICAL DISCUSSION SUMMARIZATION REQUIREMENTS"), "HN Prompt should contain discussion requirements");
-        assert!(prompt.contains("MUST NOT restrict yourself to only the first few top comments"), "HN Prompt should instruct full discussion coverage");
-        assert!(prompt.contains("order of priority"), "HN Prompt should specify priority ordering");
+        assert!(prompt.contains("Do NOT include any timestamps"), "HN Prompt should forbid timestamps for articles");
+        assert!(prompt.contains("CONCISENESS REQUIREMENTS"), "HN Prompt should contain conciseness requirements");
+        assert!(prompt.contains("Discussion Highlights"), "HN Prompt should request discussion highlights");
+        assert!(prompt.contains("full breadth of the discussion"), "HN Prompt should instruct full discussion coverage");
     }
 
     #[test]
@@ -530,8 +537,16 @@ mod tests {
             "SYSTEM_INSTRUCTION should contain 'Single-Pass Output Directive'"
         );
         assert!(
+            SYSTEM_INSTRUCTION.contains("Conciseness Mandate"),
+            "SYSTEM_INSTRUCTION should contain 'Conciseness Mandate'"
+        );
+        assert!(
             SYSTEM_INSTRUCTION.contains("Structural Repeatability Directive"),
             "SYSTEM_INSTRUCTION should contain 'Structural Repeatability Directive'"
+        );
+        assert!(
+            SYSTEM_INSTRUCTION.contains("articles/text content without timestamps"),
+            "SYSTEM_INSTRUCTION should differentiate article vs video structure"
         );
         assert!(
             SYSTEM_INSTRUCTION.contains("Specifics Over Generalities"),
