@@ -267,9 +267,9 @@ impl SummaryService {
              \n\
              Below is input from a Hacker News submission, containing the original article (if retrieved or provided) and the discussion from news.ycombinator.com.\n\
              \n\
-             Please provide:\n\
-             1. **Article Abstract & Summary**: A self-contained summary of the main article.\n\
-             2. **Hacker News Discussion Summary**: A thorough, comprehensive summary of the discussion on Hacker News.\n\
+             Please provide the following exact, repeatable section structure:\n\
+             1. **## Article Abstract & Summary**: A self-contained summary of the main article.\n\
+             2. **## Hacker News Discussion Summary**: A thorough, comprehensive summary of the discussion on Hacker News.\n\
              \n\
              **CRITICAL DISCUSSION SUMMARIZATION REQUIREMENTS**:\n\
              - You MUST NOT restrict yourself to only the first few top comments.\n\
@@ -277,6 +277,7 @@ impl SummaryService {
              - Organize the discussion points in order of priority and significance.\n\
              - Highlight any alternative links, paywall bypasses, or external resources mentioned by users in the comments.\n\
              - Include concrete numbers, benchmark statistics, tool names, and technical details where discussed.\n\
+             - Maintain strict structural repeatability across all outputs.\n\
              - Do NOT include greetings, conversational filler, closing remarks, or follow-up questions.\n\
              \n\
              Here is the Hacker News content and discussion:\n\
@@ -299,10 +300,11 @@ impl SummaryService {
              \n\
              Below, I will provide input for an example video (comprising of title, description, \
 and transcript, in this order) and the corresponding abstract and summary I expect. Afterward, \
-I will provide a new transcript that I want a summarization in the same format. \n\
+I will provide a new transcript that I want a summarization in the exact same structure. \n\
 \n\
 **Please give an abstract of the transcript and then summarize the transcript in a self-contained \
-bullet list format.** Include starting timestamps, important details and key takeaways. \n\
+bullet list format.** Maintain strict structural repeatability (`## Abstract` followed by \
+`## Key Highlights & Timestamps`). Include starting timestamps, important details and key takeaways. \n\
 \n\
 Example Input: \n\
 {example_input}\n\
@@ -528,12 +530,16 @@ mod tests {
             "SYSTEM_INSTRUCTION should contain 'Single-Pass Output Directive'"
         );
         assert!(
+            SYSTEM_INSTRUCTION.contains("Structural Repeatability Directive"),
+            "SYSTEM_INSTRUCTION should contain 'Structural Repeatability Directive'"
+        );
+        assert!(
             SYSTEM_INSTRUCTION.contains("Specifics Over Generalities"),
             "SYSTEM_INSTRUCTION should contain 'Specifics Over Generalities'"
         );
         assert!(
-            SYSTEM_INSTRUCTION.contains("Strict Objectivity & High Data Density"),
-            "SYSTEM_INSTRUCTION should contain 'Strict Objectivity & High Data Density'"
+            SYSTEM_INSTRUCTION.contains("Strict Objectivity, High Data Density & Uniform Repeatability"),
+            "SYSTEM_INSTRUCTION should contain 'Strict Objectivity, High Data Density & Uniform Repeatability'"
         );
     }
 
