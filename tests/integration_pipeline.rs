@@ -601,7 +601,7 @@ async fn test_hn_submission_fetch() {
     assert!(fetch_res.combined_text.contains("=== HACKER NEWS SUBMISSION ==="));
 }
 
-/// Test batch processing of multiple Hacker News submissions.
+/// Test batch processing of multiple Hacker News submissions as individual DB rows.
 #[tokio::test]
 #[ignore]
 async fn test_hn_batch_processing() {
@@ -609,26 +609,28 @@ async fn test_hn_batch_processing() {
 
     // Use two valid Hacker News links
     let links = "https://news.ycombinator.com/item?id=1 https://news.ycombinator.com/item?id=47143754";
-    let form = rs_summarizer::models::SubmitForm {
-        original_source_link: links.to_string(),
-        transcript: None,
-        model: "auto".to_string(),
-        google_search_grounding: false,
-        url_context: false,
-    };
+    let norm_items = rs_summarizer::utils::url_validator::split_urls(links);
+    assert_eq!(norm_items.len(), 2);
 
-    let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2026-07-22T00:00:00Z")
-        .await
-        .expect("Failed to insert summary");
+    for link in norm_items {
+        let form = rs_summarizer::models::SubmitForm {
+            original_source_link: link.clone(),
+            transcript: None,
+            model: "auto".to_string(),
+            google_search_grounding: false,
+            url_context: false,
+        };
 
-    // Run the full background task
-    tasks::process_summary(app.db.clone(), id, app.clone()).await;
+        let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2026-07-22T00:00:00Z")
+            .await
+            .expect("Failed to insert summary");
 
-    // Verify final state: summary_done should be true
-    let row = db::fetch_summary(&app.db, id).await.unwrap().unwrap();
-    assert!(row.summary_done, "summary_done should be true after process_summary completes");
-    assert!(!row.summary.is_empty(), "summary should not be empty after processing");
-    // Verify both summaries are referenced in the output
-    assert!(row.summary.contains("Summary for https://news.ycombinator.com/item?id=1"));
-    assert!(row.summary.contains("Summary for https://news.ycombinator.com/item?id=47143754"));
+        // Run the background task for individual item
+        tasks::process_summary(app.db.clone(), id, app.clone()).await;
+
+        // Verify final state: summary_done should be true for this individual row
+        let row = db::fetch_summary(&app.db, id).await.unwrap().unwrap();
+        assert!(row.summary_done, "summary_done should be true after process_summary completes");
+        assert_eq!(row.original_source_link, link);
+    }
 }

@@ -257,6 +257,23 @@ pub fn process_pasted_transcript(raw_text: &str) -> Result<String, ProcessError>
 
 /// Encapsulates model resolution, fallback chain execution, rate limiting, and streaming summary generation.
 #[allow(clippy::too_many_arguments)]
+/// Helper to detect if a SummaryError represents a rate limit / 429 / quota error.
+fn is_summary_rate_limited(err: &SummaryError) -> bool {
+    match err {
+        SummaryError::RateLimited => true,
+        SummaryError::ApiError(msg) => {
+            msg.contains("ResourceExhausted")
+                || msg.contains("429")
+                || msg.contains("RESOURCE_EXHAUSTED")
+                || msg.contains("quota")
+                || msg.contains("Quota")
+        }
+        _ => false,
+    }
+}
+
+/// Encapsulates model resolution, fallback chain execution, rate limiting, and streaming summary generation.
+#[allow(clippy::too_many_arguments)]
 pub async fn run_model_pipeline(
     db_pool: &SqlitePool,
     identifier: i64,
@@ -272,7 +289,12 @@ pub async fn run_model_pipeline(
     let mut model_name = initial_model_name.to_string();
     if model_name == "auto" {
         if is_hn {
-            model_name = "gemini-3.6-flash".to_string();
+            let word_count = input_text.split_whitespace().count();
+            model_name = if word_count < 3000 {
+                "gemini-3.5-flash-lite".to_string()
+            } else {
+                "gemini-3.6-flash".to_string()
+            };
         } else {
             let duration_secs = get_transcript_duration_secs(input_text);
             model_name = if duration_secs < 1800 {
@@ -283,91 +305,125 @@ pub async fn run_model_pipeline(
         }
     }
 
-    // Resolve model name using the daily rate limit fallback chain
-    let resolved_model_name = resolve_model_with_fallback(&model_name, app).await?;
-    let model = parse_model_option(&resolved_model_name, &app.model_options)?;
+    let fallback_chain = get_fallback_chain(&model_name);
+    let mut last_error = None;
 
-    // Check rate limit for the actual chosen model
-    let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
-        &model,
-        &app.model_counts,
-        &app.last_reset_day,
-    )
-    .await;
-    if !allowed {
-        return Err(ProcessError::Summary(SummaryError::RateLimited));
-    }
+    for candidate_name in fallback_chain {
+        let model = match parse_model_option(candidate_name, &app.model_options) {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
 
-    // Increment the actual model's counter
-    crate::services::rate_limiter::RateLimiter::increment_counter(
-        &model.name,
-        &app.model_counts,
-    )
-    .await;
+        // Check daily rate limit for candidate model
+        let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
+            &model,
+            &app.model_counts,
+            &app.last_reset_day,
+        )
+        .await;
 
-    // Update database model name to the resolved model
-    db::update_model(db_pool, identifier, &model.name).await?;
+        if !allowed {
+            tracing::warn!(
+                model = %model.name,
+                "Candidate model daily rate limit exceeded, skipping to next fallback"
+            );
+            continue;
+        }
 
-    // Generate summary (streaming, updates DB progressively)
-    let mut attempts = 0;
-    let result = loop {
-        attempts += 1;
+        // Increment candidate model's counter
+        crate::services::rate_limiter::RateLimiter::increment_counter(
+            &model.name,
+            &app.model_counts,
+        )
+        .await;
 
-        // Enforce RPM limit
-        enforce_rpm_limit(&model.name, model.rpm_limit, app).await;
+        // Update database model name to the candidate model being attempted
+        if let Err(e) = db::update_model(db_pool, identifier, &model.name).await {
+            tracing::warn!(identifier = identifier, error = %e, "Failed to update DB model name");
+        }
 
-        match summary_svc
-            .generate_summary(
-                db_pool,
-                identifier,
-                input_text,
-                &model,
-                google_search_grounding,
-                url_context,
-            )
-            .await
-        {
-            Ok(res) => break res,
-            Err(e) => {
-                let err_str = e.to_string();
-                if (err_str.contains("experiencing high demand") || err_str.contains("high demand"))
-                    && attempts < 3
-                {
-                    let sleep_dur = if attempts == 1 {
-                        if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
-                            Duration::from_millis(10)
-                        } else {
-                            Duration::from_secs(600)
-                        }
-                    } else {
-                        if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
-                            Duration::from_millis(20)
-                        } else {
-                            Duration::from_secs(14400)
-                        }
+        let mut attempts = 0;
+        let mut model_succeeded = false;
+        let mut model_output = SummaryOutput::default();
+
+        loop {
+            attempts += 1;
+
+            // Enforce RPM limit for candidate model
+            enforce_rpm_limit(&model.name, model.rpm_limit, app).await;
+
+            match summary_svc
+                .generate_summary(
+                    db_pool,
+                    identifier,
+                    input_text,
+                    &model,
+                    google_search_grounding,
+                    url_context,
+                )
+                .await
+            {
+                Ok(res) => {
+                    model_output = SummaryOutput {
+                        summary_text: res.summary_text,
+                        thinking_text: res.thinking_text,
+                        input_tokens: res.input_tokens,
+                        output_tokens: res.output_tokens,
+                        thinking_tokens: res.thinking_tokens,
+                        cost: res.cost,
                     };
-                    tracing::warn!(
-                        model = %model.name,
-                        attempt = attempts,
-                        sleep_secs = sleep_dur.as_secs(),
-                        "Gemini high demand error, retrying later"
-                    );
-                    tokio::time::sleep(sleep_dur).await;
-                    continue;
+                    model_succeeded = true;
+                    break;
                 }
-                return Err(ProcessError::Summary(e));
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if (err_str.contains("experiencing high demand") || err_str.contains("high demand"))
+                        && attempts < 3
+                    {
+                        let sleep_dur = if attempts == 1 {
+                            if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
+                                Duration::from_millis(10)
+                            } else {
+                                Duration::from_secs(600)
+                            }
+                        } else {
+                            if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
+                                Duration::from_millis(20)
+                            } else {
+                                Duration::from_secs(14400)
+                            }
+                        };
+                        tracing::warn!(
+                            model = %model.name,
+                            attempt = attempts,
+                            sleep_secs = sleep_dur.as_secs(),
+                            "Gemini high demand error, retrying later"
+                        );
+                        tokio::time::sleep(sleep_dur).await;
+                        continue;
+                    }
+
+                    if is_summary_rate_limited(&e) {
+                        tracing::warn!(
+                            model = %model.name,
+                            error = %err_str,
+                            "Gemini API rate limited during generation, attempting next model in fallback chain"
+                        );
+                        last_error = Some(ProcessError::Summary(e));
+                        break; // Try next model in fallback_chain
+                    }
+
+                    return Err(ProcessError::Summary(e));
+                }
             }
         }
-    };
 
-    Ok(SummaryOutput {
-        summary_text: result.summary_text,
-        thinking_text: result.thinking_text,
-        input_tokens: result.input_tokens,
-        output_tokens: result.output_tokens,
-        thinking_tokens: result.thinking_tokens,
-        cost: result.cost,
-    })
+        if model_succeeded {
+            return Ok(model_output);
+        }
+    }
+
+    Err(last_error.unwrap_or(ProcessError::Summary(SummaryError::RateLimited)))
 }
 
 /// Saves final summary state to database, converts markdown for YouTube format, and generates vector embeddings.
@@ -674,6 +730,29 @@ mod tests {
 
         let words_too_long = "word ".repeat(280_001);
         assert!(matches!(process_pasted_transcript(&words_too_long), Err(ProcessError::TranscriptTooLong(280001))));
+    }
+
+    #[test]
+    fn test_is_summary_rate_limited_variations() {
+        assert!(is_summary_rate_limited(&SummaryError::RateLimited));
+        assert!(is_summary_rate_limited(&SummaryError::ApiError("RESOURCE_EXHAUSTED".into())));
+        assert!(is_summary_rate_limited(&SummaryError::ApiError("code 429; description: Quota exceeded".into())));
+        assert!(!is_summary_rate_limited(&SummaryError::TranscriptTooShort));
+    }
+
+    #[test]
+    fn test_hn_model_auto_selection_thresholds() {
+        let short_hn_text = "word ".repeat(500);
+        let long_hn_text = "word ".repeat(3500);
+
+        let short_words = short_hn_text.split_whitespace().count();
+        let long_words = long_hn_text.split_whitespace().count();
+
+        let model_short = if short_words < 3000 { "gemini-3.5-flash-lite" } else { "gemini-3.6-flash" };
+        let model_long = if long_words < 3000 { "gemini-3.5-flash-lite" } else { "gemini-3.6-flash" };
+
+        assert_eq!(model_short, "gemini-3.5-flash-lite");
+        assert_eq!(model_long, "gemini-3.6-flash");
     }
 }
 

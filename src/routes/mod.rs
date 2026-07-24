@@ -109,63 +109,88 @@ pub async fn process_transcript(
             }
         }
     }
-    input.original_source_link = normalized_links.join(" ");
+    // Create items to process individually
+    let items_to_process: Vec<(String, Option<String>)> = if normalized_links.is_empty() {
+        vec![(String::new(), input.transcript.clone())]
+    } else {
+        normalized_links
+            .into_iter()
+            .enumerate()
+            .map(|(idx, link)| {
+                let transcript_for_link = if idx == 0 {
+                    input.transcript.clone()
+                } else {
+                    None
+                };
+                (link, transcript_for_link)
+            })
+            .collect()
+    };
 
-    // Check for duplicates using state's DeduplicationService
-    let mut duplicate_id = None;
+    let mut html_results = Vec::new();
 
-    if let Some(ref transcript) = input.transcript {
-        let trimmed_transcript = transcript.trim();
-        if !trimmed_transcript.is_empty() {
+    for (link, transcript) in items_to_process {
+        let single_input = SubmitForm {
+            original_source_link: link,
+            transcript,
+            model: input.model.clone(),
+            google_search_grounding: input.google_search_grounding,
+            url_context: input.url_context,
+        };
+
+        // Check for duplicates using state's DeduplicationService
+        let mut duplicate_id = None;
+
+        if let Some(ref transcript_str) = single_input.transcript {
+            let trimmed_transcript = transcript_str.trim();
+            if !trimmed_transcript.is_empty() {
+                if let Ok(Some(existing_id)) = app
+                    .dedup_service
+                    .check_duplicate_by_transcript(&app.db, trimmed_transcript, &single_input.model)
+                    .await
+                {
+                    duplicate_id = Some(existing_id);
+                }
+            }
+        }
+
+        if duplicate_id.is_none() && !single_input.original_source_link.trim().is_empty() {
             if let Ok(Some(existing_id)) = app
                 .dedup_service
-                .check_duplicate_by_transcript(&app.db, trimmed_transcript, &input.model)
+                .check_duplicate(&app.db, single_input.original_source_link.trim(), &single_input.model)
                 .await
             {
                 duplicate_id = Some(existing_id);
             }
         }
+
+        let item_id = if let Some(existing_id) = duplicate_id {
+            existing_id
+        } else {
+            // Insert new row
+            let timestamp_start = Utc::now().to_rfc3339();
+            let new_id = match db::insert_new_summary(&app.db, &single_input, &addr.to_string(), &timestamp_start)
+                .await
+            {
+                Ok(id) => id,
+                Err(e) => return Html(format!("<p>Error: {}</p>", e)),
+            };
+
+            // Spawn background task
+            let app_clone = app.clone();
+            let db_clone = app.db.clone();
+            tokio::spawn(async move {
+                tasks::process_summary(db_clone, new_id, app_clone).await;
+            });
+
+            new_id
+        };
+
+        let partial_html = render_generation_partial(&app, item_id).await;
+        html_results.push(partial_html.0);
     }
 
-    if duplicate_id.is_none() && !input.original_source_link.trim().is_empty() {
-        if let Ok(Some(existing_id)) = app
-            .dedup_service
-            .check_duplicate(&app.db, input.original_source_link.trim(), &input.model)
-            .await
-        {
-            duplicate_id = Some(existing_id);
-        }
-    }
-
-    if let Some(existing_id) = duplicate_id {
-        // Return existing generation partial
-        return render_generation_partial(&app, existing_id).await;
-    }
-
-    // Insert new row
-    let timestamp_start = Utc::now().to_rfc3339();
-    let id = match db::insert_new_summary(&app.db, &input, &addr.to_string(), &timestamp_start)
-        .await
-    {
-        Ok(id) => id,
-        Err(e) => return Html(format!("<p>Error: {}</p>", e)),
-    };
-
-    // Spawn background task
-    let app_clone = app.clone();
-    let db_clone = app.db.clone();
-    tokio::spawn(async move {
-        tasks::process_summary(db_clone, id, app_clone).await;
-    });
-
-    // Return HTMX polling partial
-    let template = GenerationPartialTemplate {
-        identifier: id,
-        summary: "Processing...".to_string(),
-        summary_done: false,
-        timestamps: String::new(),
-    };
-    render_template(&template)
+    Html(html_results.join("\n"))
 }
 
 /// POST /generations/{identifier} — polling endpoint that returns the current
