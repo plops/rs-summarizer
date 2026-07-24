@@ -1,4 +1,4 @@
-Ich möchte in der Ybersicht aufgelisteten Summaries raten. Ich stelle mir vor, ein 1 zu 5 Sterne System dafür zu verwenden. Dabei sind fünf Stande das beste Rating.
+Ich möchte in der Ybersicht (/browse) aufgelisteten Summaries raten. Ich stelle mir vor, ein 1 zu 5 Sterne System dafür zu verwenden. Dabei sind fünf Stande das beste Rating.
 Ich denke eine gute Variante ist ein Rating in zweierlei Hinsicht aufzustellen. Ist die Zusammenfassung gut und ist der Original Artikel gut / herausragend.
 
 Da wir uns nicht in die Webseite einloggen können, würde ich sagen, dass die IP-Adresse des Klienten zählen soll, um die Ratings zu sammeln. Die IP-Adresse soll aber nicht auf der Webseite angezeigt werden.
