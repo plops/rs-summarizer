@@ -53,6 +53,33 @@ pub struct BrowseParams {
     pub page: Option<u32>,
 }
 
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct SummaryRating {
+    pub id: i64,
+    pub summary_id: i64,
+    pub client_ip: String,
+    pub summary_rating: Option<i32>,
+    pub content_rating: Option<i32>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, Default, PartialEq)]
+pub struct RatingStats {
+    pub avg_summary_rating: f64,
+    pub count_summary_rating: i64,
+    pub avg_content_rating: f64,
+    pub count_content_rating: i64,
+    pub user_summary_rating: Option<i32>,
+    pub user_content_rating: Option<i32>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct SubmitRatingForm {
+    pub summary_rating: Option<i32>,
+    pub content_rating: Option<i32>,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct VizData {
     pub points_2d: Vec<(i64, f32, f32)>,           // (identifier, x, y)
