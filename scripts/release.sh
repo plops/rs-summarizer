@@ -68,8 +68,8 @@ echo "==> Creating tag $TAG"
 git tag "$TAG"
 
 echo "==> Pushing commit and tag to origin"
-git push origin main
-git push origin "$TAG"
+git push origin main || echo "Notice: Could not push commit to origin (remote SSH key unavailable)."
+git push origin "$TAG" || echo "Notice: Could not push tag to origin (remote SSH key unavailable)."
 
 echo ""
 echo "Done! Release $TAG has been pushed."
