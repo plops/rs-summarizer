@@ -103,6 +103,11 @@ jobs:
             cp -r migrations staging/
           fi
 
+          # Copy model definitions from config directory if present
+          if [ -d config ]; then
+            cp -r config staging/
+          fi
+
           # Copy RELEASE_README.md if present
           if [ -f RELEASE_README.md ]; then
             cp RELEASE_README.md staging/README.md

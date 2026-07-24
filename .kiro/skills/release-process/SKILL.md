@@ -24,6 +24,7 @@ rs-summarizer uses GitHub Actions to automatically build and publish releases fo
 
 The release archive contains:
 - `rs-summarizer` — the server binary
+- `config/models.json` — model definitions for Gemini/Gemma models
 - `static/htmx.min.js` — HTMX library for frontend interactivity
 - `static/pico.min.css` — Pico CSS framework for styling
 

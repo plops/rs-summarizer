@@ -5,6 +5,7 @@ This release archive contains the compiled binaries and necessary assets to run 
 ## Package Contents
 
 - `rs-summarizer`: The compiled server binary.
+- `config/`: Model configuration files (`config/models.json`).
 - `static/`: Static assets (styles, javascript) for the web page.
 - `migrations/`: SQL database migration scripts (required for first-time setup or schema upgrades).
 - `README.md`: This instruction file.
