@@ -1,1 +1,17 @@
-smaec
+Ich möchte in der Ybersicht aufgelisteten Summaries raten. Ich stelle mir vor, ein 1 zu 5 Sterne System dafür zu verwenden. Dabei sind fünf Stande das beste Rating.
+Ich denke eine gute Variante ist ein Rating in zweierlei Hinsicht aufzustellen. Ist die Zusammenfassung gut und ist der Original Artikel gut / herausragend.
+
+Da wir uns nicht in die Webseite einloggen können, würde ich sagen, dass die IP-Adresse des Klienten zählen soll, um die Ratings zu sammeln. Die IP-Adresse soll aber nicht auf der Webseite angezeigt werden.
+
+Schaue dir den Quellcode an und die Architektur dieser Software und Datenbank.
+Schlage vor, wie wir dieses Feature implementieren können. Habe ich alle Requirements aufgelistet, die wichtig sind, oder kannst du dir vorstellen, dass noch andere Dinge werden sollen? Liste mir diese auf Vorschlägen, was man am besten umsetzen könnte.
+
+Schreibe einen Implementierungsplan. Dieser Implementierungsplan soll einen unabhängigen AI-Agenten dazu befähigen, selbstständig einen Kontext aufzubauen, der die wesentlichen
+quellen beinhaltet. Das heißt, der Implementierungsplan hat eine Liste von Dateien, die sich der Agent sich anschauen sollte, mit einer kurzen Beschreibung für jede Datei.
+Weiterhin soll der Implementierungsplan eine Erklärung Commit Messages sendet werden sollen. Und zwar sollen diese mit einer umfassenden Beschreibung und als Conventional Commit format ausgeführt werden.
+
+Neue Unit-Tests und Integration-Tests sollen wie erforderlich eingeführt werden.
+Diese sollen auch ausgeführt werden.
+
+Nach der vollständigen Implementierung, wenn alle Tests abgeschlossen sind und alles committed ist, soll auch ein Walkthrough-Dokument entgeschrieben werden und 
+in rs-summarizer/plan/20260724_01_star_rating/walkthrough.md abgelegt werden. Dieses soll zusammenfassen, was wirklich implementiert wurde, welche Stellen aufgrund der Tests oder wie auch immer gemacht wurden, als im Untergrund auch Learnings und mögliche Erweiterungen.
