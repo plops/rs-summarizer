@@ -1,5 +1,6 @@
 use axum::{
     extract::{ConnectInfo, Form, Path, Query, State},
+    http::HeaderMap,
     response::{Html, IntoResponse},
 };
 use askama::Template;
@@ -7,14 +8,33 @@ use chrono::Utc;
 use std::net::SocketAddr;
 
 use crate::db;
-use crate::models::{BrowseParams, SearchForm, SubmitForm};
+use crate::models::{BrowseParams, SearchForm, SubmitForm, SubmitRatingForm};
 use crate::services::embedding::EmbeddingService;
 use crate::services::rate_limiter::RateLimiter;
 use crate::state::AppState;
 use crate::tasks;
-use crate::templates::{BrowseTemplate, BrowseSummaryItem, GenerationPartialTemplate, IndexTemplate, SearchResultsTemplate, SearchResultItem};
+use crate::templates::{BrowseTemplate, BrowseSummaryItem, GenerationPartialTemplate, IndexTemplate, SearchResultsTemplate, SearchResultItem, RatingPartialTemplate};
 use crate::utils::markdown_renderer::render_markdown_to_html;
 use crate::utils::timestamp_linker::replace_timestamps_in_html;
+
+/// Helper function to extract client IP address from request headers or socket address.
+pub fn extract_client_ip(headers: &HeaderMap, addr: &SocketAddr) -> String {
+    if let Some(forwarded) = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok()) {
+        if let Some(first_ip) = forwarded.split(',').next() {
+            let trimmed = first_ip.trim();
+            if !trimmed.is_empty() {
+                return trimmed.to_string();
+            }
+        }
+    }
+    if let Some(real_ip) = headers.get("x-real-ip").and_then(|h| h.to_str().ok()) {
+        let trimmed = real_ip.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    addr.ip().to_string()
+}
 
 fn render_template<T: Template>(template: &T) -> Html<String> {
     match template.render() {
@@ -160,8 +180,12 @@ pub async fn get_generation(
 /// GET /browse — paginated browse page showing summaries from the metadata cache.
 pub async fn browse_summaries(
     State(app): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Query(params): Query<BrowseParams>,
 ) -> impl IntoResponse {
+    let client_ip = extract_client_ip(&headers, &addr);
+
     let page = params.page.unwrap_or(0);
     let page_size = 20;
     let summaries = db::fetch_browse_page(&app.db, page, page_size)
@@ -169,26 +193,29 @@ pub async fn browse_summaries(
         .unwrap_or_default();
     let has_next = summaries.len() == page_size as usize;
 
-    let items: Vec<BrowseSummaryItem> = summaries
-        .into_iter()
-        .map(|s| {
-            let summary_html = render_markdown_to_html(&s.summary);
-            let timestamps_html = if s.timestamps_done {
-                let html = render_markdown_to_html(&s.timestamped_summary_in_youtube_format);
-                replace_timestamps_in_html(&html, &s.original_source_link)
-            } else {
-                String::new()
-            };
-            BrowseSummaryItem {
-                identifier: s.identifier,
-                model: s.model,
-                cost: s.cost,
-                original_source_link: s.original_source_link,
-                summary_html,
-                timestamps_html,
-            }
-        })
-        .collect();
+    let mut items = Vec::new();
+    for s in summaries {
+        let summary_html = render_markdown_to_html(&s.summary);
+        let timestamps_html = if s.timestamps_done {
+            let html = render_markdown_to_html(&s.timestamped_summary_in_youtube_format);
+            replace_timestamps_in_html(&html, &s.original_source_link)
+        } else {
+            String::new()
+        };
+        let rating_stats = db::fetch_rating_stats(&app.db, s.identifier, Some(&client_ip))
+            .await
+            .unwrap_or_default();
+
+        items.push(BrowseSummaryItem {
+            identifier: s.identifier,
+            model: s.model,
+            cost: s.cost,
+            original_source_link: s.original_source_link,
+            summary_html,
+            timestamps_html,
+            rating_stats,
+        });
+    }
 
     let template = BrowseTemplate {
         summaries: items,
@@ -196,6 +223,54 @@ pub async fn browse_summaries(
         has_next,
     };
     render_template(&template)
+}
+
+/// POST /summaries/{identifier}/rate — rate a summary or article content (1-5 stars).
+pub async fn submit_rating(
+    State(app): State<AppState>,
+    Path(identifier): Path<i64>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Form(input): Form<SubmitRatingForm>,
+) -> impl IntoResponse {
+    let client_ip = extract_client_ip(&headers, &addr);
+
+    // Verify summary exists
+    let summary = db::fetch_summary(&app.db, identifier).await.ok().flatten();
+    if summary.is_none() {
+        return (
+            axum::http::StatusCode::NOT_FOUND,
+            Html("<p>Summary not found.</p>".to_string()),
+        )
+            .into_response();
+    }
+
+    if let Err(e) = db::upsert_rating(
+        &app.db,
+        identifier,
+        &client_ip,
+        input.summary_rating,
+        input.content_rating,
+    )
+    .await
+    {
+        tracing::error!("Failed to submit rating: {e}");
+        return (
+            axum::http::StatusCode::BAD_REQUEST,
+            Html(format!("<p>Error submitting rating: {e}</p>")),
+        )
+            .into_response();
+    }
+
+    let rating_stats = db::fetch_rating_stats(&app.db, identifier, Some(&client_ip))
+        .await
+        .unwrap_or_default();
+
+    let template = RatingPartialTemplate {
+        identifier,
+        rating_stats,
+    };
+    render_template(&template).into_response()
 }
 
 /// POST /search — similarity search endpoint using embeddings.

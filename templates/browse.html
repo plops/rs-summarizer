@@ -5,6 +5,72 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Browse - rs-summarizer</title>
     <link rel="stylesheet" href="/static/pico.min.css">
+    <script src="/static/htmx.min.js"></script>
+    <style>
+        .rating-container {
+            margin-top: 1rem;
+            padding: 0.75rem 1rem;
+            background-color: var(--pico-card-section-bg, #f8f9fa);
+            border: 1px solid var(--pico-border-color, #e9ecef);
+            border-radius: 6px;
+        }
+        .rating-row {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            margin-bottom: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .rating-row:last-child {
+            margin-bottom: 0;
+        }
+        .rating-label {
+            font-weight: 600;
+            min-width: 140px;
+            font-size: 0.9rem;
+        }
+        .stars {
+            display: inline-flex;
+            gap: 2px;
+        }
+        .star-btn {
+            background: none;
+            border: none;
+            padding: 2px 4px;
+            margin: 0;
+            font-size: 1.3rem;
+            line-height: 1;
+            color: #ccc;
+            cursor: pointer;
+            transition: transform 0.15s ease, color 0.15s ease;
+            box-shadow: none;
+            width: auto;
+        }
+        .star-btn:hover,
+        .star-btn:focus {
+            transform: scale(1.25);
+            background: none;
+            box-shadow: none;
+        }
+        .star-btn.user-rated {
+            color: #f39c12;
+        }
+        .star-btn.avg-rated {
+            color: #f1c40f;
+        }
+        .rating-info {
+            font-size: 0.85rem;
+            color: var(--pico-muted-color, #6c757d);
+        }
+        .your-vote {
+            color: #e67e22;
+            font-weight: 600;
+            margin-left: 0.5rem;
+        }
+        .no-ratings {
+            font-style: italic;
+        }
+    </style>
 </head>
 <body>
     <main class="container">
@@ -23,6 +89,11 @@
             {% if !item.timestamps_html.is_empty() %}
             <footer>{{ item.timestamps_html|safe }}</footer>
             {% endif %}
+            
+            {% set identifier = item.identifier %}
+            {% set rating_stats = item.rating_stats %}
+            {% include "rating_partial.html" %}
+
             {% if !item.original_source_link.is_empty() %}
             <p><a href="{{ item.original_source_link }}">Source</a></p>
             {% endif %}

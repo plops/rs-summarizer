@@ -17,6 +17,8 @@ pub struct GenerationPartialTemplate {
     pub timestamps: String,
 }
 
+use crate::models::RatingStats;
+
 /// A summary with pre-rendered HTML fields for display.
 pub struct BrowseSummaryItem {
     pub identifier: i64,
@@ -25,6 +27,14 @@ pub struct BrowseSummaryItem {
     pub original_source_link: String,
     pub summary_html: String,
     pub timestamps_html: String,
+    pub rating_stats: RatingStats,
+}
+
+#[derive(Template)]
+#[template(path = "rating_partial.html")]
+pub struct RatingPartialTemplate {
+    pub identifier: i64,
+    pub rating_stats: RatingStats,
 }
 
 #[derive(Template)]

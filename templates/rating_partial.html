@@ -1,0 +1,43 @@
+<div id="rating-container-{{ identifier }}" class="rating-container">
+    <div class="rating-row">
+        <span class="rating-label">Summary Rating:</span>
+        <span class="stars">
+            <button type="button" class="star-btn{% if rating_stats.user_summary_rating.unwrap_or(0) >= 1 %} user-rated{% else if rating_stats.user_summary_rating.is_none() && rating_stats.avg_summary_rating >= 0.6 %} avg-rated{% endif %}" hx-post="/summaries/{{ identifier }}/rate" hx-vals='{"summary_rating": 1}' hx-target="#rating-container-{{ identifier }}" hx-swap="outerHTML" title="1 star">★</button>
+            <button type="button" class="star-btn{% if rating_stats.user_summary_rating.unwrap_or(0) >= 2 %} user-rated{% else if rating_stats.user_summary_rating.is_none() && rating_stats.avg_summary_rating >= 1.6 %} avg-rated{% endif %}" hx-post="/summaries/{{ identifier }}/rate" hx-vals='{"summary_rating": 2}' hx-target="#rating-container-{{ identifier }}" hx-swap="outerHTML" title="2 stars">★</button>
+            <button type="button" class="star-btn{% if rating_stats.user_summary_rating.unwrap_or(0) >= 3 %} user-rated{% else if rating_stats.user_summary_rating.is_none() && rating_stats.avg_summary_rating >= 2.6 %} avg-rated{% endif %}" hx-post="/summaries/{{ identifier }}/rate" hx-vals='{"summary_rating": 3}' hx-target="#rating-container-{{ identifier }}" hx-swap="outerHTML" title="3 stars">★</button>
+            <button type="button" class="star-btn{% if rating_stats.user_summary_rating.unwrap_or(0) >= 4 %} user-rated{% else if rating_stats.user_summary_rating.is_none() && rating_stats.avg_summary_rating >= 3.6 %} avg-rated{% endif %}" hx-post="/summaries/{{ identifier }}/rate" hx-vals='{"summary_rating": 4}' hx-target="#rating-container-{{ identifier }}" hx-swap="outerHTML" title="4 stars">★</button>
+            <button type="button" class="star-btn{% if rating_stats.user_summary_rating.unwrap_or(0) >= 5 %} user-rated{% else if rating_stats.user_summary_rating.is_none() && rating_stats.avg_summary_rating >= 4.6 %} avg-rated{% endif %}" hx-post="/summaries/{{ identifier }}/rate" hx-vals='{"summary_rating": 5}' hx-target="#rating-container-{{ identifier }}" hx-swap="outerHTML" title="5 stars">★</button>
+        </span>
+        <span class="rating-info">
+            {% if rating_stats.count_summary_rating > 0 %}
+            <strong>{{ "{:.1}"|format(rating_stats.avg_summary_rating) }}</strong> / 5 ({{ rating_stats.count_summary_rating }} {% if rating_stats.count_summary_rating == 1 %}rating{% else %}ratings{% endif %})
+            {% else %}
+            <span class="no-ratings">No ratings yet</span>
+            {% endif %}
+            {% if rating_stats.user_summary_rating.is_some() %}
+            <span class="your-vote">(Your rating: {{ rating_stats.user_summary_rating.unwrap() }}★)</span>
+            {% endif %}
+        </span>
+    </div>
+
+    <div class="rating-row">
+        <span class="rating-label">Article Rating:</span>
+        <span class="stars">
+            <button type="button" class="star-btn{% if rating_stats.user_content_rating.unwrap_or(0) >= 1 %} user-rated{% else if rating_stats.user_content_rating.is_none() && rating_stats.avg_content_rating >= 0.6 %} avg-rated{% endif %}" hx-post="/summaries/{{ identifier }}/rate" hx-vals='{"content_rating": 1}' hx-target="#rating-container-{{ identifier }}" hx-swap="outerHTML" title="1 star">★</button>
+            <button type="button" class="star-btn{% if rating_stats.user_content_rating.unwrap_or(0) >= 2 %} user-rated{% else if rating_stats.user_content_rating.is_none() && rating_stats.avg_content_rating >= 1.6 %} avg-rated{% endif %}" hx-post="/summaries/{{ identifier }}/rate" hx-vals='{"content_rating": 2}' hx-target="#rating-container-{{ identifier }}" hx-swap="outerHTML" title="2 stars">★</button>
+            <button type="button" class="star-btn{% if rating_stats.user_content_rating.unwrap_or(0) >= 3 %} user-rated{% else if rating_stats.user_content_rating.is_none() && rating_stats.avg_content_rating >= 2.6 %} avg-rated{% endif %}" hx-post="/summaries/{{ identifier }}/rate" hx-vals='{"content_rating": 3}' hx-target="#rating-container-{{ identifier }}" hx-swap="outerHTML" title="3 stars">★</button>
+            <button type="button" class="star-btn{% if rating_stats.user_content_rating.unwrap_or(0) >= 4 %} user-rated{% else if rating_stats.user_content_rating.is_none() && rating_stats.avg_content_rating >= 3.6 %} avg-rated{% endif %}" hx-post="/summaries/{{ identifier }}/rate" hx-vals='{"content_rating": 4}' hx-target="#rating-container-{{ identifier }}" hx-swap="outerHTML" title="4 stars">★</button>
+            <button type="button" class="star-btn{% if rating_stats.user_content_rating.unwrap_or(0) >= 5 %} user-rated{% else if rating_stats.user_content_rating.is_none() && rating_stats.avg_content_rating >= 4.6 %} avg-rated{% endif %}" hx-post="/summaries/{{ identifier }}/rate" hx-vals='{"content_rating": 5}' hx-target="#rating-container-{{ identifier }}" hx-swap="outerHTML" title="5 stars">★</button>
+        </span>
+        <span class="rating-info">
+            {% if rating_stats.count_content_rating > 0 %}
+            <strong>{{ "{:.1}"|format(rating_stats.avg_content_rating) }}</strong> / 5 ({{ rating_stats.count_content_rating }} {% if rating_stats.count_content_rating == 1 %}rating{% else %}ratings{% endif %})
+            {% else %}
+            <span class="no-ratings">No ratings yet</span>
+            {% endif %}
+            {% if rating_stats.user_content_rating.is_some() %}
+            <span class="your-vote">(Your rating: {{ rating_stats.user_content_rating.unwrap() }}★)</span>
+            {% endif %}
+        </span>
+    </div>
+</div>
