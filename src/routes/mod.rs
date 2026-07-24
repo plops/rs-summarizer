@@ -373,3 +373,125 @@ async fn render_generation_partial(app: &AppState, identifier: i64) -> Html<Stri
         None => Html("<p>Summary not found.</p>".to_string()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::Arc;
+    use tokio::sync::RwLock;
+
+    async fn build_test_state() -> AppState {
+        let db_pool = db::init_db("sqlite::memory:")
+            .await
+            .expect("Failed to init in-memory DB for route tests");
+
+        let model = crate::state::ModelOption {
+            name: "gemini-3.5-flash".to_string(),
+            input_price_per_mtoken: 0.10,
+            output_price_per_mtoken: 0.40,
+            context_window: 1_000_000,
+            rpm_limit: 5,
+            rpd_limit: 20,
+            architecture: crate::state::ModelArchitecture::Gemini,
+        };
+
+        AppState {
+            db: db_pool,
+            model_options: Arc::new(vec![model]),
+            model_counts: Arc::new(RwLock::new(HashMap::new())),
+            last_reset_day: Arc::new(RwLock::new(None)),
+            gemini_api_key: "dummy_key".to_string(),
+            nn_mapper: None,
+            viz_data: None,
+            model_locks: Arc::new(RwLock::new(HashMap::new())),
+            dedup_service: crate::services::deduplication::DeduplicationService::new(
+                std::time::Duration::from_secs(300),
+            ),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_process_transcript_multi_url_splitting() {
+        let state = build_test_state().await;
+        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let input = SubmitForm {
+            original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ https://news.ycombinator.com/item?id=40000000".to_string(),
+            transcript: None,
+            model: "gemini-3.5-flash".to_string(),
+            google_search_grounding: false,
+            url_context: false,
+        };
+
+        let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input)).await.into_response();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let html = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+        // Verify HTML output contains polling partials for both generated IDs
+        assert!(html.contains("id=\"generation-1\""), "Should contain partial for ID 1: {}", html);
+        assert!(html.contains("id=\"generation-2\""), "Should contain partial for ID 2: {}", html);
+
+        // Verify database contains 2 distinct rows with individual links
+        let row1 = db::fetch_summary(&state.db, 1).await.unwrap().unwrap();
+        let row2 = db::fetch_summary(&state.db, 2).await.unwrap().unwrap();
+
+        assert_eq!(row1.original_source_link, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
+        assert_eq!(row2.original_source_link, "https://news.ycombinator.com/item?id=40000000");
+    }
+
+    #[tokio::test]
+    async fn test_process_transcript_multi_url_deduplication() {
+        let state = build_test_state().await;
+        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+
+        // First submission: single URL
+        let input1 = SubmitForm {
+            original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
+            transcript: None,
+            model: "gemini-3.5-flash".to_string(),
+            google_search_grounding: false,
+            url_context: false,
+        };
+        let _ = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input1)).await;
+
+        // Second submission: multi-URL with 1 existing and 1 new link
+        let input2 = SubmitForm {
+            original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ https://news.ycombinator.com/item?id=40000000".to_string(),
+            transcript: None,
+            model: "gemini-3.5-flash".to_string(),
+            google_search_grounding: false,
+            url_context: false,
+        };
+        let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input2)).await.into_response();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let html = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+        // Should return existing ID 1 for duplicate link and new ID 2 for new link
+        assert!(html.contains("id=\"generation-1\""));
+        assert!(html.contains("id=\"generation-2\""));
+
+        // Only 2 total rows should exist in database
+        let row3 = db::fetch_summary(&state.db, 3).await.unwrap();
+        assert!(row3.is_none(), "Row 3 should not exist due to deduplication of item 1");
+    }
+
+    #[tokio::test]
+    async fn test_process_transcript_invalid_url_rejection() {
+        let state = build_test_state().await;
+        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let input = SubmitForm {
+            original_source_link: "not_a_valid_link".to_string(),
+            transcript: None,
+            model: "gemini-3.5-flash".to_string(),
+            google_search_grounding: false,
+            url_context: false,
+        };
+
+        let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input)).await.into_response();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let html = String::from_utf8(body_bytes.to_vec()).unwrap();
+
+        assert!(html.contains("Error: The provided value 'not_a_valid_link' is neither a valid YouTube URL"));
+        assert!(db::fetch_summary(&state.db, 1).await.unwrap().is_none());
+    }
+}
