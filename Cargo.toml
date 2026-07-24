@@ -40,3 +40,4 @@ fantoccini = "0.22"
 serde_json = "1.0"
 tokio-util = { version = "0.7", features = ["rt"] }
 tempfile = "3.27"
+tower = { version = "0.5", features = ["util"] }
