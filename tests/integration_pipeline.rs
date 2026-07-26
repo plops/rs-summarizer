@@ -375,6 +375,9 @@ async fn build_test_app_state() -> AppState {
         dedup_service: rs_summarizer::services::deduplication::DeduplicationService::new(
             std::time::Duration::from_secs(300),
         ),
+        download_limiter: Arc::new(
+            rs_summarizer::services::download_limiter::DownloadLimiter::from_env(),
+        ),
     }
 }
 

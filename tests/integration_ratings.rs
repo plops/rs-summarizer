@@ -27,6 +27,9 @@ async fn setup_test_app() -> (axum::Router, SqlitePool) {
         dedup_service: rs_summarizer::services::deduplication::DeduplicationService::new(
             std::time::Duration::from_secs(300),
         ),
+        download_limiter: Arc::new(
+            rs_summarizer::services::download_limiter::DownloadLimiter::from_env(),
+        ),
     };
 
     let app = build_router(state);

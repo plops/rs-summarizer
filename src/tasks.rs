@@ -201,7 +201,12 @@ pub struct SummaryOutput {
 }
 
 /// Extracts YouTube transcript for a given URL using TranscriptService.
-pub async fn fetch_youtube_content(url: &str, identifier: i64) -> Result<String, ProcessError> {
+pub async fn fetch_youtube_content(
+    url: &str,
+    identifier: i64,
+    app: &AppState,
+) -> Result<String, ProcessError> {
+    let _permit = app.download_limiter.acquire_yt_dlp_permit().await;
     let transcript_svc = TranscriptService::new("/dev/shm");
     tracing::info!(
         identifier = identifier,
@@ -230,7 +235,9 @@ pub async fn fetch_hn_content(
     hn_id: u64,
     user_pasted: Option<&str>,
     hn_svc: &HackerNewsService,
+    app: &AppState,
 ) -> Result<String, ProcessError> {
+    let _permit = app.download_limiter.acquire_hn_permit().await;
     tracing::info!(story_id = hn_id, "Fetching Hacker News submission");
 
     let hn_res = hn_svc
@@ -509,9 +516,9 @@ async fn process_summary_inner(
             let process_result = async {
                 let raw_transcript = if is_hn {
                     let hn_id = crate::utils::url_validator::validate_hn_url(url).unwrap();
-                    fetch_hn_content(hn_id, None, &hn_svc).await?
+                    fetch_hn_content(hn_id, None, &hn_svc, app).await?
                 } else {
-                    fetch_youtube_content(url, identifier).await?
+                    fetch_youtube_content(url, identifier, app).await?
                 };
 
                 let transcript = process_pasted_transcript(&raw_transcript)?;
@@ -588,7 +595,7 @@ async fn process_summary_inner(
             Some(summary.transcript.as_str())
         };
 
-        let transcript = fetch_hn_content(hn_id, user_pasted, &hn_svc).await?;
+        let transcript = fetch_hn_content(hn_id, user_pasted, &hn_svc, app).await?;
         db::update_transcript(db_pool, identifier, &transcript).await?;
 
         combined_output = run_model_pipeline(

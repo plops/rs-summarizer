@@ -1,4 +1,5 @@
 pub mod deduplication;
+pub mod download_limiter;
 pub mod embedding;
 pub mod hacker_news;
 pub mod nn_mapper;

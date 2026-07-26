@@ -1,0 +1,28 @@
+du arbeitest im auftrag von wol pumba (wolpumba@gmail.com)
+
+wenn ich 6 oder mehr yt-dlp prozesse starte, dann geht cpu load auf dem 2 vcpu hetznerserver auf voll und er reagiert nicht mehr und muss neu gestartet werden. im log sieht man:
+922]: 2026-07-26T10:16:03.310178Z  INFO rs_summarizer::services::transcript: Downloading transcript for video identifier=16707 url=https://www.youtube.com/watch?v=sZHHiKJ2xBE
+Jul 26 10:16:23 ubuntu-2gb-ash-1 rs-summarizer[922]: 2026-07-26T10:16:19.686945Z  WARN sqlx::query: slow statement: execution time exceeded alert threshold summary="SELECT * FROM summaries …" db.statement="\n\nSELECT * FROM summaries WHERE identifier = ?\n" rows_affected=0 rows_returned=1 elapsed=2.537523309s elapsed_secs=2.537523309 slow_threshold=1s
+
+das ist natuerlich unakzeptabel. starte nicht mehrere yt-dlp (und download) prozesse als auf den server laufen koennen. ehrlich gesagt hetzt uns ja keiner und es ist besser wenn wir die gegenstelle nicht ueberlasten, also sollte yt-dlp und hn downloads nach und nach mit etwas delay laufen. am ende ist das langsamste ja sowieso das ai summary.
+
+nutze tools um konsistenten und aufgeraeumten quellcode zu gewaehrleisten (siehe  /workspace/src/rs-summarizer/.kiro/skills/cargo-workflow/SKILL.md)
+
+
+Schaue dir den Quellcode an und die Architektur dieser Software. Nutze deepwiki mcp fuer plops/rs-summarizer um dokumentation zu bekommen und fragen beantworten zu lassen. falls abhaengigkeiten eingefuehrt werden sind diese mitsamt ihrer github organisation in deps.md aufzuschreiben, so dass wir spaeter einfach die deepwiki abfragen konstruieren koennen. nutze rust tools um auf die neueste vorhandene version zu switchen (auch wenn vor kompatibilitaet gewarnt wird, wenn wir gerade eine dependency einfuehren ist es wichtig, die neueste version zu nehmen, siehe cargo-workflow skill) und schon vorab usage examples in den plan aufzunehmen (mit deepwiki mcp zu erfragen)
+
+du befindest dich in einem docker container, basierend auf ubuntu. du darfst neue programme installieren, falls noetig. 
+
+Schlage vor, wie wir dieses Feature implementieren können. Habe ich alle Requirements aufgelistet, die wichtig sind, oder kannst du dir vorstellen, dass noch andere Dinge werden sollen? Liste mir diese auf Vorschlägen, was man am besten umsetzen könnte.
+
+Schreibe einen Implementierungsplan. Dieser Implementierungsplan soll einen unabhängigen AI-Agenten dazu befähigen, selbstständig einen Kontext aufzubauen, der die wesentlichen
+quellen beinhaltet. Das heißt, der Implementierungsplan hat eine Liste von Dateien, die sich der Agent sich anschauen sollte, mit einer kurzen Beschreibung für jede Datei.
+Weiterhin soll der Implementierungsplan eine Erklärung Commit Messages sendet werden sollen. Und zwar sollen diese mit einer umfassenden Beschreibung und als Conventional Commit format ausgeführt werden.
+
+Neue Unit-Tests und Integration-Tests sollen wie erforderlich eingeführt werden.
+Diese sollen auch ausgeführt werden.
+
+schreibe task.md wo du die implementierungs und test schritte aufeinander abfolgen laesst, so dass ein agent die tasks seriell abarbeiten kann und die arbeit in jedem schritt getested und validiert wird.
+
+Nach der vollständigen Implementierung, wenn alle Tests abgeschlossen sind und alles committed ist, soll auch ein Walkthrough-Dokument entgeschrieben werden und 
+in plan/2026.../walkthrough.md abgelegt werden. Dieses soll zusammenfassen, was wirklich implementiert wurde, welche Stellen aufgrund der Tests oder wie auch immer gemacht wurden, als im Untergrund auch Learnings und mögliche Erweiterungen. liste auch die neuen programme die mit in den docker container aufgenommen werden sollten 

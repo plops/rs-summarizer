@@ -46,6 +46,7 @@ pub struct AppState {
     pub model_locks:
         Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<Option<std::time::Instant>>>>>>,
     pub dedup_service: crate::services::deduplication::DeduplicationService,
+    pub download_limiter: Arc<crate::services::download_limiter::DownloadLimiter>,
 }
 
 impl AppState {

@@ -414,6 +414,9 @@ mod tests {
             dedup_service: crate::services::deduplication::DeduplicationService::new(
                 std::time::Duration::from_secs(300),
             ),
+            download_limiter: Arc::new(
+                crate::services::download_limiter::DownloadLimiter::from_env(),
+            ),
         }
     }
 
