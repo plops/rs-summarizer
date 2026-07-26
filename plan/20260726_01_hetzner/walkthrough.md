@@ -52,7 +52,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 ---
 
-## 4. Verification Results
+## 4. Production Systemd & `.env` Configuration
+
+To securely supply `HETZNER_API_KEY` to the `rs-summarizer` systemd service on boot, place the key in the `.env` file referenced by `rs-summarizer.service` (`EnvironmentFile=/home/kiel/host/.env`):
+
+```env
+GEMINI_API_KEY=your_gemini_api_key
+HETZNER_API_KEY=your_hetzner_api_key
+HETZNER_BASE_URL=https://inference.hetzner.com/api/v1
+```
+
+Set secure file permissions:
+```bash
+chmod 600 /home/kiel/host/.env
+```
+
+Restart systemd service:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart rs-summarizer.service
+```
+
+---
+
+## 5. Verification Results
+
 
 All automated test suites were run and passed without error:
 

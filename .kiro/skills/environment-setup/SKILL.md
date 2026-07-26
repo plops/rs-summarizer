@@ -17,6 +17,7 @@ rs-summarizer requires several external tools beyond the Rust toolchain. This sk
 | `uv` / `uvx` | Run yt-dlp without global install | `uvx --version` |
 | Firefox | Cookie source for YouTube auth | `firefox --version` |
 | `GEMINI_API_KEY` | Google Gemini API access | `echo $GEMINI_API_KEY` |
+| `HETZNER_API_KEY` | Hetzner AI API access | `echo $HETZNER_API_KEY` |
 | geckodriver | Browser integration tests only | `geckodriver --version` |
 
 ## Installing Prerequisites
@@ -41,17 +42,26 @@ brew install uv
 
 Once installed, `uvx yt-dlp` will download and run yt-dlp automatically — no separate yt-dlp install needed.
 
-### Gemini API Key
+### API Keys (`.env` or Environment Variables)
 
-```bash
-# Store key in a file
-echo "your-key-here" > ~/api_key.txt
+In production with `systemd` (via `rs-summarizer.service`), keys are automatically loaded from `.env`:
 
-# Export for the session
-export GEMINI_API_KEY=$(cat ~/api_key.txt)
+```env
+GEMINI_API_KEY=your_gemini_key
+HETZNER_API_KEY=your_hetzner_key
+HETZNER_BASE_URL=https://inference.hetzner.com/api/v1
 ```
 
-Get a key from: https://aistudio.google.com/apikey
+For shell/local development session:
+```bash
+# Store keys in a file or .env
+export GEMINI_API_KEY=$(cat ~/api_key.txt)
+export HETZNER_API_KEY=$(cat ~/hetzner_key.txt)
+```
+
+Get Gemini key from: https://aistudio.google.com/apikey
+Get Hetzner key from: Hetzner Console / AI Inference API dashboard
+
 
 ### geckodriver (for browser tests only)
 

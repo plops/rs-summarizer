@@ -36,10 +36,18 @@ To run `rs-summarizer` as a background system service that starts automatically 
 ### Steps to Install:
 
 1. **Set Up the Environment File**:
-   Create a file named `.env` in the same directory as the server binary (usually `/home/kiel/host/.env`) and add your API key:
+   Create a file named `.env` in the same directory as the server binary (usually `/home/kiel/host/.env`) and add your API keys:
    ```env
    GEMINI_API_KEY=your_gemini_api_key_here
+   HETZNER_API_KEY=your_hetzner_api_key_here
+   # Optional custom base URL:
+   # HETZNER_BASE_URL=https://inference.hetzner.com/api/v1
    ```
+   Restrict file permissions to protect your secrets:
+   ```bash
+   chmod 600 /home/kiel/host/.env
+   ```
+
 
 2. **Copy the Service File**:
    Copy the `rs-summarizer.service` file to systemd:
