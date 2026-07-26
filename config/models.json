@@ -88,5 +88,14 @@
     "rpm_limit": 5,
     "rpd_limit": 20,
     "architecture": "Gemini"
+  },
+  {
+    "name": "hetzner-qwen-3.6-35b",
+    "input_price_per_mtoken": 0.0,
+    "output_price_per_mtoken": 0.0,
+    "context_window": 262144,
+    "rpm_limit": 60,
+    "rpd_limit": 14400,
+    "architecture": "Hetzner"
   }
 ]

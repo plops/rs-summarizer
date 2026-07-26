@@ -1,5 +1,5 @@
 use futures_util::StreamExt;
-use gemini_rust::{Gemini, Model, ThinkingLevel, Tool, Part};
+use gemini_rust::{Gemini, Model, Part, ThinkingLevel, Tool};
 use sqlx::SqlitePool;
 use tracing;
 
@@ -63,6 +63,12 @@ impl SummaryService {
 
         let start = std::time::Instant::now();
 
+        if model.architecture == crate::state::ModelArchitecture::Hetzner {
+            return self
+                .generate_summary_hetzner(db_pool, identifier, transcript, model, start)
+                .await;
+        }
+
         // Create Gemini client with the specified model
         let gemini_model = Model::Custom(format!("models/{}", model.name));
         let client = Gemini::with_model(&self.api_key, gemini_model)
@@ -79,7 +85,10 @@ impl SummaryService {
         let mut builder = client.generate_content();
 
         // Configure grounding with Google Search if selected and architecture is Gemini or Gemma
-        if google_search_grounding && (model.architecture == crate::state::ModelArchitecture::Gemini || model.architecture == crate::state::ModelArchitecture::Gemma) {
+        if google_search_grounding
+            && (model.architecture == crate::state::ModelArchitecture::Gemini
+                || model.architecture == crate::state::ModelArchitecture::Gemma)
+        {
             builder = builder.with_tool(Tool::google_search());
         }
 
@@ -92,12 +101,18 @@ impl SummaryService {
         if model.architecture == crate::state::ModelArchitecture::Gemini {
             let name_lower = model.name.to_lowercase();
             if name_lower.contains("gemini-3") {
-                builder = builder.with_thinking_level(ThinkingLevel::High)
-                                 .with_thoughts_included(true);
+                builder = builder
+                    .with_thinking_level(ThinkingLevel::High)
+                    .with_thoughts_included(true);
             } else if name_lower.contains("gemini-2.5") {
-                let budget = if name_lower.contains("pro") { 32768 } else { 24576 };
-                builder = builder.with_thinking_budget(budget)
-                                 .with_thoughts_included(true);
+                let budget = if name_lower.contains("pro") {
+                    32768
+                } else {
+                    24576
+                };
+                builder = builder
+                    .with_thinking_budget(budget)
+                    .with_thoughts_included(true);
             }
         }
 
@@ -123,10 +138,8 @@ impl SummaryService {
                     self.build_prompt(transcript)
                 }
             }
-            crate::state::ModelArchitecture::Gemma => {
-                self.build_prompt_for_gemma(transcript)
-            }
-            crate::state::ModelArchitecture::Other => {
+            crate::state::ModelArchitecture::Gemma => self.build_prompt_for_gemma(transcript),
+            crate::state::ModelArchitecture::Other | crate::state::ModelArchitecture::Hetzner => {
                 if is_hn {
                     self.build_hn_prompt(transcript)
                 } else {
@@ -172,7 +185,12 @@ impl SummaryService {
                                         } else if !text.is_empty() {
                                             db::update_summary_chunk(db_pool, identifier, text)
                                                 .await
-                                                .map_err(|e| SummaryError::ApiError(format!("DB error: {}", e)))?;
+                                                .map_err(|e| {
+                                                    SummaryError::ApiError(format!(
+                                                        "DB error: {}",
+                                                        e
+                                                    ))
+                                                })?;
                                             summary_text.push_str(text);
                                         }
                                     }
@@ -208,7 +226,8 @@ impl SummaryService {
                     // Handle rate limiting mid-stream (Req 6.7)
                     if is_rate_limit_error(&err_str) {
                         // Append error to partial summary without setting summary_done
-                        let error_msg = "\n\n[Error: Rate limited (ResourceExhausted). Please retry later.]";
+                        let error_msg =
+                            "\n\n[Error: Rate limited (ResourceExhausted). Please retry later.]";
                         db::update_summary_chunk(db_pool, identifier, error_msg)
                             .await
                             .map_err(|e| SummaryError::ApiError(format!("DB error: {}", e)))?;
@@ -341,11 +360,7 @@ Please provide a summary like they would: \n\
             self.build_prompt(transcript)
         };
 
-        format!(
-            "{}\n\n---\n\n{}",
-            SYSTEM_INSTRUCTION,
-            base_prompt
-        )
+        format!("{}\n\n---\n\n{}", SYSTEM_INSTRUCTION, base_prompt)
     }
 
     /// Computes the cost based on token counts and model pricing.
@@ -356,6 +371,163 @@ Please provide a summary like they would: \n\
         let input_cost = (input_tokens as f64) * model.input_price_per_mtoken / 1_000_000.0;
         let output_cost = (output_tokens as f64) * model.output_price_per_mtoken / 1_000_000.0;
         input_cost + output_cost
+    }
+
+    /// Generates a summary via Hetzner OpenAI-compatible API.
+    /// Persists chunks to DB progressively during streaming.
+    pub async fn generate_summary_hetzner(
+        &self,
+        db_pool: &SqlitePool,
+        identifier: i64,
+        transcript: &str,
+        model: &ModelOption,
+        start: std::time::Instant,
+    ) -> Result<SummaryResult, SummaryError> {
+        let hetzner_api_key = std::env::var("HETZNER_API_KEY")
+            .unwrap_or_else(|_| "2jwqK0zWB54O0ipIzRtmv9jHme7jSazg".to_string());
+        let hetzner_base_url = std::env::var("HETZNER_BASE_URL")
+            .unwrap_or_else(|_| "https://inference.hetzner.com/api/v1".to_string());
+
+        let config = async_openai::config::OpenAIConfig::new()
+            .with_api_base(hetzner_base_url)
+            .with_api_key(hetzner_api_key);
+        let client = async_openai::Client::with_config(config);
+
+        let actual_model_name = if model.name.contains('/') {
+            model.name.clone()
+        } else {
+            "Qwen/Qwen3.6-35B-A3B-FP8".to_string()
+        };
+
+        tracing::info!(
+            identifier = identifier,
+            model = %model.name,
+            actual_model = %actual_model_name,
+            "Starting summary generation via Hetzner API"
+        );
+
+        let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let is_hn = transcript.contains("=== HACKER NEWS SUBMISSION ===");
+
+        let system_instruction = format!(
+            "{}\n\nToday's date is {}. Accept current facts presented in the input without making skeptical remarks or questioning them based on older training data.",
+            SYSTEM_INSTRUCTION, today
+        );
+
+        let prompt = if is_hn {
+            self.build_hn_prompt(transcript)
+        } else {
+            self.build_prompt(transcript)
+        };
+
+        use async_openai::types::chat::{
+            ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
+            CreateChatCompletionRequestArgs,
+        };
+
+        let request = CreateChatCompletionRequestArgs::default()
+            .model(&actual_model_name)
+            .messages([
+                ChatCompletionRequestSystemMessageArgs::default()
+                    .content(system_instruction)
+                    .build()
+                    .map_err(|e| SummaryError::ApiError(e.to_string()))?
+                    .into(),
+                ChatCompletionRequestUserMessageArgs::default()
+                    .content(prompt.clone())
+                    .build()
+                    .map_err(|e| SummaryError::ApiError(e.to_string()))?
+                    .into(),
+            ])
+            .stream(true)
+            .build()
+            .map_err(|e| SummaryError::ApiError(e.to_string()))?;
+
+        let mut stream = client.chat().create_stream(request).await.map_err(|e| {
+            let err_str = e.to_string();
+            if is_rate_limit_error(&err_str) {
+                tracing::warn!(identifier = identifier, "Rate limited by Hetzner API");
+                SummaryError::RateLimited
+            } else {
+                tracing::error!(identifier = identifier, error = %err_str, "Hetzner API error");
+                SummaryError::ApiError(err_str)
+            }
+        })?;
+
+        let mut summary_text = String::new();
+        let mut input_tokens: u64 = 0;
+        let mut output_tokens: u64 = 0;
+
+        while let Some(chunk_result) = stream.next().await {
+            match chunk_result {
+                Ok(response) => {
+                    for choice in response.choices {
+                        if let Some(content) = choice.delta.content {
+                            if !content.is_empty() {
+                                db::update_summary_chunk(db_pool, identifier, &content)
+                                    .await
+                                    .map_err(|e| {
+                                        SummaryError::ApiError(format!("DB error: {}", e))
+                                    })?;
+                                summary_text.push_str(&content);
+                            }
+                        }
+                    }
+                    if let Some(usage) = response.usage {
+                        input_tokens = usage.prompt_tokens as u64;
+                        output_tokens = usage.completion_tokens as u64;
+                    }
+                }
+                Err(e) => {
+                    let err_str = e.to_string();
+                    if is_rate_limit_error(&err_str) {
+                        let error_msg =
+                            "\n\n[Error: Rate limited (ResourceExhausted). Please retry later.]";
+                        db::update_summary_chunk(db_pool, identifier, error_msg)
+                            .await
+                            .map_err(|e| SummaryError::ApiError(format!("DB error: {}", e)))?;
+                        return Err(SummaryError::RateLimited);
+                    }
+                    return Err(SummaryError::ApiError(err_str));
+                }
+            }
+        }
+
+        if summary_text.is_empty() {
+            return Err(SummaryError::ApiError(
+                "Hetzner API returned empty response".to_string(),
+            ));
+        }
+
+        let duration_secs = start.elapsed().as_secs_f64();
+
+        if input_tokens == 0 {
+            input_tokens = (prompt.len() as u64) / 4;
+        }
+        if output_tokens == 0 {
+            output_tokens = (summary_text.len() as u64) / 4;
+        }
+
+        let cost = self.compute_cost(model, input_tokens, output_tokens);
+
+        tracing::info!(
+            identifier = identifier,
+            input_tokens = input_tokens,
+            output_tokens = output_tokens,
+            cost = cost,
+            duration_secs = duration_secs,
+            "Hetzner summary generation complete"
+        );
+
+        Ok(SummaryResult {
+            summary_text,
+            input_tokens,
+            output_tokens,
+            thinking_text: String::new(),
+            thinking_tokens: 0,
+            cost,
+            duration_secs,
+        })
     }
 }
 
@@ -369,7 +541,7 @@ fn is_rate_limit_error(err_str: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::{ModelOption, ModelArchitecture};
+    use crate::state::{ModelArchitecture, ModelOption};
 
     fn test_model() -> ModelOption {
         ModelOption {
@@ -427,12 +599,30 @@ mod tests {
         let prompt = svc.build_hn_prompt(content);
 
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
-        assert!(prompt.contains(&today), "HN Prompt should contain today's date");
-        assert!(prompt.contains("temporal awareness"), "HN Prompt should contain temporal awareness note");
-        assert!(prompt.contains("Do NOT include any timestamps"), "HN Prompt should forbid timestamps for articles");
-        assert!(prompt.contains("CONCISENESS REQUIREMENTS"), "HN Prompt should contain conciseness requirements");
-        assert!(prompt.contains("Discussion Highlights"), "HN Prompt should request discussion highlights");
-        assert!(prompt.contains("full breadth of the discussion"), "HN Prompt should instruct full discussion coverage");
+        assert!(
+            prompt.contains(&today),
+            "HN Prompt should contain today's date"
+        );
+        assert!(
+            prompt.contains("temporal awareness"),
+            "HN Prompt should contain temporal awareness note"
+        );
+        assert!(
+            prompt.contains("Do NOT include any timestamps"),
+            "HN Prompt should forbid timestamps for articles"
+        );
+        assert!(
+            prompt.contains("CONCISENESS REQUIREMENTS"),
+            "HN Prompt should contain conciseness requirements"
+        );
+        assert!(
+            prompt.contains("Discussion Highlights"),
+            "HN Prompt should request discussion highlights"
+        );
+        assert!(
+            prompt.contains("full breadth of the discussion"),
+            "HN Prompt should instruct full discussion coverage"
+        );
     }
 
     #[test]
@@ -519,7 +709,9 @@ mod tests {
     #[test]
     fn test_is_rate_limit_error() {
         assert!(is_rate_limit_error("ResourceExhausted: quota exceeded"));
-        assert!(is_rate_limit_error("bad response from server; code 429; description: rate limited"));
+        assert!(is_rate_limit_error(
+            "bad response from server; code 429; description: rate limited"
+        ));
         assert!(is_rate_limit_error("RESOURCE_EXHAUSTED"));
         assert!(!is_rate_limit_error("some other error"));
         assert!(!is_rate_limit_error("network timeout"));
@@ -609,5 +801,27 @@ mod tests {
             template_portion, expected_template,
             "The portion after the delimiter should match build_prompt() output"
         );
+    }
+
+    #[test]
+    fn test_hetzner_model_cost_calculation() {
+        let svc = SummaryService::new("test-key".to_string());
+        let hetzner_model = ModelOption {
+            name: "hetzner-qwen-3.6-35b".to_string(),
+            input_price_per_mtoken: 0.0,
+            output_price_per_mtoken: 0.0,
+            context_window: 262_144,
+            rpm_limit: 60,
+            rpd_limit: 14400,
+            architecture: ModelArchitecture::Hetzner,
+        };
+
+        let cost = svc.compute_cost(&hetzner_model, 5000, 2000);
+        assert_eq!(cost, 0.0, "Experimental Hetzner model cost should be zero");
+    }
+
+    #[test]
+    fn test_hetzner_model_architecture_as_str() {
+        assert_eq!(ModelArchitecture::Hetzner.as_str(), "Hetzner");
     }
 }

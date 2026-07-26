@@ -159,8 +159,7 @@ mod tests {
 
     #[test]
     fn test_parse_vtt_fixture_matches_python_output() {
-        let vtt_content =
-            std::fs::read_to_string("tests/fixtures/cW3tzRzTHKI.en.vtt").unwrap();
+        let vtt_content = std::fs::read_to_string("tests/fixtures/cW3tzRzTHKI.en.vtt").unwrap();
         let result = parse_vtt(&vtt_content);
 
         let expected = r#"00:00:00 [Music]

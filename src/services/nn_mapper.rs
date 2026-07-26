@@ -1,10 +1,10 @@
 use crate::errors::NnMapperError;
-use fast_umap::prelude::*;
-use cubecl::wgpu::WgpuRuntime;
-use serde::{Deserialize, Serialize};
-use std::path::Path;
 use burn_autodiff::Autodiff;
 use burn_cubecl::CubeBackend;
+use cubecl::wgpu::WgpuRuntime;
+use fast_umap::prelude::*;
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 type MyBackend = CubeBackend<WgpuRuntime, f32, i32, u32>;
 type MyAutodiffBackend = Autodiff<MyBackend>;
@@ -40,11 +40,13 @@ impl NnMapper {
     pub fn load(model_path: &Path) -> Result<Self, NnMapperError> {
         // Sidecar-Config-Datei laden
         let config_path = model_path.with_extension("_nn_mapper_config.json");
-        let config_json = std::fs::read_to_string(&config_path)
-            .map_err(|e| NnMapperError::ConfigLoadError(format!("Konnte Config-Datei nicht lesen: {}", e)))?;
-        
-        let config: NnMapperConfig = serde_json::from_str(&config_json)
-            .map_err(|e| NnMapperError::ConfigLoadError(format!("Konnte Config nicht parsen: {}", e)))?;
+        let config_json = std::fs::read_to_string(&config_path).map_err(|e| {
+            NnMapperError::ConfigLoadError(format!("Konnte Config-Datei nicht lesen: {}", e))
+        })?;
+
+        let config: NnMapperConfig = serde_json::from_str(&config_json).map_err(|e| {
+            NnMapperError::ConfigLoadError(format!("Konnte Config nicht parsen: {}", e))
+        })?;
 
         // Use default device for the backend
         let device = Default::default();
@@ -55,7 +57,8 @@ impl NnMapper {
             config.umap_config,
             config.embedding_dim,
             device,
-        ).map_err(|e| NnMapperError::ModelLoadError(format!("Konnte Modell nicht laden: {}", e)))?;
+        )
+        .map_err(|e| NnMapperError::ModelLoadError(format!("Konnte Modell nicht laden: {}", e)))?;
 
         Ok(Self {
             fitted,
@@ -74,21 +77,21 @@ impl NnMapper {
         }
 
         // Convert single embedding to Vec<Vec<f64>> for transform
-        let embedding_f64: Vec<Vec<f64>> = vec![
-            embedding.iter().map(|&x| x as f64).collect()
-        ];
+        let embedding_f64: Vec<Vec<f64>> = vec![embedding.iter().map(|&x| x as f64).collect()];
 
         // Transform using the fitted model
         let result = self.fitted.transform(embedding_f64);
 
         // Extract the first (and only) 2D coordinate
         if result.is_empty() || result[0].len() != 2 {
-            return Err(NnMapperError::ProjectionError("Unerwartetes Ergebnis von UMAP Transform".to_string()));
+            return Err(NnMapperError::ProjectionError(
+                "Unerwartetes Ergebnis von UMAP Transform".to_string(),
+            ));
         }
 
         let x = result[0][0] as f32;
         let y = result[0][1] as f32;
-        
+
         Ok((x, y))
     }
 
@@ -108,4 +111,3 @@ mod tests {
         assert_send_sync::<NnMapper>();
     }
 }
-

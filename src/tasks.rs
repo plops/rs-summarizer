@@ -6,7 +6,7 @@ use tokio::time::sleep;
 use tracing;
 
 use crate::db;
-use crate::errors::{ProcessError, TranscriptError, SummaryError};
+use crate::errors::{ProcessError, SummaryError, TranscriptError};
 use crate::models::Summary;
 use crate::services::embedding::{embedding_to_bytes, EmbeddingService};
 use crate::services::summary::SummaryService;
@@ -51,7 +51,7 @@ fn get_transcript_duration_secs(transcript: &str) -> u32 {
             }
         }
     }
-    
+
     if max_secs > 0 {
         max_secs
     } else {
@@ -73,6 +73,12 @@ fn format_process_error(e: &ProcessError) -> String {
 /// Helper to construct the daily rate limit fallback chain for a starting model.
 fn get_fallback_chain(model_name: &str) -> Vec<&str> {
     match model_name {
+        "hetzner-qwen-3.6-35b" => vec![
+            "hetzner-qwen-3.6-35b",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+        ],
         "gemini-3.6-flash" => vec![
             "gemini-3.6-flash",
             "gemini-3.5-flash",
@@ -81,6 +87,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
+            "hetzner-qwen-3.6-35b",
         ],
         "gemini-3.5-flash-lite" => vec![
             "gemini-3.5-flash-lite",
@@ -88,6 +95,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-2.5-flash-lite",
             "gemini-3.5-flash",
             "gemini-3.6-flash",
+            "hetzner-qwen-3.6-35b",
         ],
         "gemini-3.5-flash" => vec![
             "gemini-3.5-flash",
@@ -95,17 +103,20 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-2.5-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
+            "hetzner-qwen-3.6-35b",
         ],
         "gemini-3-flash-preview" => vec![
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
+            "hetzner-qwen-3.6-35b",
         ],
         "gemini-2.5-flash" => vec![
             "gemini-2.5-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
+            "hetzner-qwen-3.6-35b",
         ],
         "gemini-3.1-flash-lite" => vec![
             "gemini-3.1-flash-lite",
@@ -115,17 +126,20 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash",
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
+            "hetzner-qwen-3.6-35b",
         ],
         "gemini-2.5-flash-lite" => vec![
             "gemini-2.5-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
+            "hetzner-qwen-3.6-35b",
         ],
         other => vec![other],
     }
 }
 
 /// Resolves the model name to use, falling back to alternatives if a model's daily rate limit has been hit.
+#[allow(dead_code)]
 async fn resolve_model_with_fallback(
     initial_model_name: &str,
     app: &AppState,
@@ -187,10 +201,7 @@ pub struct SummaryOutput {
 }
 
 /// Extracts YouTube transcript for a given URL using TranscriptService.
-pub async fn fetch_youtube_content(
-    url: &str,
-    identifier: i64,
-) -> Result<String, ProcessError> {
+pub async fn fetch_youtube_content(url: &str, identifier: i64) -> Result<String, ProcessError> {
     let transcript_svc = TranscriptService::new("/dev/shm");
     tracing::info!(
         identifier = identifier,
@@ -198,9 +209,7 @@ pub async fn fetch_youtube_content(
         "Downloading transcript for video"
     );
 
-    let text = transcript_svc
-        .download_transcript(url, identifier)
-        .await?;
+    let text = transcript_svc.download_transcript(url, identifier).await?;
 
     let size_bytes = text.len();
     let word_count = text.split_whitespace().count();
@@ -377,17 +386,22 @@ pub async fn run_model_pipeline(
                 }
                 Err(e) => {
                     let err_str = e.to_string();
-                    if (err_str.contains("experiencing high demand") || err_str.contains("high demand"))
+                    if (err_str.contains("experiencing high demand")
+                        || err_str.contains("high demand"))
                         && attempts < 3
                     {
                         let sleep_dur = if attempts == 1 {
-                            if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
+                            if std::env::var("INTEGRATION_TEST").is_ok()
+                                || std::env::var("TEST_MODE").is_ok()
+                            {
                                 Duration::from_millis(10)
                             } else {
                                 Duration::from_secs(600)
                             }
                         } else {
-                            if std::env::var("INTEGRATION_TEST").is_ok() || std::env::var("TEST_MODE").is_ok() {
+                            if std::env::var("INTEGRATION_TEST").is_ok()
+                                || std::env::var("TEST_MODE").is_ok()
+                            {
                                 Duration::from_millis(20)
                             } else {
                                 Duration::from_secs(14400)
@@ -449,16 +463,15 @@ pub async fn finalize_and_embed(
     let youtube_text = convert_markdown_to_youtube_format(&summary.summary_text);
     db::mark_timestamps_done(db_pool, identifier, &youtube_text).await?;
 
-    let embedding_svc = EmbeddingService::new(
-        app.gemini_api_key.clone(),
-        "gemini-embedding-001",
-        3072,
-    );
+    let embedding_svc =
+        EmbeddingService::new(app.gemini_api_key.clone(), "gemini-embedding-001", 3072);
 
     match embedding_svc.embed_text(&summary.summary_text).await {
         Ok(embedding) => {
             let bytes = embedding_to_bytes(&embedding);
-            if let Err(e) = db::store_embedding(db_pool, identifier, &bytes, "gemini-embedding-001").await {
+            if let Err(e) =
+                db::store_embedding(db_pool, identifier, &bytes, "gemini-embedding-001").await
+            {
                 tracing::warn!(identifier = identifier, error = %e, "Failed to store embedding");
             }
         }
@@ -477,7 +490,8 @@ async fn process_summary_inner(
     app: &AppState,
 ) -> Result<(), ProcessError> {
     // Step 1: Ensure row exists (retry with backoff)
-    let summary = wait_until_row_exists(db_pool, identifier, Duration::from_millis(100), 400).await?;
+    let summary =
+        wait_until_row_exists(db_pool, identifier, Duration::from_millis(100), 400).await?;
 
     let urls = split_urls(&summary.original_source_link);
     let first_url = urls.first().cloned().unwrap_or_default();
@@ -535,7 +549,9 @@ async fn process_summary_inner(
                     if !combined_output.thinking_text.is_empty() {
                         combined_output.thinking_text.push_str("\n\n");
                     }
-                    combined_output.thinking_text.push_str(&format!("--- Thinking for {} ---\n", url));
+                    combined_output
+                        .thinking_text
+                        .push_str(&format!("--- Thinking for {} ---\n", url));
                     combined_output.thinking_text.push_str(&res.thinking_text);
                     combined_output.summary_text.push_str(&res.summary_text);
                 }
@@ -614,10 +630,7 @@ async fn process_summary_inner(
             }
             Err(err) => {
                 tracing::error!(url = %url, error = %err, "Failed to process video");
-                let error_card = format!(
-                    "Error: {}",
-                    format_process_error(&err)
-                );
+                let error_card = format!("Error: {}", format_process_error(&err));
                 let _ = db::update_summary_full(db_pool, identifier, &error_card).await;
                 combined_output.summary_text.push_str(&error_card);
             }
@@ -648,15 +661,19 @@ async fn wait_until_row_exists(
 }
 
 /// Finds the matching ModelOption by name from the configured options.
-fn parse_model_option(model_name: &str, model_options: &[ModelOption]) -> Result<ModelOption, ProcessError> {
+fn parse_model_option(
+    model_name: &str,
+    model_options: &[ModelOption],
+) -> Result<ModelOption, ProcessError> {
     model_options
         .iter()
         .find(|m| m.name == model_name)
         .cloned()
         .ok_or_else(|| {
-            ProcessError::Summary(crate::errors::SummaryError::ApiError(
-                format!("Unknown model: {}", model_name),
-            ))
+            ProcessError::Summary(crate::errors::SummaryError::ApiError(format!(
+                "Unknown model: {}",
+                model_name
+            )))
         })
 }
 
@@ -674,7 +691,10 @@ mod tests {
     #[test]
     fn test_get_transcript_duration_secs_three_digits() {
         let transcript = "00:00:00 start\n01:15:30 end\n";
-        assert_eq!(get_transcript_duration_secs(transcript), 3600 + 15 * 60 + 30);
+        assert_eq!(
+            get_transcript_duration_secs(transcript),
+            3600 + 15 * 60 + 30
+        );
     }
 
     #[test]
@@ -700,9 +720,15 @@ mod tests {
 
     #[test]
     fn test_format_process_error_quota() {
-        let err = ProcessError::Summary(SummaryError::ApiError("You exceeded your current quota, please check your plan and billing details.".to_string()));
+        let err = ProcessError::Summary(SummaryError::ApiError(
+            "You exceeded your current quota, please check your plan and billing details."
+                .to_string(),
+        ));
         let formatted = format_process_error(&err);
-        assert_eq!(formatted, "You exceeded your current quota, please check your plan and billing details.");
+        assert_eq!(
+            formatted,
+            "You exceeded your current quota, please check your plan and billing details."
+        );
     }
 
     #[test]
@@ -721,7 +747,10 @@ mod tests {
     #[test]
     fn test_process_pasted_transcript_bounds() {
         let text_short = "hello world ";
-        assert!(matches!(process_pasted_transcript(text_short), Err(ProcessError::TranscriptTooShort)));
+        assert!(matches!(
+            process_pasted_transcript(text_short),
+            Err(ProcessError::TranscriptTooShort)
+        ));
 
         let words_valid = "word ".repeat(50);
         let res = process_pasted_transcript(&words_valid);
@@ -729,14 +758,21 @@ mod tests {
         assert_eq!(res.unwrap(), words_valid);
 
         let words_too_long = "word ".repeat(280_001);
-        assert!(matches!(process_pasted_transcript(&words_too_long), Err(ProcessError::TranscriptTooLong(280001))));
+        assert!(matches!(
+            process_pasted_transcript(&words_too_long),
+            Err(ProcessError::TranscriptTooLong(280001))
+        ));
     }
 
     #[test]
     fn test_is_summary_rate_limited_variations() {
         assert!(is_summary_rate_limited(&SummaryError::RateLimited));
-        assert!(is_summary_rate_limited(&SummaryError::ApiError("RESOURCE_EXHAUSTED".into())));
-        assert!(is_summary_rate_limited(&SummaryError::ApiError("code 429; description: Quota exceeded".into())));
+        assert!(is_summary_rate_limited(&SummaryError::ApiError(
+            "RESOURCE_EXHAUSTED".into()
+        )));
+        assert!(is_summary_rate_limited(&SummaryError::ApiError(
+            "code 429; description: Quota exceeded".into()
+        )));
         assert!(!is_summary_rate_limited(&SummaryError::TranscriptTooShort));
     }
 
@@ -748,11 +784,18 @@ mod tests {
         let short_words = short_hn_text.split_whitespace().count();
         let long_words = long_hn_text.split_whitespace().count();
 
-        let model_short = if short_words < 3000 { "gemini-3.5-flash-lite" } else { "gemini-3.6-flash" };
-        let model_long = if long_words < 3000 { "gemini-3.5-flash-lite" } else { "gemini-3.6-flash" };
+        let model_short = if short_words < 3000 {
+            "gemini-3.5-flash-lite"
+        } else {
+            "gemini-3.6-flash"
+        };
+        let model_long = if long_words < 3000 {
+            "gemini-3.5-flash-lite"
+        } else {
+            "gemini-3.6-flash"
+        };
 
         assert_eq!(model_short, "gemini-3.5-flash-lite");
         assert_eq!(model_long, "gemini-3.6-flash");
     }
 }
-

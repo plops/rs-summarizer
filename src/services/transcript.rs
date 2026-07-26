@@ -59,26 +59,23 @@ impl TranscriptService {
             .to_string_lossy()
             .to_string();
 
-        let download_result = self
-            .download_subtitles(url, &lang, &output_template)
-            .await;
+        let download_result = self.download_subtitles(url, &lang, &output_template).await;
 
         // Find the downloaded VTT file (yt-dlp appends lang and extension)
         let vtt_path = self.find_vtt_file(identifier);
 
         // Ensure cleanup happens regardless of download result
-        let _cleanup_guard = TempFileGuard { paths: vtt_path.clone() };
+        let _cleanup_guard = TempFileGuard {
+            paths: vtt_path.clone(),
+        };
 
         // Check download result after setting up cleanup
         download_result?;
 
         // Step 4: Read and parse VTT
-        let vtt_path = vtt_path
-            .into_iter()
-            .find(|p| p.exists())
-            .ok_or_else(|| {
-                TranscriptError::YtDlpFailed("VTT file not found after download".to_string())
-            })?;
+        let vtt_path = vtt_path.into_iter().find(|p| p.exists()).ok_or_else(|| {
+            TranscriptError::YtDlpFailed("VTT file not found after download".to_string())
+        })?;
 
         let vtt_content = tokio::fs::read_to_string(&vtt_path)
             .await
@@ -108,10 +105,18 @@ impl TranscriptService {
     /// Invokes yt-dlp --list-subs to get available subtitle languages.
     async fn list_subtitles(&self, url: &str) -> Result<String, TranscriptError> {
         let output = Command::new("uvx")
-            .args(["yt-dlp", "--cookies-from-browser", "firefox", "--list-subs", url])
+            .args([
+                "yt-dlp",
+                "--cookies-from-browser",
+                "firefox",
+                "--list-subs",
+                url,
+            ])
             .output()
             .await
-            .map_err(|e| TranscriptError::YtDlpFailed(format!("Failed to execute yt-dlp: {}", e)))?;
+            .map_err(|e| {
+                TranscriptError::YtDlpFailed(format!("Failed to execute yt-dlp: {}", e))
+            })?;
 
         // yt-dlp may exit with non-zero but still produce useful output on stderr/stdout
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -131,7 +136,8 @@ impl TranscriptService {
             // Check if it's a bot/rate-limit issue vs genuinely no subtitles
             if combined.contains("Sign in to confirm") || combined.contains("bot") {
                 return Err(TranscriptError::YtDlpFailed(
-                    "YouTube requires authentication. Try again later or use --cookies.".to_string(),
+                    "YouTube requires authentication. Try again later or use --cookies."
+                        .to_string(),
                 ));
             }
             if combined.contains("429") || combined.contains("Too Many Requests") {
@@ -140,10 +146,13 @@ impl TranscriptService {
                 ));
             }
             // If it failed but has subtitle info in the output, continue parsing
-            if !combined.contains("Available subtitles") && !combined.contains("Available automatic captions") {
-                return Err(TranscriptError::YtDlpFailed(
-                    format!("yt-dlp failed: {}", stderr.trim()),
-                ));
+            if !combined.contains("Available subtitles")
+                && !combined.contains("Available automatic captions")
+            {
+                return Err(TranscriptError::YtDlpFailed(format!(
+                    "yt-dlp failed: {}",
+                    stderr.trim()
+                )));
             }
         }
 
@@ -235,10 +244,8 @@ impl TranscriptService {
         }
 
         // Category 2: Any -orig language (sorted)
-        let mut orig_langs: Vec<&String> = languages
-            .iter()
-            .filter(|l| l.ends_with("-orig"))
-            .collect();
+        let mut orig_langs: Vec<&String> =
+            languages.iter().filter(|l| l.ends_with("-orig")).collect();
         orig_langs.sort();
         if let Some(lang) = orig_langs.first() {
             return Some((*lang).clone());
@@ -253,10 +260,7 @@ impl TranscriptService {
         }
 
         // Category 4: Any en* prefix
-        let mut en_langs: Vec<&String> = languages
-            .iter()
-            .filter(|l| l.starts_with("en"))
-            .collect();
+        let mut en_langs: Vec<&String> = languages.iter().filter(|l| l.starts_with("en")).collect();
         en_langs.sort();
         if let Some(lang) = en_langs.first() {
             return Some((*lang).clone());

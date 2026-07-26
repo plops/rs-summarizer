@@ -54,7 +54,10 @@ impl HackerNewsService {
         user_pasted_content: Option<&str>,
     ) -> Result<HnFetchResult, String> {
         tracing::info!(story_id = story_id, "Fetching Hacker News story metadata");
-        let story_url = format!("https://hacker-news.firebaseio.com/v0/item/{}.json", story_id);
+        let story_url = format!(
+            "https://hacker-news.firebaseio.com/v0/item/{}.json",
+            story_id
+        );
         let story_res = self
             .client
             .get(&story_url)
@@ -63,7 +66,10 @@ impl HackerNewsService {
             .map_err(|e| format!("Failed to fetch HN item {}: {}", story_id, e))?;
 
         if !story_res.status().is_success() {
-            return Err(format!("HN API returned HTTP status {}", story_res.status()));
+            return Err(format!(
+                "HN API returned HTTP status {}",
+                story_res.status()
+            ));
         }
 
         let story: HnItem = story_res
@@ -135,7 +141,9 @@ impl HackerNewsService {
             combined_text.push_str(art_text);
             combined_text.push_str("\n\n");
         } else if article_fetch_failed {
-            let err_msg = article_fetch_error.as_deref().unwrap_or("HTTP fetch failed");
+            let err_msg = article_fetch_error
+                .as_deref()
+                .unwrap_or("HTTP fetch failed");
             combined_text.push_str(&format!(
                 "[Note: External article could not be downloaded via HTTP ({})].\n\n",
                 err_msg
@@ -189,7 +197,10 @@ impl HackerNewsService {
                 continue;
             }
 
-            let comment_url = format!("https://hacker-news.firebaseio.com/v0/item/{}.json", comment_id);
+            let comment_url = format!(
+                "https://hacker-news.firebaseio.com/v0/item/{}.json",
+                comment_id
+            );
             if let Ok(res) = self.client.get(&comment_url).send().await {
                 if let Ok(comment) = res.json::<HnItem>().await {
                     if let Some(ref text) = comment.text {
@@ -197,7 +208,10 @@ impl HackerNewsService {
                         if !clean_text.is_empty() {
                             let author = comment.by.as_deref().unwrap_or("anonymous");
                             let indent = "  ".repeat(depth);
-                            result.push_str(&format!("{}[{}] (by {}):\n", indent, comment_id, author));
+                            result.push_str(&format!(
+                                "{}[{}] (by {}):\n",
+                                indent, comment_id, author
+                            ));
                             for line in clean_text.lines() {
                                 result.push_str(&format!("{}  {}\n", indent, line));
                             }
@@ -263,20 +277,25 @@ pub fn clean_html_to_text(html: &str) -> String {
     use std::sync::OnceLock;
 
     static TAG_BLOCKS: OnceLock<Vec<Regex>> = OnceLock::new();
-    let tag_blocks = TAG_BLOCKS.get_or_init(|| vec![
-        Regex::new(r"(?is)<script\b[^>]*>.*?</script>").unwrap(),
-        Regex::new(r"(?is)<style\b[^>]*>.*?</style>").unwrap(),
-        Regex::new(r"(?is)<header\b[^>]*>.*?</header>").unwrap(),
-        Regex::new(r"(?is)<footer\b[^>]*>.*?</footer>").unwrap(),
-        Regex::new(r"(?is)<nav\b[^>]*>.*?</nav>").unwrap(),
-        Regex::new(r"(?is)<noscript\b[^>]*>.*?</noscript>").unwrap(),
-    ]);
+    let tag_blocks = TAG_BLOCKS.get_or_init(|| {
+        vec![
+            Regex::new(r"(?is)<script\b[^>]*>.*?</script>").unwrap(),
+            Regex::new(r"(?is)<style\b[^>]*>.*?</style>").unwrap(),
+            Regex::new(r"(?is)<header\b[^>]*>.*?</header>").unwrap(),
+            Regex::new(r"(?is)<footer\b[^>]*>.*?</footer>").unwrap(),
+            Regex::new(r"(?is)<nav\b[^>]*>.*?</nav>").unwrap(),
+            Regex::new(r"(?is)<noscript\b[^>]*>.*?</noscript>").unwrap(),
+        ]
+    });
 
     static LINE_BREAKS: OnceLock<Regex> = OnceLock::new();
-    let line_breaks = LINE_BREAKS.get_or_init(|| Regex::new(r"(?i)<(?:p|br|h[1-6]|li|div|tr)\b[^>]*>").unwrap());
+    let line_breaks =
+        LINE_BREAKS.get_or_init(|| Regex::new(r"(?i)<(?:p|br|h[1-6]|li|div|tr)\b[^>]*>").unwrap());
 
     static LINK_RE: OnceLock<Regex> = OnceLock::new();
-    let link_re = LINK_RE.get_or_init(|| Regex::new(r#"(?i)<a\b[^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>"#).unwrap());
+    let link_re = LINK_RE.get_or_init(|| {
+        Regex::new(r#"(?i)<a\b[^>]*href=["']([^"']+)["'][^>]*>(.*?)</a>"#).unwrap()
+    });
 
     static STRIP_TAGS: OnceLock<Regex> = OnceLock::new();
     let strip_tags = STRIP_TAGS.get_or_init(|| Regex::new(r"<[^>]+>").unwrap());

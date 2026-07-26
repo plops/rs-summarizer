@@ -12,7 +12,13 @@ use tokio::process::Command;
 #[ignore] // requires network
 async fn test_list_subtitles_real_video() {
     let output = Command::new("uvx")
-        .args(["yt-dlp", "--cookies-from-browser", "firefox", "--list-subs", "https://www.youtube.com/watch?v=LlzXCE02swU"])
+        .args([
+            "yt-dlp",
+            "--cookies-from-browser",
+            "firefox",
+            "--list-subs",
+            "https://www.youtube.com/watch?v=LlzXCE02swU",
+        ])
         .output()
         .await
         .expect("Failed to run uvx yt-dlp");
@@ -34,7 +40,10 @@ async fn test_list_subtitles_real_video() {
 #[ignore] // requires network
 async fn test_download_auto_subtitles() {
     let temp_dir = PathBuf::from("/dev/shm");
-    let output_template = temp_dir.join("integration_test_transcript").to_string_lossy().to_string();
+    let output_template = temp_dir
+        .join("integration_test_transcript")
+        .to_string_lossy()
+        .to_string();
 
     // Clean up any previous test files
     cleanup_test_files(&temp_dir, "integration_test_transcript").await;
@@ -42,30 +51,48 @@ async fn test_download_auto_subtitles() {
     let output = Command::new("uvx")
         .args([
             "yt-dlp",
-            "--cookies-from-browser", "firefox",
+            "--cookies-from-browser",
+            "firefox",
             "--write-sub",
             "--write-auto-sub",
-            "--sub-lang", "en",
-            "--sub-format", "vtt",
+            "--sub-lang",
+            "en",
+            "--sub-format",
+            "vtt",
             "--skip-download",
-            "--format", "mhtml",
-            "-o", &output_template,
+            "--format",
+            "mhtml",
+            "-o",
+            &output_template,
             "https://www.youtube.com/watch?v=LlzXCE02swU",
         ])
         .output()
         .await
         .expect("Failed to run uvx yt-dlp");
 
-    assert!(output.status.success(), "yt-dlp failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "yt-dlp failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     // Find the downloaded VTT file
     let vtt_path = find_vtt_file(&temp_dir, "integration_test_transcript");
     assert!(!vtt_path.is_empty(), "No VTT file found after download");
 
     // Read and verify content
-    let content = tokio::fs::read_to_string(&vtt_path[0]).await.expect("Failed to read VTT");
-    assert!(content.starts_with("WEBVTT"), "File doesn't start with WEBVTT header");
-    assert!(content.len() > 1000, "VTT file seems too small: {} bytes", content.len());
+    let content = tokio::fs::read_to_string(&vtt_path[0])
+        .await
+        .expect("Failed to read VTT");
+    assert!(
+        content.starts_with("WEBVTT"),
+        "File doesn't start with WEBVTT header"
+    );
+    assert!(
+        content.len() > 1000,
+        "VTT file seems too small: {} bytes",
+        content.len()
+    );
 
     // Clean up
     cleanup_test_files(&temp_dir, "integration_test_transcript").await;
@@ -78,14 +105,21 @@ async fn test_full_transcript_pipeline() {
     // We can't easily import from the main crate in integration tests without
     // making it a library. Instead, replicate the key logic here.
     let temp_dir = PathBuf::from("/dev/shm");
-    let output_template = temp_dir.join("pipeline_test_transcript").to_string_lossy().to_string();
+    let output_template = temp_dir
+        .join("pipeline_test_transcript")
+        .to_string_lossy()
+        .to_string();
 
     // Clean up
     cleanup_test_files(&temp_dir, "pipeline_test_transcript").await;
 
     // Step 1: List subs
     let list_output = Command::new("uvx")
-        .args(["yt-dlp", "--list-subs", "https://www.youtube.com/watch?v=LlzXCE02swU"])
+        .args([
+            "yt-dlp",
+            "--list-subs",
+            "https://www.youtube.com/watch?v=LlzXCE02swU",
+        ])
         .output()
         .await
         .expect("Failed to list subs");
@@ -101,14 +135,19 @@ async fn test_full_transcript_pipeline() {
     let dl_output = Command::new("uvx")
         .args([
             "yt-dlp",
-            "--cookies-from-browser", "firefox",
+            "--cookies-from-browser",
+            "firefox",
             "--write-sub",
             "--write-auto-sub",
-            "--sub-lang", "en",
-            "--sub-format", "vtt",
+            "--sub-lang",
+            "en",
+            "--sub-format",
+            "vtt",
             "--skip-download",
-            "--format", "mhtml",
-            "-o", &output_template,
+            "--format",
+            "mhtml",
+            "-o",
+            &output_template,
             "https://www.youtube.com/watch?v=LlzXCE02swU",
         ])
         .output()
@@ -126,7 +165,11 @@ async fn test_full_transcript_pipeline() {
 
     // Step 4: Verify it has actual caption content (not just headers)
     let lines: Vec<&str> = content.lines().collect();
-    assert!(lines.len() > 10, "VTT file has too few lines: {}", lines.len());
+    assert!(
+        lines.len() > 10,
+        "VTT file has too few lines: {}",
+        lines.len()
+    );
 
     // Clean up
     cleanup_test_files(&temp_dir, "pipeline_test_transcript").await;

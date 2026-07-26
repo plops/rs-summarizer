@@ -10,7 +10,10 @@ pub mod tasks;
 pub mod templates;
 pub mod utils;
 
-use axum::{routing::{get, post}, Router};
+use axum::{
+    routing::{get, post},
+    Router,
+};
 use tower_http::services::ServeDir;
 
 use crate::state::AppState;

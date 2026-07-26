@@ -4,7 +4,10 @@ use super::url_validator::validate_youtube_url;
 
 /// Builds a canonical YouTube URL with a time offset parameter.
 fn youtube_url_with_t(video_id: &str, seconds: u32) -> String {
-    format!("https://www.youtube.com/watch?v={}&t={}s", video_id, seconds)
+    format!(
+        "https://www.youtube.com/watch?v={}&t={}s",
+        video_id, seconds
+    )
 }
 
 use super::url_validator::split_urls;
@@ -30,9 +33,7 @@ pub fn replace_timestamps_in_html(html: &str, youtube_url: &str) -> String {
     // Multiple URLs: parse and map each URL to its video ID.
     let url_mappings: Vec<(String, String)> = urls
         .iter()
-        .filter_map(|url| {
-            validate_youtube_url(url).map(|id| (url.clone(), id))
-        })
+        .filter_map(|url| validate_youtube_url(url).map(|id| (url.clone(), id)))
         .collect();
 
     if url_mappings.is_empty() {
@@ -62,9 +63,7 @@ use std::sync::OnceLock;
 fn replace_timestamps_for_video(html: &str, video_id: &str) -> String {
     // Match mm:ss or hh:mm:ss where mm and ss are 0-59 (2 digits for seconds).
     static PATTERN: OnceLock<Regex> = OnceLock::new();
-    let pattern = PATTERN.get_or_init(|| {
-        Regex::new(r"\b(?:\d{1,2}:)?[0-5]\d:[0-5]\d\b").unwrap()
-    });
+    let pattern = PATTERN.get_or_init(|| Regex::new(r"\b(?:\d{1,2}:)?[0-5]\d:[0-5]\d\b").unwrap());
 
     let result = pattern.replace_all(html, |caps: &regex::Captures| {
         let mat = caps.get(0).unwrap();
@@ -165,7 +164,7 @@ mod tests {
 <p><strong>01:30 Video 1 segment</strong></p>
 <h3>Summary for https://www.youtube.com/watch?v=Dgj2jivpaJk</h3>
 <p><strong>02:45 Video 2 segment</strong></p>"#;
-        
+
         let out = replace_timestamps_in_html(html, youtube_urls);
         // Video 1 segment: 1*60 + 30 = 90
         assert!(out.contains("watch?v=8S4a_LdHhsc&t=90s"));

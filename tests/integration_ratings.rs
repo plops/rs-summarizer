@@ -3,10 +3,7 @@ use axum::{
     http::{header, HeaderMap, Request, StatusCode},
 };
 use rs_summarizer::{
-    build_router, db,
-    models::SubmitForm,
-    routes::extract_client_ip,
-    state::AppState,
+    build_router, db, models::SubmitForm, routes::extract_client_ip, state::AppState,
 };
 use sqlx::SqlitePool;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
@@ -82,7 +79,11 @@ async fn test_rating_workflow_and_anonymity() {
         .header("x-forwarded-for", client_ip)
         .body(Body::from("summary_rating=5&content_rating=4"))
         .unwrap();
-    req.extensions_mut().insert(axum::extract::ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 8080))));
+    req.extensions_mut()
+        .insert(axum::extract::ConnectInfo(SocketAddr::from((
+            [127, 0, 0, 1],
+            8080,
+        ))));
 
     let response = app.clone().oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
@@ -106,7 +107,12 @@ async fn test_rating_workflow_and_anonymity() {
         .header("x-forwarded-for", client_ip)
         .body(Body::empty())
         .unwrap();
-    browse_req.extensions_mut().insert(axum::extract::ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 8080))));
+    browse_req
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(SocketAddr::from((
+            [127, 0, 0, 1],
+            8080,
+        ))));
 
     let browse_res = app.clone().oneshot(browse_req).await.unwrap();
     assert_eq!(browse_res.status(), StatusCode::OK);
@@ -129,7 +135,12 @@ async fn test_rating_workflow_and_anonymity() {
         .header("x-forwarded-for", client_ip)
         .body(Body::from("summary_rating=2"))
         .unwrap();
-    req_update.extensions_mut().insert(axum::extract::ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 8080))));
+    req_update
+        .extensions_mut()
+        .insert(axum::extract::ConnectInfo(SocketAddr::from((
+            [127, 0, 0, 1],
+            8080,
+        ))));
 
     let res_update = app.clone().oneshot(req_update).await.unwrap();
     assert_eq!(res_update.status(), StatusCode::OK);
@@ -165,7 +176,11 @@ async fn test_invalid_rating_values() {
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from("summary_rating=6"))
         .unwrap();
-    req.extensions_mut().insert(axum::extract::ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 8080))));
+    req.extensions_mut()
+        .insert(axum::extract::ConnectInfo(SocketAddr::from((
+            [127, 0, 0, 1],
+            8080,
+        ))));
 
     let response = app.oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -181,7 +196,11 @@ async fn test_rating_non_existent_summary() {
         .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
         .body(Body::from("summary_rating=5"))
         .unwrap();
-    req.extensions_mut().insert(axum::extract::ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 8080))));
+    req.extensions_mut()
+        .insert(axum::extract::ConnectInfo(SocketAddr::from((
+            [127, 0, 0, 1],
+            8080,
+        ))));
 
     let response = app.oneshot(req).await.unwrap();
     assert_eq!(response.status(), StatusCode::NOT_FOUND);

@@ -1,9 +1,9 @@
+use askama::Template;
 use axum::{
     extract::{ConnectInfo, Form, Path, Query, State},
     http::HeaderMap,
     response::{Html, IntoResponse},
 };
-use askama::Template;
 use chrono::Utc;
 use std::net::SocketAddr;
 
@@ -13,7 +13,10 @@ use crate::services::embedding::EmbeddingService;
 use crate::services::rate_limiter::RateLimiter;
 use crate::state::AppState;
 use crate::tasks;
-use crate::templates::{BrowseTemplate, BrowseSummaryItem, GenerationPartialTemplate, IndexTemplate, SearchResultsTemplate, SearchResultItem, RatingPartialTemplate};
+use crate::templates::{
+    BrowseSummaryItem, BrowseTemplate, GenerationPartialTemplate, IndexTemplate,
+    RatingPartialTemplate, SearchResultItem, SearchResultsTemplate,
+};
 use crate::utils::markdown_renderer::render_markdown_to_html;
 use crate::utils::timestamp_linker::replace_timestamps_in_html;
 
@@ -59,7 +62,7 @@ pub async fn index(State(app): State<AppState>) -> impl IntoResponse {
 pub async fn process_transcript(
     State(app): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
-    Form(mut input): Form<SubmitForm>,
+    Form(input): Form<SubmitForm>,
 ) -> impl IntoResponse {
     // Find the model option
     let model = app.model_options.iter().find(|m| m.name == input.model);
@@ -69,12 +72,8 @@ pub async fn process_transcript(
     };
 
     // Check rate limit
-    let allowed = RateLimiter::check_rate_limit(
-        &model,
-        &app.model_counts,
-        &app.last_reset_day,
-    )
-    .await;
+    let allowed =
+        RateLimiter::check_rate_limit(&model, &app.model_counts, &app.last_reset_day).await;
     if !allowed {
         return Html(
             "<p>Rate limit exceeded for this model. Please try again later.</p>".to_string(),
@@ -83,9 +82,15 @@ pub async fn process_transcript(
 
     // Check at least one of original_source_link or transcript is provided
     let url_empty = input.original_source_link.trim().is_empty();
-    let transcript_empty = input.transcript.as_ref().is_none_or(|t| t.trim().is_empty());
+    let transcript_empty = input
+        .transcript
+        .as_ref()
+        .is_none_or(|t| t.trim().is_empty());
     if url_empty && transcript_empty {
-        return Html("<p>Error: Please provide either a YouTube URL, Hacker News URL, or paste content.</p>".to_string());
+        return Html(
+            "<p>Error: Please provide either a YouTube URL, Hacker News URL, or paste content.</p>"
+                .to_string(),
+        );
     }
 
     // Split, validate, and normalize input URLs/IDs
@@ -157,7 +162,11 @@ pub async fn process_transcript(
         if duplicate_id.is_none() && !single_input.original_source_link.trim().is_empty() {
             if let Ok(Some(existing_id)) = app
                 .dedup_service
-                .check_duplicate(&app.db, single_input.original_source_link.trim(), &single_input.model)
+                .check_duplicate(
+                    &app.db,
+                    single_input.original_source_link.trim(),
+                    &single_input.model,
+                )
                 .await
             {
                 duplicate_id = Some(existing_id);
@@ -169,8 +178,13 @@ pub async fn process_transcript(
         } else {
             // Insert new row
             let timestamp_start = Utc::now().to_rfc3339();
-            let new_id = match db::insert_new_summary(&app.db, &single_input, &addr.to_string(), &timestamp_start)
-                .await
+            let new_id = match db::insert_new_summary(
+                &app.db,
+                &single_input,
+                &addr.to_string(),
+                &timestamp_start,
+            )
+            .await
             {
                 Ok(id) => id,
                 Err(e) => return Html(format!("<p>Error: {}</p>", e)),
@@ -303,11 +317,8 @@ pub async fn search_similar(
     State(app): State<AppState>,
     Form(query): Form<SearchForm>,
 ) -> impl IntoResponse {
-    let embedding_svc = EmbeddingService::new(
-        app.gemini_api_key.clone(),
-        "gemini-embedding-001",
-        3072,
-    );
+    let embedding_svc =
+        EmbeddingService::new(app.gemini_api_key.clone(), "gemini-embedding-001", 3072);
 
     let results = match embedding_svc.embed_text(&query.query).await {
         Ok(query_embedding) => {
@@ -348,13 +359,8 @@ async fn render_generation_partial(app: &AppState, identifier: i64) -> Html<Stri
     match summary {
         Some(s) => {
             let timestamps_html = if s.timestamps_done {
-                let html = render_markdown_to_html(
-                    &s.timestamped_summary_in_youtube_format,
-                );
-                replace_timestamps_in_html(
-                    &html,
-                    &s.original_source_link,
-                )
+                let html = render_markdown_to_html(&s.timestamped_summary_in_youtube_format);
+                replace_timestamps_in_html(&html, &s.original_source_link)
             } else {
                 String::new()
             };
@@ -423,20 +429,38 @@ mod tests {
             url_context: false,
         };
 
-        let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input)).await.into_response();
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input))
+            .await
+            .into_response();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let html = String::from_utf8(body_bytes.to_vec()).unwrap();
 
         // Verify HTML output contains polling partials for both generated IDs
-        assert!(html.contains("id=\"generation-1\""), "Should contain partial for ID 1: {}", html);
-        assert!(html.contains("id=\"generation-2\""), "Should contain partial for ID 2: {}", html);
+        assert!(
+            html.contains("id=\"generation-1\""),
+            "Should contain partial for ID 1: {}",
+            html
+        );
+        assert!(
+            html.contains("id=\"generation-2\""),
+            "Should contain partial for ID 2: {}",
+            html
+        );
 
         // Verify database contains 2 distinct rows with individual links
         let row1 = db::fetch_summary(&state.db, 1).await.unwrap().unwrap();
         let row2 = db::fetch_summary(&state.db, 2).await.unwrap().unwrap();
 
-        assert_eq!(row1.original_source_link, "https://www.youtube.com/watch?v=dQw4w9WgXcQ");
-        assert_eq!(row2.original_source_link, "https://news.ycombinator.com/item?id=40000000");
+        assert_eq!(
+            row1.original_source_link,
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+        );
+        assert_eq!(
+            row2.original_source_link,
+            "https://news.ycombinator.com/item?id=40000000"
+        );
     }
 
     #[tokio::test]
@@ -462,8 +486,12 @@ mod tests {
             google_search_grounding: false,
             url_context: false,
         };
-        let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input2)).await.into_response();
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input2))
+            .await
+            .into_response();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let html = String::from_utf8(body_bytes.to_vec()).unwrap();
 
         // Should return existing ID 1 for duplicate link and new ID 2 for new link
@@ -472,7 +500,10 @@ mod tests {
 
         // Only 2 total rows should exist in database
         let row3 = db::fetch_summary(&state.db, 3).await.unwrap();
-        assert!(row3.is_none(), "Row 3 should not exist due to deduplication of item 1");
+        assert!(
+            row3.is_none(),
+            "Row 3 should not exist due to deduplication of item 1"
+        );
     }
 
     #[tokio::test]
@@ -487,11 +518,17 @@ mod tests {
             url_context: false,
         };
 
-        let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input)).await.into_response();
-        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input))
+            .await
+            .into_response();
+        let body_bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let html = String::from_utf8(body_bytes.to_vec()).unwrap();
 
-        assert!(html.contains("Error: The provided value 'not_a_valid_link' is neither a valid YouTube URL"));
+        assert!(html.contains(
+            "Error: The provided value 'not_a_valid_link' is neither a valid YouTube URL"
+        ));
         assert!(db::fetch_summary(&state.db, 1).await.unwrap().is_none());
     }
 }

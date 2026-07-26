@@ -1,6 +1,6 @@
+use chrono::{TimeDelta, Utc};
 use sqlx::SqlitePool;
 use std::time::Duration;
-use chrono::{TimeDelta, Utc};
 
 #[derive(Clone, Debug)]
 pub struct DeduplicationService {

@@ -1,12 +1,12 @@
+use sqlx::Row;
 use std::collections::HashMap;
 use std::env;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use sqlx::Row;
 
-use rs_summarizer::commands::export_db::{ExportDbArgs, run_export};
+use rs_summarizer::commands::export_db::{run_export, ExportDbArgs};
 use rs_summarizer::state::AppState;
 use rs_summarizer::{build_router, db};
 
@@ -22,11 +22,10 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Load Gemini API key from environment
-    let gemini_api_key = std::env::var("GEMINI_API_KEY")
-        .unwrap_or_else(|_| {
-            tracing::warn!("GEMINI_API_KEY not set, API calls will fail");
-            String::new()
-        });
+    let gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_else(|_| {
+        tracing::warn!("GEMINI_API_KEY not set, API calls will fail");
+        String::new()
+    });
 
     // Initialize database
     let db = db::init_db("sqlite:data/summaries.db").await?;
@@ -65,10 +64,13 @@ async fn main() -> anyhow::Result<()> {
 
     tracing::info!("Listening on {}", addr);
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    
-    axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal())
-        .await?;
+
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await?;
 
     // Perform database cleanup on graceful shutdown
     tracing::info!("Cleaning up database connections...");
@@ -118,14 +120,17 @@ async fn load_visualization_components() -> (
     };
 
     tracing::info!("Loading visualization components from: {}", compact_db_path);
-    
+
     let db_path = std::path::Path::new(&compact_db_path);
-    let stem = db_path.file_stem().and_then(|s| s.to_str()).unwrap_or("compact");
+    let stem = db_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("compact");
     let parent_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
 
     // Load NN Mapper
     let nn_mapper = load_nn_mapper(parent_dir, stem).await;
-    
+
     // Load VizData
     let viz_data = load_viz_data(&compact_db_path, parent_dir, stem).await;
 
@@ -137,7 +142,7 @@ async fn load_nn_mapper(
     stem: &str,
 ) -> Option<std::sync::Arc<std::sync::Mutex<rs_summarizer::services::nn_mapper::NnMapper>>> {
     let model_path = parent_dir.join(format!("{}_nn_mapper.bin", stem));
-    
+
     if !model_path.exists() {
         tracing::info!("NN mapper file not found: {:?}", model_path);
         return None;
@@ -163,7 +168,6 @@ struct Point2D {
     umap_2d_y: f32,
 }
 
-
 async fn load_viz_data(
     compact_db_path: &str,
     parent_dir: &std::path::Path,
@@ -174,8 +178,10 @@ async fn load_viz_data(
         sqlx::sqlite::SqliteConnectOptions::new()
             .filename(compact_db_path)
             .create_if_missing(false)
-            .read_only(true)
-    ).await {
+            .read_only(true),
+    )
+    .await
+    {
         Ok(db) => db,
         Err(e) => {
             tracing::error!("Could not open Compact DB: {:?}", e);
@@ -211,9 +217,12 @@ async fn load_viz_data(
     }
 
     // Load cluster labels
-    let cluster_labels: std::collections::HashMap<i64, i32> = match sqlx::query("SELECT identifier, dbscan_label FROM summaries WHERE dbscan_label IS NOT NULL")
-        .fetch_all(&db)
-        .await {
+    let cluster_labels: std::collections::HashMap<i64, i32> = match sqlx::query(
+        "SELECT identifier, dbscan_label FROM summaries WHERE dbscan_label IS NOT NULL",
+    )
+    .fetch_all(&db)
+    .await
+    {
         Ok(rows) => {
             let mut labels = std::collections::HashMap::new();
             for row in rows {
@@ -256,13 +265,18 @@ async fn load_viz_data(
     };
 
     // Calculate cluster centroids
-    let mut cluster_centroids: std::collections::HashMap<i32, (f32, f32)> = std::collections::HashMap::new();
-    let mut cluster_points: std::collections::HashMap<i32, Vec<(f32, f32)>> = std::collections::HashMap::new();
+    let mut cluster_centroids: std::collections::HashMap<i32, (f32, f32)> =
+        std::collections::HashMap::new();
+    let mut cluster_points: std::collections::HashMap<i32, Vec<(f32, f32)>> =
+        std::collections::HashMap::new();
 
     // Group points by cluster
     for point in &points_2d {
         if let Some(&label) = cluster_labels.get(&point.identifier) {
-            cluster_points.entry(label).or_default().push((point.umap_2d_x, point.umap_2d_y));
+            cluster_points
+                .entry(label)
+                .or_default()
+                .push((point.umap_2d_x, point.umap_2d_y));
         }
     }
 
@@ -277,7 +291,8 @@ async fn load_viz_data(
     }
 
     // Convert Point2D structs to (i64, f32, f32) tuples
-    let points_2d_tuples: Vec<(i64, f32, f32)> = points_2d.into_iter()
+    let points_2d_tuples: Vec<(i64, f32, f32)> = points_2d
+        .into_iter()
         .map(|point| (point.identifier, point.umap_2d_x, point.umap_2d_y))
         .collect();
 
@@ -303,7 +318,7 @@ async fn handle_export_command(args: &[String]) -> anyhow::Result<()> {
     let mut output = None;
     let mut include_embeddings = false;
     let mut compress = false;
-    
+
     let mut i = 2; // Skip "export-db"
     while i < args.len() {
         match args[i].as_str() {
@@ -338,15 +353,11 @@ async fn handle_export_command(args: &[String]) -> anyhow::Result<()> {
             }
         }
     }
-    
-    let source = source.ok_or_else(|| {
-        anyhow::anyhow!("--source argument is required")
-    })?;
-    
-    let output = output.ok_or_else(|| {
-        anyhow::anyhow!("--output argument is required")
-    })?;
-    
+
+    let source = source.ok_or_else(|| anyhow::anyhow!("--source argument is required"))?;
+
+    let output = output.ok_or_else(|| anyhow::anyhow!("--output argument is required"))?;
+
     let export_args = ExportDbArgs {
         source,
         output,
@@ -354,6 +365,6 @@ async fn handle_export_command(args: &[String]) -> anyhow::Result<()> {
         compress,
     };
     run_export(export_args).await?;
-    
+
     Ok(())
 }

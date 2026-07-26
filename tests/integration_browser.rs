@@ -13,7 +13,7 @@
 //! (These tests are ignored by default since they require geckodriver + Firefox)
 
 use fantoccini::{Client, ClientBuilder, Locator};
-use rs_summarizer::state::{AppState, ModelOption, ModelArchitecture};
+use rs_summarizer::state::{AppState, ModelArchitecture, ModelOption};
 use rs_summarizer::{build_router, db};
 use serde_json::json;
 use sqlx::SqlitePool;
@@ -25,7 +25,10 @@ use tokio::sync::RwLock;
 
 /// Find geckodriver binary, checking ~/bin first then PATH.
 fn geckodriver_path() -> String {
-    let home_bin = format!("{}/bin/geckodriver", std::env::var("HOME").unwrap_or_default());
+    let home_bin = format!(
+        "{}/bin/geckodriver",
+        std::env::var("HOME").unwrap_or_default()
+    );
     if std::path::Path::new(&home_bin).exists() {
         return home_bin;
     }
@@ -310,7 +313,10 @@ async fn test_index_page_loads() {
     assert!(model_select.is_displayed().await.unwrap());
 
     // Verify model options are populated
-    let options = client.find_all(Locator::Css("#model option")).await.unwrap();
+    let options = client
+        .find_all(Locator::Css("#model option"))
+        .await
+        .unwrap();
     assert_eq!(options.len(), 2, "Expected 2 model options");
 
     // Verify the submit button exists
@@ -322,7 +328,10 @@ async fn test_index_page_loads() {
     assert_eq!(btn_text, "Summarize");
 
     // Verify the browse link exists
-    let browse_link = client.find(Locator::Css("a[href='/browse']")).await.unwrap();
+    let browse_link = client
+        .find(Locator::Css("a[href='/browse']"))
+        .await
+        .unwrap();
     assert!(browse_link.is_displayed().await.unwrap());
 
     // Clean up
@@ -480,7 +489,10 @@ async fn test_navigation_between_pages() {
     client.goto(&base_url).await.unwrap();
 
     // Click the browse link
-    let browse_link = client.find(Locator::Css("a[href='/browse']")).await.unwrap();
+    let browse_link = client
+        .find(Locator::Css("a[href='/browse']"))
+        .await
+        .unwrap();
     browse_link.click().await.unwrap();
 
     // Wait for navigation
@@ -652,7 +664,10 @@ async fn test_full_summarization_e2e() {
 
     if completed {
         // Verify the summary has actual content
-        let article = client.find(Locator::Css("#generation article")).await.unwrap();
+        let article = client
+            .find(Locator::Css("#generation article"))
+            .await
+            .unwrap();
         let article_text = article.text().await.unwrap();
         assert!(
             article_text.len() > 50,
@@ -780,8 +795,14 @@ async fn test_rate_limit_error_display() {
 
     // First submission - should succeed (exhausts rpd_limit=1)
     let url_input = client.find(Locator::Css("#url")).await.unwrap();
-    url_input.send_keys("https://www.youtube.com/watch?v=test_rate1").await.unwrap();
-    let submit_btn = client.find(Locator::Css("button[type='submit']")).await.unwrap();
+    url_input
+        .send_keys("https://www.youtube.com/watch?v=test_rate1")
+        .await
+        .unwrap();
+    let submit_btn = client
+        .find(Locator::Css("button[type='submit']"))
+        .await
+        .unwrap();
     submit_btn.click().await.unwrap();
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -790,8 +811,14 @@ async fn test_rate_limit_error_display() {
 
     // Second submission - should hit rate limit
     let url_input = client.find(Locator::Css("#url")).await.unwrap();
-    url_input.send_keys("https://www.youtube.com/watch?v=test_rate2").await.unwrap();
-    let submit_btn = client.find(Locator::Css("button[type='submit']")).await.unwrap();
+    url_input
+        .send_keys("https://www.youtube.com/watch?v=test_rate2")
+        .await
+        .unwrap();
+    let submit_btn = client
+        .find(Locator::Css("button[type='submit']"))
+        .await
+        .unwrap();
     submit_btn.click().await.unwrap();
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
@@ -907,7 +934,10 @@ async fn test_form_required_validation() {
     );
 
     // Click submit without entering a URL
-    let submit_btn = client.find(Locator::Css("button[type='submit']")).await.unwrap();
+    let submit_btn = client
+        .find(Locator::Css("button[type='submit']"))
+        .await
+        .unwrap();
     submit_btn.click().await.unwrap();
 
     // Wait briefly to see if anything happens
@@ -955,13 +985,15 @@ async fn test_form_submission_with_pasted_transcript() {
     // Paste a transcript into the textarea
     let transcript_input = client.find(Locator::Css("#transcript")).await.unwrap();
     transcript_input
-        .send_keys("00:00:00 Welcome to this video about Rust programming \
+        .send_keys(
+            "00:00:00 Welcome to this video about Rust programming \
             00:00:05 Today we will learn about ownership and borrowing \
             00:00:10 Rust's ownership system is what makes it unique among programming languages \
             00:00:15 Every value in Rust has a single owner at any given time \
             00:00:20 When the owner goes out of scope the value is dropped \
             00:00:25 This prevents memory leaks and data races at compile time \
-            00:00:30 Let me show you some examples of how this works in practice")
+            00:00:30 Let me show you some examples of how this works in practice",
+        )
         .await
         .unwrap();
 
@@ -972,7 +1004,10 @@ async fn test_form_submission_with_pasted_transcript() {
     );
 
     // Click submit
-    let submit_btn = client.find(Locator::Css("button[type='submit']")).await.unwrap();
+    let submit_btn = client
+        .find(Locator::Css("button[type='submit']"))
+        .await
+        .unwrap();
     submit_btn.click().await.unwrap();
 
     // Wait for HTMX to swap in the result
@@ -983,11 +1018,11 @@ async fn test_form_submission_with_pasted_transcript() {
     let result_div = client.find(Locator::Css("#result")).await.unwrap();
     let result_html = result_div.html(true).await.unwrap();
     assert!(
-        result_html.contains("Processing") || 
-        result_html.contains("Generating summary") ||
-        result_html.contains("API Key") ||
-        result_html.contains("PERMISSION_DENIED") ||
-        result_html.contains("Summary error"),
+        result_html.contains("Processing")
+            || result_html.contains("Generating summary")
+            || result_html.contains("API Key")
+            || result_html.contains("PERMISSION_DENIED")
+            || result_html.contains("Summary error"),
         "Expected processing state or API key error in result div, got: {}",
         result_html
     );
@@ -1052,7 +1087,10 @@ async fn test_browse_pagination_page_1() {
     let client = connect_browser(geckodriver_port).await;
 
     // Navigate to page 1
-    client.goto(&format!("{}/browse?page=1", base_url)).await.unwrap();
+    client
+        .goto(&format!("{}/browse?page=1", base_url))
+        .await
+        .unwrap();
 
     // Count article elements (expect 5 on page 1)
     let articles = client.find_all(Locator::Css("article")).await.unwrap();
@@ -1094,7 +1132,10 @@ async fn test_browse_no_next_on_last_page() {
     let client = connect_browser(geckodriver_port).await;
 
     // Navigate to page 1 (the last page with 25 total records)
-    client.goto(&format!("{}/browse?page=1", base_url)).await.unwrap();
+    client
+        .goto(&format!("{}/browse?page=1", base_url))
+        .await
+        .unwrap();
 
     // Verify "Next →" link is NOT present
     let page_source = client.source().await.unwrap();
@@ -1143,10 +1184,7 @@ async fn test_summary_markdown_rendering() {
         id
     );
     let result: serde_json::Value = client
-        .execute(
-            &format!("return (async () => {{ {} }})()", script),
-            vec![],
-        )
+        .execute(&format!("return (async () => {{ {} }})()", script), vec![])
         .await
         .unwrap();
     let html = result.as_str().unwrap_or("");
@@ -1224,14 +1262,8 @@ async fn test_timestamp_links_rendered() {
 
     // Verify specific timestamps were converted:
     // 0:00 -> t=0s, 1:30 -> t=90s, 5:45 -> t=345s
-    assert!(
-        html.contains("t=0s"),
-        "Expected t=0s for 0:00 timestamp"
-    );
-    assert!(
-        html.contains("t=90s"),
-        "Expected t=90s for 1:30 timestamp"
-    );
+    assert!(html.contains("t=0s"), "Expected t=0s for 0:00 timestamp");
+    assert!(html.contains("t=90s"), "Expected t=90s for 1:30 timestamp");
     assert!(
         html.contains("t=345s"),
         "Expected t=345s for 5:45 timestamp"
@@ -1287,11 +1319,20 @@ async fn test_search_returns_results() {
     client.goto(&base_url).await.unwrap();
 
     // Find the search input and type a query
-    let search_input = client.find(Locator::Css("input[name='query']")).await.unwrap();
-    search_input.send_keys("video summary content").await.unwrap();
+    let search_input = client
+        .find(Locator::Css("input[name='query']"))
+        .await
+        .unwrap();
+    search_input
+        .send_keys("video summary content")
+        .await
+        .unwrap();
 
     // Click the search button (second submit button on the page)
-    let buttons = client.find_all(Locator::Css("button[type='submit']")).await.unwrap();
+    let buttons = client
+        .find_all(Locator::Css("button[type='submit']"))
+        .await
+        .unwrap();
     assert!(buttons.len() >= 2, "Expected at least 2 submit buttons");
     buttons[1].click().await.unwrap();
 
@@ -1303,7 +1344,10 @@ async fn test_search_returns_results() {
     let results_html = search_results.html(true).await.unwrap();
 
     // Should contain at least one article (search result)
-    let articles = client.find_all(Locator::Css("#search-results article")).await.unwrap();
+    let articles = client
+        .find_all(Locator::Css("#search-results article"))
+        .await
+        .unwrap();
     assert!(
         !articles.is_empty(),
         "Expected search results to contain article elements, got HTML: {}",
@@ -1339,11 +1383,20 @@ async fn test_search_empty_results() {
     client.goto(&base_url).await.unwrap();
 
     // Submit a nonsensical search query
-    let search_input = client.find(Locator::Css("input[name='query']")).await.unwrap();
-    search_input.send_keys("xyzzy nonsense gibberish 12345").await.unwrap();
+    let search_input = client
+        .find(Locator::Css("input[name='query']"))
+        .await
+        .unwrap();
+    search_input
+        .send_keys("xyzzy nonsense gibberish 12345")
+        .await
+        .unwrap();
 
     // Click the search button (second submit button on the page)
-    let buttons = client.find_all(Locator::Css("button[type='submit']")).await.unwrap();
+    let buttons = client
+        .find_all(Locator::Css("button[type='submit']"))
+        .await
+        .unwrap();
     assert!(buttons.len() >= 2, "Expected at least 2 submit buttons");
     buttons[1].click().await.unwrap();
 
@@ -1355,7 +1408,10 @@ async fn test_search_empty_results() {
     let results_html = search_results.html(true).await.unwrap();
 
     // Should NOT contain any article elements (no results)
-    let articles = client.find_all(Locator::Css("#search-results article")).await.unwrap();
+    let articles = client
+        .find_all(Locator::Css("#search-results article"))
+        .await
+        .unwrap();
     assert!(
         articles.is_empty(),
         "Expected no search result articles in empty database, got {} articles",
@@ -1641,10 +1697,7 @@ async fn test_form_input_labels() {
 
     // Verify <label for="url"> exists
     let url_label = client.find(Locator::Css("label[for='url']")).await;
-    assert!(
-        url_label.is_ok(),
-        "Expected <label for='url'> to exist"
-    );
+    assert!(url_label.is_ok(), "Expected <label for='url'> to exist");
     let url_label_text = url_label.unwrap().text().await.unwrap();
     assert!(
         !url_label_text.is_empty(),
@@ -1653,10 +1706,7 @@ async fn test_form_input_labels() {
 
     // Verify <label for="model"> exists
     let model_label = client.find(Locator::Css("label[for='model']")).await;
-    assert!(
-        model_label.is_ok(),
-        "Expected <label for='model'> to exist"
-    );
+    assert!(model_label.is_ok(), "Expected <label for='model'> to exist");
     let model_label_text = model_label.unwrap().text().await.unwrap();
     assert!(
         !model_label_text.is_empty(),
@@ -1664,7 +1714,10 @@ async fn test_form_input_labels() {
     );
 
     // Verify search input has accessible name (placeholder or aria-label)
-    let search_input = client.find(Locator::Css("input[name='query']")).await.unwrap();
+    let search_input = client
+        .find(Locator::Css("input[name='query']"))
+        .await
+        .unwrap();
     let placeholder = search_input.attr("placeholder").await.unwrap();
     let aria_label = search_input.attr("aria-label").await.unwrap();
     assert!(
@@ -1694,7 +1747,10 @@ async fn test_keyboard_navigation() {
     client.goto(&base_url).await.unwrap();
 
     // Focus the URL input first, then test tab order from there
-    client.execute("document.getElementById('url').focus()", vec![]).await.unwrap();
+    client
+        .execute("document.getElementById('url').focus()", vec![])
+        .await
+        .unwrap();
 
     // Verify URL input is focused
     let active = client.active_element().await.unwrap();
@@ -1737,9 +1793,15 @@ async fn test_keyboard_navigation() {
 
     // Now test Enter key submission
     // Focus the URL input and type a URL
-    client.execute("document.getElementById('url').focus()", vec![]).await.unwrap();
+    client
+        .execute("document.getElementById('url').focus()", vec![])
+        .await
+        .unwrap();
     let url_input = client.find(Locator::Css("#url")).await.unwrap();
-    url_input.send_keys("https://www.youtube.com/watch?v=keyboard_test").await.unwrap();
+    url_input
+        .send_keys("https://www.youtube.com/watch?v=keyboard_test")
+        .await
+        .unwrap();
 
     // Press Enter to submit the form
     url_input.send_keys("\u{E007}").await.unwrap(); // Enter key

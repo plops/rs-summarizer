@@ -1,5 +1,5 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
-use sqlx::{SqlitePool, Row};
+use sqlx::{Row, SqlitePool};
 use std::str::FromStr;
 
 /// Initialize the SQLite connection pool with WAL mode and run migrations.
@@ -19,7 +19,7 @@ pub async fn init_db(database_url: &str) -> anyhow::Result<SqlitePool> {
     Ok(pool)
 }
 
-use crate::models::{Summary, SubmitForm, RatingStats};
+use crate::models::{RatingStats, SubmitForm, Summary};
 
 /// Insert a new summary row and return the new identifier.
 pub async fn insert_new_summary(
@@ -48,19 +48,24 @@ pub async fn insert_new_summary(
 }
 
 /// Fetch a summary by its identifier.
-pub async fn fetch_summary(db: &SqlitePool, identifier: i64) -> Result<Option<Summary>, sqlx::Error> {
-    let row = sqlx::query_as::<_, Summary>(
-        "SELECT * FROM summaries WHERE identifier = ?"
-    )
-    .bind(identifier)
-    .fetch_optional(db)
-    .await?;
+pub async fn fetch_summary(
+    db: &SqlitePool,
+    identifier: i64,
+) -> Result<Option<Summary>, sqlx::Error> {
+    let row = sqlx::query_as::<_, Summary>("SELECT * FROM summaries WHERE identifier = ?")
+        .bind(identifier)
+        .fetch_optional(db)
+        .await?;
 
     Ok(row)
 }
 
 /// Update the transcript field for a summary.
-pub async fn update_transcript(db: &SqlitePool, identifier: i64, transcript: &str) -> Result<(), sqlx::Error> {
+pub async fn update_transcript(
+    db: &SqlitePool,
+    identifier: i64,
+    transcript: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE summaries SET transcript = ? WHERE identifier = ?")
         .bind(transcript)
         .bind(identifier)
@@ -71,7 +76,11 @@ pub async fn update_transcript(db: &SqlitePool, identifier: i64, transcript: &st
 }
 
 /// Append a chunk to the summary field (for streaming).
-pub async fn update_summary_chunk(db: &SqlitePool, identifier: i64, chunk: &str) -> Result<(), sqlx::Error> {
+pub async fn update_summary_chunk(
+    db: &SqlitePool,
+    identifier: i64,
+    chunk: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE summaries SET summary = summary || ? WHERE identifier = ?")
         .bind(chunk)
         .bind(identifier)
@@ -82,7 +91,11 @@ pub async fn update_summary_chunk(db: &SqlitePool, identifier: i64, chunk: &str)
 }
 
 /// Overwrite the summary field completely (e.g. for errors).
-pub async fn update_summary_full(db: &SqlitePool, identifier: i64, summary: &str) -> Result<(), sqlx::Error> {
+pub async fn update_summary_full(
+    db: &SqlitePool,
+    identifier: i64,
+    summary: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE summaries SET summary = ? WHERE identifier = ?")
         .bind(summary)
         .bind(identifier)
@@ -93,7 +106,11 @@ pub async fn update_summary_full(db: &SqlitePool, identifier: i64, summary: &str
 }
 
 /// Update the model field for a summary.
-pub async fn update_model(db: &SqlitePool, identifier: i64, model: &str) -> Result<(), sqlx::Error> {
+pub async fn update_model(
+    db: &SqlitePool,
+    identifier: i64,
+    model: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE summaries SET model = ? WHERE identifier = ?")
         .bind(model)
         .bind(identifier)
@@ -139,7 +156,7 @@ pub async fn mark_timestamps_done(
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
         "UPDATE summaries SET timestamps_done = 1, timestamped_summary_in_youtube_format = ? \
-         WHERE identifier = ?"
+         WHERE identifier = ?",
     )
     .bind(youtube_format)
     .bind(identifier)
@@ -169,7 +186,7 @@ pub async fn store_embedding(
 /// Fetch all embeddings (identifier + blob) for similarity search.
 pub async fn fetch_all_embeddings(db: &SqlitePool) -> Result<Vec<(i64, Vec<u8>)>, sqlx::Error> {
     let rows = sqlx::query_as::<_, (i64, Vec<u8>)>(
-        "SELECT identifier, embedding FROM summaries WHERE embedding IS NOT NULL"
+        "SELECT identifier, embedding FROM summaries WHERE embedding IS NOT NULL",
     )
     .fetch_all(db)
     .await?;
@@ -186,7 +203,7 @@ pub async fn fetch_browse_page(
     let offset = page * page_size;
 
     let rows = sqlx::query_as::<_, Summary>(
-        "SELECT * FROM summaries ORDER BY identifier DESC LIMIT ? OFFSET ?"
+        "SELECT * FROM summaries ORDER BY identifier DESC LIMIT ? OFFSET ?",
     )
     .bind(page_size)
     .bind(offset)
@@ -206,12 +223,16 @@ pub async fn upsert_rating(
 ) -> Result<(), sqlx::Error> {
     if let Some(r) = summary_rating {
         if !(1..=5).contains(&r) {
-            return Err(sqlx::Error::Protocol("summary_rating must be between 1 and 5".into()));
+            return Err(sqlx::Error::Protocol(
+                "summary_rating must be between 1 and 5".into(),
+            ));
         }
     }
     if let Some(r) = content_rating {
         if !(1..=5).contains(&r) {
-            return Err(sqlx::Error::Protocol("content_rating must be between 1 and 5".into()));
+            return Err(sqlx::Error::Protocol(
+                "content_rating must be between 1 and 5".into(),
+            ));
         }
     }
 
@@ -245,7 +266,7 @@ pub async fn fetch_rating_stats(
          COUNT(summary_rating) AS count_summary_rating, \
          COALESCE(AVG(content_rating), 0.0) AS avg_content_rating, \
          COUNT(content_rating) AS count_content_rating \
-         FROM summary_ratings WHERE summary_id = ?"
+         FROM summary_ratings WHERE summary_id = ?",
     )
     .bind(summary_id)
     .fetch_one(db)
@@ -295,7 +316,7 @@ mod tests {
     #[tokio::test]
     async fn test_rating_upsert_and_stats() {
         let pool = create_in_memory_db().await;
-        
+
         let form = SubmitForm {
             original_source_link: "https://youtube.com/watch?v=test".to_string(),
             transcript: Some("test transcript".to_string()),

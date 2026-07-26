@@ -8,6 +8,7 @@ use tokio::sync::RwLock;
 pub enum ModelArchitecture {
     Gemini,
     Gemma,
+    Hetzner,
     Other,
 }
 
@@ -16,6 +17,7 @@ impl ModelArchitecture {
         match self {
             ModelArchitecture::Gemini => "Gemini",
             ModelArchitecture::Gemma => "Gemma",
+            ModelArchitecture::Hetzner => "Hetzner",
             ModelArchitecture::Other => "Other",
         }
     }
@@ -41,12 +43,16 @@ pub struct AppState {
     pub gemini_api_key: String,
     pub nn_mapper: Option<std::sync::Arc<std::sync::Mutex<crate::services::nn_mapper::NnMapper>>>,
     pub viz_data: Option<std::sync::Arc<crate::models::VizData>>,
-    pub model_locks: Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<Option<std::time::Instant>>>>>>,
+    pub model_locks:
+        Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<Option<std::time::Instant>>>>>>,
     pub dedup_service: crate::services::deduplication::DeduplicationService,
 }
 
 impl AppState {
-    pub async fn get_model_lock(&self, model_name: &str) -> Arc<tokio::sync::Mutex<Option<std::time::Instant>>> {
+    pub async fn get_model_lock(
+        &self,
+        model_name: &str,
+    ) -> Arc<tokio::sync::Mutex<Option<std::time::Instant>>> {
         {
             let locks = self.model_locks.read().await;
             if let Some(lock) = locks.get(model_name) {
@@ -54,12 +60,12 @@ impl AppState {
             }
         }
         let mut locks = self.model_locks.write().await;
-        locks.entry(model_name.to_string())
+        locks
+            .entry(model_name.to_string())
             .or_insert_with(|| Arc::new(tokio::sync::Mutex::new(None)))
             .clone()
     }
 }
-
 
 /// Retrieve default baseline configurations reflecting the model list
 pub fn get_default_models() -> Vec<ModelOption> {
@@ -164,6 +170,16 @@ pub fn get_default_models() -> Vec<ModelOption> {
             rpd_limit: 20,
             architecture: ModelArchitecture::Gemini,
         },
+        // 10. Hetzner Qwen 3.6 35B (OpenAI-compatible experimental inference API)
+        ModelOption {
+            name: "hetzner-qwen-3.6-35b".to_string(),
+            input_price_per_mtoken: 0.0,
+            output_price_per_mtoken: 0.0,
+            context_window: 262_144,
+            rpm_limit: 60,
+            rpd_limit: 14400,
+            architecture: ModelArchitecture::Hetzner,
+        },
     ]
 }
 
@@ -217,7 +233,11 @@ mod model_checks {
         let models = get_default_models();
         let mut names = std::collections::HashSet::new();
         for m in &models {
-            assert!(names.insert(m.name.clone()), "Duplicate model configuration name registered: {}", m.name);
+            assert!(
+                names.insert(m.name.clone()),
+                "Duplicate model configuration name registered: {}",
+                m.name
+            );
         }
     }
 
@@ -233,26 +253,47 @@ mod model_checks {
     #[test]
     fn test_updated_model_limits() {
         let models = get_default_models();
-        
+
         // Verify Gemini 3.6 Flash limits
-        let gemini_36 = models.iter().find(|m| m.name == "gemini-3.6-flash").unwrap();
+        let gemini_36 = models
+            .iter()
+            .find(|m| m.name == "gemini-3.6-flash")
+            .unwrap();
         assert_eq!(gemini_36.rpm_limit, 5);
         assert_eq!(gemini_36.rpd_limit, 20);
 
         // Verify Gemini 3.5 Flash Lite limits
-        let gemini_35_lite = models.iter().find(|m| m.name == "gemini-3.5-flash-lite").unwrap();
+        let gemini_35_lite = models
+            .iter()
+            .find(|m| m.name == "gemini-3.5-flash-lite")
+            .unwrap();
         assert_eq!(gemini_35_lite.rpm_limit, 15);
         assert_eq!(gemini_35_lite.rpd_limit, 500);
 
         // Verify Gemini 3.5 Flash limits
-        let gemini_35 = models.iter().find(|m| m.name == "gemini-3.5-flash").unwrap();
+        let gemini_35 = models
+            .iter()
+            .find(|m| m.name == "gemini-3.5-flash")
+            .unwrap();
         assert_eq!(gemini_35.rpm_limit, 5);
         assert_eq!(gemini_35.rpd_limit, 20);
 
         // Verify Gemma 4 26B MoE limits
-        let gemma_4 = models.iter().find(|m| m.name == "gemma-4-26b-a4b-it").unwrap();
+        let gemma_4 = models
+            .iter()
+            .find(|m| m.name == "gemma-4-26b-a4b-it")
+            .unwrap();
         assert_eq!(gemma_4.rpm_limit, 30);
         assert_eq!(gemma_4.rpd_limit, 14400);
+
+        // Verify Hetzner Qwen 3.6 35B limits & architecture
+        let hetzner = models
+            .iter()
+            .find(|m| m.name == "hetzner-qwen-3.6-35b")
+            .unwrap();
+        assert_eq!(hetzner.rpm_limit, 60);
+        assert_eq!(hetzner.rpd_limit, 14400);
+        assert_eq!(hetzner.architecture, ModelArchitecture::Hetzner);
     }
 
     #[test]
@@ -265,7 +306,8 @@ mod model_checks {
     #[test]
     fn test_load_models_config_fallback() {
         // Test fallback on missing file
-        let fallback_missing = load_models_config(Some(std::path::Path::new("non_existent_models_path.json")));
+        let fallback_missing =
+            load_models_config(Some(std::path::Path::new("non_existent_models_path.json")));
         let default_models = get_default_models();
         assert_eq!(fallback_missing, default_models);
 
@@ -277,4 +319,3 @@ mod model_checks {
         assert_eq!(fallback_invalid, default_models);
     }
 }
-

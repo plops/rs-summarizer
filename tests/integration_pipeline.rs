@@ -12,7 +12,7 @@ use rs_summarizer::db;
 use rs_summarizer::services::embedding::EmbeddingService;
 use rs_summarizer::services::summary::SummaryService;
 use rs_summarizer::services::transcript::TranscriptService;
-use rs_summarizer::state::{AppState, ModelOption, ModelArchitecture};
+use rs_summarizer::state::{AppState, ModelArchitecture, ModelOption};
 use rs_summarizer::tasks;
 use rs_summarizer::utils::markdown_converter::convert_markdown_to_youtube_format;
 
@@ -47,15 +47,29 @@ async fn test_transcript_download() {
     match result {
         Ok(transcript) => {
             assert!(!transcript.is_empty(), "Transcript should not be empty");
-            assert!(transcript.len() > 100, "Transcript too short: {} chars", transcript.len());
+            assert!(
+                transcript.len() > 100,
+                "Transcript too short: {} chars",
+                transcript.len()
+            );
             // Should have timestamp format HH:MM:SS
-            assert!(transcript.contains("00:00:"), "Transcript should contain timestamps");
-            println!("Transcript length: {} chars, first 200:\n{}", transcript.len(), &transcript[..transcript.len().min(200)]);
+            assert!(
+                transcript.contains("00:00:"),
+                "Transcript should contain timestamps"
+            );
+            println!(
+                "Transcript length: {} chars, first 200:\n{}",
+                transcript.len(),
+                &transcript[..transcript.len().min(200)]
+            );
         }
         Err(e) => {
             // If we get rate-limited, that's acceptable in CI
             let err_str = e.to_string();
-            if err_str.contains("429") || err_str.contains("bot") || err_str.contains("authentication") {
+            if err_str.contains("429")
+                || err_str.contains("bot")
+                || err_str.contains("authentication")
+            {
                 println!("SKIPPED: YouTube rate-limited us: {}", err_str);
                 return;
             }
@@ -82,7 +96,9 @@ async fn test_summary_generation() {
         00:00:30 Let me show you some examples of how this works in practice";
 
     // Create an in-memory SQLite database for testing
-    let db_pool = db::init_db("sqlite::memory:").await.expect("Failed to init test DB");
+    let db_pool = db::init_db("sqlite::memory:")
+        .await
+        .expect("Failed to init test DB");
 
     // Insert a test row
     let form = rs_summarizer::models::SubmitForm {
@@ -97,29 +113,50 @@ async fn test_summary_generation() {
         .expect("Failed to insert test row");
 
     // Generate summary
-    let result = svc.generate_summary(&db_pool, id, transcript, &model, false, false).await;
+    let result = svc
+        .generate_summary(&db_pool, id, transcript, &model, false, false)
+        .await;
 
     match result {
         Ok(summary_result) => {
-            assert!(!summary_result.summary_text.is_empty(), "Summary should not be empty");
+            assert!(
+                !summary_result.summary_text.is_empty(),
+                "Summary should not be empty"
+            );
             assert!(summary_result.summary_text.len() > 50, "Summary too short");
             assert!(summary_result.cost >= 0.0, "Cost should be non-negative");
-            assert!(summary_result.duration_secs > 0.0, "Duration should be positive");
+            assert!(
+                summary_result.duration_secs > 0.0,
+                "Duration should be positive"
+            );
             println!(
                 "Summary generated: {} chars, cost: ${:.6}, duration: {:.2}s",
                 summary_result.summary_text.len(),
                 summary_result.cost,
                 summary_result.duration_secs
             );
-            println!("First 300 chars:\n{}", &summary_result.summary_text[..summary_result.summary_text.len().min(300)]);
+            println!(
+                "First 300 chars:\n{}",
+                &summary_result.summary_text[..summary_result.summary_text.len().min(300)]
+            );
 
             // Test YouTube format conversion
             let youtube_text = convert_markdown_to_youtube_format(&summary_result.summary_text);
-            assert!(!youtube_text.contains("**"), "YouTube format should not contain **");
+            assert!(
+                !youtube_text.contains("**"),
+                "YouTube format should not contain **"
+            );
         }
         Err(e) => {
             let err_str = e.to_string();
-            if err_str.contains("429") || err_str.contains("ResourceExhausted") || err_str.contains("rate") || err_str.contains("high demand") || err_str.contains("503") || err_str.contains("UNAVAILABLE") || err_str.contains("experiencing") {
+            if err_str.contains("429")
+                || err_str.contains("ResourceExhausted")
+                || err_str.contains("rate")
+                || err_str.contains("high demand")
+                || err_str.contains("503")
+                || err_str.contains("UNAVAILABLE")
+                || err_str.contains("experiencing")
+            {
                 println!("SKIPPED: API rate-limited or high demand: {}", err_str);
                 return;
             }
@@ -142,16 +179,38 @@ async fn test_embedding_computation() {
     match result {
         Ok(embedding) => {
             assert!(!embedding.is_empty(), "Embedding should not be empty");
-            assert_eq!(embedding.len(), 768, "Expected 768 dimensions, got {}", embedding.len());
+            assert_eq!(
+                embedding.len(),
+                768,
+                "Expected 768 dimensions, got {}",
+                embedding.len()
+            );
             // Verify values are reasonable floats
-            assert!(embedding.iter().all(|v| v.is_finite()), "All values should be finite");
+            assert!(
+                embedding.iter().all(|v| v.is_finite()),
+                "All values should be finite"
+            );
             // Verify not all zeros
-            assert!(embedding.iter().any(|v| *v != 0.0), "Embedding should not be all zeros");
-            println!("Embedding computed: {} dimensions, first 5: {:?}", embedding.len(), &embedding[..5]);
+            assert!(
+                embedding.iter().any(|v| *v != 0.0),
+                "Embedding should not be all zeros"
+            );
+            println!(
+                "Embedding computed: {} dimensions, first 5: {:?}",
+                embedding.len(),
+                &embedding[..5]
+            );
         }
         Err(e) => {
             let err_str = e.to_string();
-            if err_str.contains("429") || err_str.contains("ResourceExhausted") || err_str.contains("rate") || err_str.contains("high demand") || err_str.contains("503") || err_str.contains("UNAVAILABLE") || err_str.contains("experiencing") {
+            if err_str.contains("429")
+                || err_str.contains("ResourceExhausted")
+                || err_str.contains("rate")
+                || err_str.contains("high demand")
+                || err_str.contains("503")
+                || err_str.contains("UNAVAILABLE")
+                || err_str.contains("experiencing")
+            {
                 println!("SKIPPED: API rate-limited or high demand: {}", err_str);
                 return;
             }
@@ -167,11 +226,17 @@ async fn test_cosine_similarity_integration() {
     let a = vec![1.0f32, 0.0, 0.0];
     let b = vec![1.0f32, 0.0, 0.0];
     let sim = EmbeddingService::cosine_similarity(&a, &b);
-    assert!((sim - 1.0).abs() < 1e-6, "Identical vectors should have similarity 1.0");
+    assert!(
+        (sim - 1.0).abs() < 1e-6,
+        "Identical vectors should have similarity 1.0"
+    );
 
     let c = vec![0.0f32, 1.0, 0.0];
     let sim2 = EmbeddingService::cosine_similarity(&a, &c);
-    assert!(sim2.abs() < 1e-6, "Orthogonal vectors should have similarity 0.0");
+    assert!(
+        sim2.abs() < 1e-6,
+        "Orthogonal vectors should have similarity 0.0"
+    );
 }
 
 /// Test the full pipeline: transcript → summary → YouTube format → embedding.
@@ -189,19 +254,27 @@ async fn test_full_pipeline_end_to_end() {
         Ok(t) => t,
         Err(e) => {
             let err_str = e.to_string();
-            if err_str.contains("429") || err_str.contains("bot") || err_str.contains("authentication") {
+            if err_str.contains("429")
+                || err_str.contains("bot")
+                || err_str.contains("authentication")
+            {
                 println!("SKIPPED: YouTube rate-limited: {}", err_str);
                 return;
             }
             panic!("Transcript download failed: {}", e);
         }
     };
-    println!("Step 1 OK: Transcript downloaded ({} chars)", transcript.len());
+    println!(
+        "Step 1 OK: Transcript downloaded ({} chars)",
+        transcript.len()
+    );
 
     // Step 2: Generate summary
     let summary_svc = SummaryService::new(api_key.clone());
     let model = test_model();
-    let db_pool = db::init_db("sqlite::memory:").await.expect("Failed to init DB");
+    let db_pool = db::init_db("sqlite::memory:")
+        .await
+        .expect("Failed to init DB");
 
     let form = rs_summarizer::models::SubmitForm {
         original_source_link: "https://www.youtube.com/watch?v=LlzXCE02swU".to_string(),
@@ -214,22 +287,38 @@ async fn test_full_pipeline_end_to_end() {
         .await
         .expect("Failed to insert");
 
-    let summary_result = match summary_svc.generate_summary(&db_pool, id, &transcript, &model, false, false).await {
+    let summary_result = match summary_svc
+        .generate_summary(&db_pool, id, &transcript, &model, false, false)
+        .await
+    {
         Ok(r) => r,
         Err(e) => {
             let err_str = e.to_string();
-            if err_str.contains("429") || err_str.contains("ResourceExhausted") || err_str.contains("high demand") || err_str.contains("503") || err_str.contains("UNAVAILABLE") || err_str.contains("experiencing") {
+            if err_str.contains("429")
+                || err_str.contains("ResourceExhausted")
+                || err_str.contains("high demand")
+                || err_str.contains("503")
+                || err_str.contains("UNAVAILABLE")
+                || err_str.contains("experiencing")
+            {
                 println!("SKIPPED: Gemini rate-limited or high demand: {}", err_str);
                 return;
             }
             panic!("Summary generation failed: {}", e);
         }
     };
-    println!("Step 2 OK: Summary generated ({} chars, ${:.6})", summary_result.summary_text.len(), summary_result.cost);
+    println!(
+        "Step 2 OK: Summary generated ({} chars, ${:.6})",
+        summary_result.summary_text.len(),
+        summary_result.cost
+    );
 
     // Step 3: Convert to YouTube format
     let youtube_text = convert_markdown_to_youtube_format(&summary_result.summary_text);
-    assert!(!youtube_text.contains("**"), "YouTube format should not contain **");
+    assert!(
+        !youtube_text.contains("**"),
+        "YouTube format should not contain **"
+    );
     println!("Step 3 OK: YouTube format conversion done");
 
     // Step 4: Compute embedding
@@ -238,19 +327,30 @@ async fn test_full_pipeline_end_to_end() {
         Ok(e) => e,
         Err(e) => {
             let err_str = e.to_string();
-            if err_str.contains("429") || err_str.contains("ResourceExhausted") || err_str.contains("high demand") || err_str.contains("503") || err_str.contains("UNAVAILABLE") || err_str.contains("experiencing") {
-                println!("SKIPPED: Embedding rate-limited or high demand: {}", err_str);
+            if err_str.contains("429")
+                || err_str.contains("ResourceExhausted")
+                || err_str.contains("high demand")
+                || err_str.contains("503")
+                || err_str.contains("UNAVAILABLE")
+                || err_str.contains("experiencing")
+            {
+                println!(
+                    "SKIPPED: Embedding rate-limited or high demand: {}",
+                    err_str
+                );
                 return;
             }
             panic!("Embedding failed: {}", e);
         }
     };
     assert_eq!(embedding.len(), 768);
-    println!("Step 4 OK: Embedding computed ({} dimensions)", embedding.len());
+    println!(
+        "Step 4 OK: Embedding computed ({} dimensions)",
+        embedding.len()
+    );
 
     println!("\n=== FULL PIPELINE SUCCESS ===");
 }
-
 
 /// Helper to build an AppState for integration tests with an in-memory DB.
 async fn build_test_app_state() -> AppState {
@@ -315,11 +415,26 @@ async fn test_summary_done_flag_transitions() {
 
     // Verify final state: summary_done should be true
     let row = db::fetch_summary(&app.db, id).await.unwrap().unwrap();
-    assert!(row.summary_done, "summary_done should be true after process_summary completes");
-    assert!(!row.summary.is_empty(), "summary should not be empty after processing");
-    assert!(row.summary_input_tokens > 0, "input_tokens should be recorded");
-    assert!(row.summary_output_tokens > 0, "output_tokens should be recorded");
-    assert!(!row.summary_timestamp_end.is_empty(), "timestamp_end should be set");
+    assert!(
+        row.summary_done,
+        "summary_done should be true after process_summary completes"
+    );
+    assert!(
+        !row.summary.is_empty(),
+        "summary should not be empty after processing"
+    );
+    assert!(
+        row.summary_input_tokens > 0,
+        "input_tokens should be recorded"
+    );
+    assert!(
+        row.summary_output_tokens > 0,
+        "output_tokens should be recorded"
+    );
+    assert!(
+        !row.summary_timestamp_end.is_empty(),
+        "timestamp_end should be set"
+    );
     assert!(row.cost >= 0.0, "cost should be non-negative");
 
     println!("summary_done flag correctly transitions: false → true");
@@ -362,13 +477,22 @@ async fn test_timestamps_done_after_pipeline() {
     assert!(row.summary_done, "summary_done should be true");
     if !row.timestamps_done {
         let summary_text = &row.summary;
-        if summary_text.contains("Resource exhausted") || summary_text.contains("rate limited") || summary_text.contains("high demand") || summary_text.contains("UNAVAILABLE") || summary_text.contains("503") || summary_text.contains("experiencing") {
+        if summary_text.contains("Resource exhausted")
+            || summary_text.contains("rate limited")
+            || summary_text.contains("high demand")
+            || summary_text.contains("UNAVAILABLE")
+            || summary_text.contains("503")
+            || summary_text.contains("experiencing")
+        {
             println!("SKIPPED: Pipeline API limited: {}", summary_text);
             return;
         }
         println!("Test failed. Summary content: {}", row.summary);
     }
-    assert!(row.timestamps_done, "timestamps_done should be true after pipeline");
+    assert!(
+        row.timestamps_done,
+        "timestamps_done should be true after pipeline"
+    );
     assert!(
         !row.timestamped_summary_in_youtube_format.is_empty(),
         "YouTube format text should be populated"
@@ -380,7 +504,10 @@ async fn test_timestamps_done_after_pipeline() {
     );
 
     println!("timestamps_done correctly set after pipeline");
-    println!("  YouTube format length: {} chars", row.timestamped_summary_in_youtube_format.len());
+    println!(
+        "  YouTube format length: {} chars",
+        row.timestamped_summary_in_youtube_format.len()
+    );
 }
 
 /// Test that process_summary handles errors gracefully and still sets summary_done=true.
@@ -420,7 +547,10 @@ async fn test_error_sets_summary_done() {
     );
 
     println!("Error handling correctly sets summary_done=true");
-    println!("  Error message in summary: {}", &row.summary[..row.summary.len().min(100)]);
+    println!(
+        "  Error message in summary: {}",
+        &row.summary[..row.summary.len().min(100)]
+    );
 }
 
 /// Test that process_summary handles invalid model name gracefully.
@@ -516,7 +646,10 @@ async fn test_polling_lifecycle_simulation() {
 
         if row.summary_done {
             println!("Polling lifecycle complete after {} polls", polls);
-            println!("  Saw partial summary during streaming: {}", saw_partial_summary);
+            println!(
+                "  Saw partial summary during streaming: {}",
+                saw_partial_summary
+            );
             println!("  Final summary length: {} chars", row.summary.len());
             println!("  timestamps_done: {}", row.timestamps_done);
             assert!(!row.summary.is_empty(), "Final summary should not be empty");
@@ -540,14 +673,23 @@ async fn test_polling_lifecycle_simulation() {
     assert!(row.summary_done, "summary_done should be true");
     if !row.timestamps_done {
         let summary_text = &row.summary;
-        if summary_text.contains("Resource exhausted") || summary_text.contains("rate limited") || summary_text.contains("high demand") || summary_text.contains("UNAVAILABLE") || summary_text.contains("503") || summary_text.contains("experiencing") {
+        if summary_text.contains("Resource exhausted")
+            || summary_text.contains("rate limited")
+            || summary_text.contains("high demand")
+            || summary_text.contains("UNAVAILABLE")
+            || summary_text.contains("503")
+            || summary_text.contains("experiencing")
+        {
             println!("SKIPPED: Pipeline API limited: {}", summary_text);
             return;
         }
         println!("Test failed. Summary content: {}", row.summary);
     }
     assert!(row.timestamps_done, "timestamps_done should be true");
-    assert!(!row.summary_timestamp_end.is_empty(), "end timestamp should be set");
+    assert!(
+        !row.summary_timestamp_end.is_empty(),
+        "end timestamp should be set"
+    );
 }
 
 /// Test that pasting a transcript directly works: skips download, generates summary,
@@ -573,18 +715,28 @@ async fn test_pasted_transcript_pipeline() {
         google_search_grounding: false,
         url_context: false,
     };
-    let id_no_url = db::insert_new_summary(&app.db, &form_no_url, "127.0.0.1", "2024-01-01T00:00:00Z")
-        .await
-        .expect("Failed to insert");
+    let id_no_url =
+        db::insert_new_summary(&app.db, &form_no_url, "127.0.0.1", "2024-01-01T00:00:00Z")
+            .await
+            .expect("Failed to insert");
 
     // Run pipeline
     tasks::process_summary(app.db.clone(), id_no_url, app.clone()).await;
 
     // Verify it succeeded
-    let row_no_url = db::fetch_summary(&app.db, id_no_url).await.unwrap().unwrap();
+    let row_no_url = db::fetch_summary(&app.db, id_no_url)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(row_no_url.summary_done, "summary_done should be true");
-    assert!(!row_no_url.summary.is_empty(), "summary should not be empty");
-    assert_eq!(row_no_url.original_source_link, "", "original source link should be empty");
+    assert!(
+        !row_no_url.summary.is_empty(),
+        "summary should not be empty"
+    );
+    assert_eq!(
+        row_no_url.original_source_link, "",
+        "original source link should be empty"
+    );
 }
 
 /// Test fetching a Hacker News submission and discussion via HackerNewsService.
@@ -597,8 +749,13 @@ async fn test_hn_submission_fetch() {
     assert!(res.is_ok(), "HN fetch should succeed: {:?}", res.err());
     let fetch_res = res.unwrap();
     assert_eq!(fetch_res.story_id, 1);
-    assert!(!fetch_res.discussion_text.is_empty(), "Discussion text should not be empty");
-    assert!(fetch_res.combined_text.contains("=== HACKER NEWS SUBMISSION ==="));
+    assert!(
+        !fetch_res.discussion_text.is_empty(),
+        "Discussion text should not be empty"
+    );
+    assert!(fetch_res
+        .combined_text
+        .contains("=== HACKER NEWS SUBMISSION ==="));
 }
 
 /// Test batch processing of multiple Hacker News submissions as individual DB rows.
@@ -608,7 +765,8 @@ async fn test_hn_batch_processing() {
     let app = build_test_app_state().await;
 
     // Use two valid Hacker News links
-    let links = "https://news.ycombinator.com/item?id=1 https://news.ycombinator.com/item?id=47143754";
+    let links =
+        "https://news.ycombinator.com/item?id=1 https://news.ycombinator.com/item?id=47143754";
     let norm_items = rs_summarizer::utils::url_validator::split_urls(links);
     assert_eq!(norm_items.len(), 2);
 
@@ -630,7 +788,10 @@ async fn test_hn_batch_processing() {
 
         // Verify final state: summary_done should be true for this individual row
         let row = db::fetch_summary(&app.db, id).await.unwrap().unwrap();
-        assert!(row.summary_done, "summary_done should be true after process_summary completes");
+        assert!(
+            row.summary_done,
+            "summary_done should be true after process_summary completes"
+        );
         assert_eq!(row.original_source_link, link);
     }
 }

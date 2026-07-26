@@ -1,6 +1,6 @@
+use sqlx::SqlitePool;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use sqlx::SqlitePool;
 
 /// Metadata for a single summary entry (lightweight, no full text).
 #[derive(Debug, Clone)]
@@ -30,27 +30,37 @@ impl MetadataCache {
 
     /// Load all summary metadata from the database at startup.
     pub async fn load_from_db(&self, db: &SqlitePool) -> Result<(), sqlx::Error> {
-        let rows: Vec<(i64, String, f64, String, String, bool, Option<Vec<u8>>, String)> =
-            sqlx::query_as(
-                "SELECT identifier, model, cost, original_source_link, summary_timestamp_start, \
+        let rows: Vec<(
+            i64,
+            String,
+            f64,
+            String,
+            String,
+            bool,
+            Option<Vec<u8>>,
+            String,
+        )> = sqlx::query_as(
+            "SELECT identifier, model, cost, original_source_link, summary_timestamp_start, \
                  summary_done, embedding, substr(summary, 1, 200) \
                  FROM summaries ORDER BY identifier DESC",
-            )
-            .fetch_all(db)
-            .await?;
+        )
+        .fetch_all(db)
+        .await?;
 
         let entries: Vec<SummaryMetadata> = rows
             .into_iter()
-            .map(|(id, model, cost, link, ts, done, emb, preview)| SummaryMetadata {
-                identifier: id,
-                model,
-                cost,
-                original_source_link: link,
-                summary_timestamp_start: ts,
-                summary_done: done,
-                has_embedding: emb.is_some(),
-                summary_preview: preview,
-            })
+            .map(
+                |(id, model, cost, link, ts, done, emb, preview)| SummaryMetadata {
+                    identifier: id,
+                    model,
+                    cost,
+                    original_source_link: link,
+                    summary_timestamp_start: ts,
+                    summary_done: done,
+                    has_embedding: emb.is_some(),
+                    summary_preview: preview,
+                },
+            )
             .collect();
 
         let mut cache = self.entries.write().await;
@@ -70,7 +80,11 @@ impl MetadataCache {
 
     /// Get a page of entries with pagination.
     /// Returns (page_entries, has_next_page).
-    pub async fn get_browse_page(&self, page: u32, page_size: usize) -> (Vec<SummaryMetadata>, bool) {
+    pub async fn get_browse_page(
+        &self,
+        page: u32,
+        page_size: usize,
+    ) -> (Vec<SummaryMetadata>, bool) {
         let entries = self.entries.read().await;
         let offset = (page as usize) * page_size;
 

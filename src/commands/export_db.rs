@@ -1,7 +1,10 @@
-use std::path::PathBuf;
-use sqlx::{SqlitePool, sqlite::{SqliteConnectOptions, SqliteJournalMode}, Row};
-use anyhow::Result;
 use crate::errors::ExportError;
+use anyhow::Result;
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode},
+    Row, SqlitePool,
+};
+use std::path::PathBuf;
 
 pub struct ExportDbArgs {
     pub source: PathBuf,
@@ -71,7 +74,7 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
             cost REAL NOT NULL DEFAULT 0.0,
             timestamped_summary_in_youtube_format TEXT NOT NULL DEFAULT ''
         )
-        "#
+        "#,
     )
     .execute(&output_pool)
     .await?;
@@ -92,7 +95,7 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
             timestamped_summary_in_youtube_format
         FROM summaries 
         WHERE summary_done = 1
-        "#
+        "#,
     )
     .fetch_all(&source_pool)
     .await?;
@@ -130,7 +133,7 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
                 cost,
                 timestamped_summary_in_youtube_format
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(row.get::<i64, _>("identifier"))
         .bind(row.get::<String, _>("original_source_link"))
@@ -152,7 +155,11 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
     let file_size = std::fs::metadata(&args.output)?.len();
 
     // 11. Print results to stdout
-    println!("Exported {} rows to {}", exported_count, args.output.display());
+    println!(
+        "Exported {} rows to {}",
+        exported_count,
+        args.output.display()
+    );
     println!("Output file size: {} bytes", file_size);
 
     // Close pools
@@ -168,7 +175,10 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
             .arg(&args.output)
             .status()?;
         if !status.success() {
-            return Err(anyhow::anyhow!("zstd compression failed with status: {:?}", status));
+            return Err(anyhow::anyhow!(
+                "zstd compression failed with status: {:?}",
+                status
+            ));
         }
         let mut zstd_output = args.output.clone();
         if let Some(ext) = zstd_output.extension() {
@@ -177,7 +187,10 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
         } else {
             zstd_output.set_extension("zst");
         }
-        println!("Successfully compressed database to {}", zstd_output.display());
+        println!(
+            "Successfully compressed database to {}",
+            zstd_output.display()
+        );
     }
 
     Ok(())
@@ -186,33 +199,37 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::{SqlitePool, sqlite::SqliteJournalMode};
-    use tempfile::TempDir;
+    use sqlx::{sqlite::SqliteJournalMode, SqlitePool};
     use std::fs;
-    
+    use tempfile::TempDir;
+
     #[test]
     fn test_output_exists_error() {
         let temp_dir = TempDir::new().unwrap();
         let source_path = temp_dir.path().join("source.db");
         let output_path = temp_dir.path().join("output.db");
-        
+
         // Create source file
         fs::write(&source_path, "test").unwrap();
-        
+
         // Create output file
         fs::write(&output_path, "test").unwrap();
-        
+
         let args = ExportDbArgs {
             source: source_path,
             output: output_path,
             include_embeddings: false,
             compress: false,
         };
-        
+
         let result = std::thread::spawn(move || {
-            tokio::runtime::Runtime::new().unwrap().block_on(run_export(args))
-        }).join().unwrap();
-        
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(run_export(args))
+        })
+        .join()
+        .unwrap();
+
         assert!(result.is_err());
         let err = result.unwrap_err();
         let export_err = err.downcast_ref::<ExportError>();
@@ -225,23 +242,30 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let source_path = temp_dir.path().join("nonexistent.db");
         let output_path = temp_dir.path().join("output.db");
-        
+
         let args = ExportDbArgs {
             source: source_path,
             output: output_path,
             include_embeddings: false,
             compress: false,
         };
-        
+
         let result = std::thread::spawn(move || {
-            tokio::runtime::Runtime::new().unwrap().block_on(run_export(args))
-        }).join().unwrap();
-        
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(run_export(args))
+        })
+        .join()
+        .unwrap();
+
         assert!(result.is_err());
         let err = result.unwrap_err();
         let export_err = err.downcast_ref::<ExportError>();
         assert!(export_err.is_some());
-        assert!(matches!(export_err.unwrap(), ExportError::SourceNotFound(_)));
+        assert!(matches!(
+            export_err.unwrap(),
+            ExportError::SourceNotFound(_)
+        ));
     }
 
     #[test]
@@ -249,26 +273,33 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let source_path = temp_dir.path().join("source.db");
         let output_path = temp_dir.path().join("nonexistent").join("output.db");
-        
+
         // Create source file
         fs::write(&source_path, "test").unwrap();
-        
+
         let args = ExportDbArgs {
             source: source_path,
             output: output_path,
             include_embeddings: false,
             compress: false,
         };
-        
+
         let result = std::thread::spawn(move || {
-            tokio::runtime::Runtime::new().unwrap().block_on(run_export(args))
-        }).join().unwrap();
-        
+            tokio::runtime::Runtime::new()
+                .unwrap()
+                .block_on(run_export(args))
+        })
+        .join()
+        .unwrap();
+
         assert!(result.is_err());
         let err = result.unwrap_err();
         let export_err = err.downcast_ref::<ExportError>();
         assert!(export_err.is_some());
-        assert!(matches!(export_err.unwrap(), ExportError::OutputDirMissing(_)));
+        assert!(matches!(
+            export_err.unwrap(),
+            ExportError::OutputDirMissing(_)
+        ));
     }
 
     #[tokio::test]
@@ -276,15 +307,15 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let source_path = temp_dir.path().join("source.db");
         let output_path = temp_dir.path().join("output.db");
-        
+
         // Create source database with test data
         let source_opts = SqliteConnectOptions::new()
             .filename(&source_path)
             .journal_mode(SqliteJournalMode::Wal)
             .create_if_missing(true);
-        
+
         let source_pool = SqlitePool::connect_with(source_opts).await?;
-        
+
         // Create source schema and insert test data
         sqlx::query(
             r#"
@@ -301,11 +332,11 @@ mod tests {
                 timestamped_summary_in_youtube_format TEXT NOT NULL DEFAULT '',
                 summary_done INTEGER NOT NULL DEFAULT 0
             )
-            "#
+            "#,
         )
         .execute(&source_pool)
         .await?;
-        
+
         // Insert test row
         sqlx::query(
             r#"
@@ -314,7 +345,7 @@ mod tests {
                 summary, summary_timestamp_start, summary_timestamp_end, cost,
                 timestamped_summary_in_youtube_format, summary_done
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            "#
+            "#,
         )
         .bind(1)
         .bind("https://example.com")
@@ -339,11 +370,11 @@ mod tests {
             include_embeddings: true,
             compress: false,
         };
-        
+
         run_export(args).await?;
-        
+
         assert!(output_path.exists());
-        
+
         // Open output db and verify row
         let output_opts = SqliteConnectOptions::new()
             .filename(&output_path)

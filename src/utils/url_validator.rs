@@ -21,13 +21,16 @@ pub fn validate_youtube_url(url: &str) -> Option<String> {
     let patterns = PATTERNS.get_or_init(|| {
         vec![
             // Standard watch URL (www or m subdomain optional)
-            Regex::new(r"^https://(?:(?:www|m)\.)?youtube\.com/watch\?v=([A-Za-z0-9_-]{11}).*").unwrap(),
+            Regex::new(r"^https://(?:(?:www|m)\.)?youtube\.com/watch\?v=([A-Za-z0-9_-]{11}).*")
+                .unwrap(),
             // Live URL (www or m subdomain optional)
-            Regex::new(r"^https://(?:(?:www|m)\.)?youtube\.com/live/([A-Za-z0-9_-]{11}).*").unwrap(),
+            Regex::new(r"^https://(?:(?:www|m)\.)?youtube\.com/live/([A-Za-z0-9_-]{11}).*")
+                .unwrap(),
             // Short URL youtu.be (www subdomain optional, no m.)
             Regex::new(r"^https://(?:www\.)?youtu\.be/([A-Za-z0-9_-]{11}).*").unwrap(),
             // Shorts URL (www or m subdomain optional)
-            Regex::new(r"^https://(?:(?:www|m)\.)?youtube\.com/shorts/([A-Za-z0-9_-]{11}).*").unwrap(),
+            Regex::new(r"^https://(?:(?:www|m)\.)?youtube\.com/shorts/([A-Za-z0-9_-]{11}).*")
+                .unwrap(),
             // Raw 11-character video ID
             Regex::new(r"^([A-Za-z0-9_-]{11})$").unwrap(),
         ]
@@ -103,7 +106,10 @@ pub fn parse_source_url(url: &str) -> ParsedSource {
     let trimmed = url.trim();
     if trimmed.contains("ycombinator.com") || trimmed.starts_with("item?id=") {
         if let Some(hn_id) = validate_hn_url(url) {
-            return ParsedSource::HackerNews(hn_id, format!("https://news.ycombinator.com/item?id={}", hn_id));
+            return ParsedSource::HackerNews(
+                hn_id,
+                format!("https://news.ycombinator.com/item?id={}", hn_id),
+            );
         }
     }
 
@@ -112,7 +118,10 @@ pub fn parse_source_url(url: &str) -> ParsedSource {
     }
 
     if let Some(hn_id) = validate_hn_url(url) {
-        return ParsedSource::HackerNews(hn_id, format!("https://news.ycombinator.com/item?id={}", hn_id));
+        return ParsedSource::HackerNews(
+            hn_id,
+            format!("https://news.ycombinator.com/item?id={}", hn_id),
+        );
     }
 
     ParsedSource::Unknown(url.to_string())
@@ -124,9 +133,18 @@ mod tests {
 
     #[test]
     fn test_validate_hn_url() {
-        assert_eq!(validate_hn_url("https://news.ycombinator.com/item?id=40000000"), Some(40000000));
-        assert_eq!(validate_hn_url("http://news.ycombinator.com/item?id=123456"), Some(123456));
-        assert_eq!(validate_hn_url("news.ycombinator.com/item?id=789012"), Some(789012));
+        assert_eq!(
+            validate_hn_url("https://news.ycombinator.com/item?id=40000000"),
+            Some(40000000)
+        );
+        assert_eq!(
+            validate_hn_url("http://news.ycombinator.com/item?id=123456"),
+            Some(123456)
+        );
+        assert_eq!(
+            validate_hn_url("news.ycombinator.com/item?id=789012"),
+            Some(789012)
+        );
         assert_eq!(validate_hn_url("item?id=999999"), Some(999999));
         assert_eq!(validate_hn_url("40000000"), Some(40000000));
         assert_eq!(validate_hn_url("https://example.com/not-hn"), None);
@@ -144,7 +162,10 @@ mod tests {
     fn test_parse_source_url() {
         assert_eq!(
             parse_source_url("https://news.ycombinator.com/item?id=40000000"),
-            ParsedSource::HackerNews(40000000, "https://news.ycombinator.com/item?id=40000000".to_string())
+            ParsedSource::HackerNews(
+                40000000,
+                "https://news.ycombinator.com/item?id=40000000".to_string()
+            )
         );
         assert_eq!(
             parse_source_url("https://www.youtube.com/watch?v=Dgj2jivpaJk"),
@@ -258,21 +279,22 @@ mod tests {
             Some("https://www.youtube.com/watch?v=Dgj2jivpaJk".to_string()),
             normalize_youtube_url("https://www.youtube.com/watch?v=Dgj2jivpaJk")
         );
-        assert_eq!(
-            None,
-            normalize_youtube_url("not-an-id")
-        );
+        assert_eq!(None, normalize_youtube_url("not-an-id"));
     }
 
     #[test]
     fn test_split_urls() {
-        let input = "https://www.youtube.com/watch?v=123, _Qeur243coc\nhttps://youtu.be/abc   xyz12345678";
+        let input =
+            "https://www.youtube.com/watch?v=123, _Qeur243coc\nhttps://youtu.be/abc   xyz12345678";
         let res = split_urls(input);
-        assert_eq!(res, vec![
-            "https://www.youtube.com/watch?v=123",
-            "_Qeur243coc",
-            "https://youtu.be/abc",
-            "xyz12345678"
-        ]);
+        assert_eq!(
+            res,
+            vec![
+                "https://www.youtube.com/watch?v=123",
+                "_Qeur243coc",
+                "https://youtu.be/abc",
+                "xyz12345678"
+            ]
+        );
     }
 }
