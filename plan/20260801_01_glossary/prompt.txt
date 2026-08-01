@@ -1,0 +1,51 @@
+du arbeitest im auftrag von wol pumba (wolpumba@gmail.com)
+quellcode findest du in /workspace/src
+
+fuer ein video mit medizinischen inhalt habe ich folgende zusammenfassung erhalten:
+
+Abstract
+
+This clinical update covers updates across public health policy, regional infectious disease outbreaks, pediatric respiratory prophylactics, viral therapeutics, and long COVID biomarker research. Analysis opens on state-level legislative attempts in the U.S. to rollback vaccination requirements, noting over 200 bills introduced across 34 states. Global and domestic outbreak surveillance highlights a Dengue surge in Sri Lanka exceeding 80,000 cases, an expansive U.S. Cyclospora outbreak (over 6,707 CDC-confirmed domestic cases, with state-level tallies such as Michigan exceeding 10,000), a Manhattan Legionella cluster affecting 50 buildings, and an ongoing Ebola virus outbreak in the Democratic Republic of the Congo (3,360 confirmed cases, 1,487 deaths).
+
+Key therapeutic and prophylactic developments include the launch of the Oxford ChAdOx1-vectored Bundibugyo ebolavirus vaccine trial (with 620,000 doses banked) and NEJM data confirming cross-reactive antibody responses across filovirus strains from licensed Zaire Ebola vaccines. Real-world evidence demonstrates a >50% reduction in pediatric RSV hospitalizations and PICU admissions following Nirsevimab rollouts in Spain. For SARS-CoV-2, observational target trial data published in JAMA Network Open indicates early Remdesivir administration in renal transplant recipients reduces acute graft loss by approximately 50% (HR 0.53).
+
+Finally, physiological and neuroimaging studies differentiate post-acute sequelae of SARS-CoV-2 (PASC/Long COVID) and ME/CFS from general deconditioning. Data from Nature Communications demonstrates distinct skeletal muscle fiber composition shifts rather than simple atrophy. Additionally, a PET imaging study in eBioMedicine reveals significant striatal loss of Vesicular Monoamine Transporter 2 (VMAT2), demonstrating objective dopaminergic nerve terminal disruption in Long COVID patients.
+
+Key Highlights & Timestamps
+
+    1:46 State Vaccine Legislation: Over 200 bills were introduced across 34 U.S. states attempting to roll back public health immunization mandates or establish vaccine injury designations.
+    5:30 Sri Lanka Dengue Outbreak: Sri Lanka recorded 80,114 Dengue cases and 59 deaths as of late July, maintaining a case fatality rate under 1% amid high total volume.
+    7:13 Domestic Cyclosporiasis Surge: CDC reports 6,707 domestic lab-confirmed Cyclospora cases, while individual state reporting indicates much higher totals (e.g., Michigan alone reporting >10,000 cases and 160 hospitalizations), alongside communications missteps regarding Taylor Farms lettuce testing.
+    13:11 Manhattan Legionnaires' Cluster: 90 confirmed cases and 6 deaths are linked to a Manhattan cluster, with live Legionella bacteria detected in cooling towers across 50 buildings.
+    14:58 DRC Ebola Outbreak & ChAdOx1 Trial: DRC reports 3,360 confirmed Ebola cases and 1,487 deaths; the University of Oxford and Serum Institute of India launched the first clinical trial for a ChAdOx1-vectored Bundibugyo ebolavirus vaccine with 620,000 available doses.
+    18:11 Filovirus Cross-Reactive Antibodies: A NEJM study analyzing serum from the PREVAC trial demonstrates that licensed Zaire Ebola vaccines elicit cross-reactive antibody responses against Bundibugyo ebolavirus.
+    19:47 U.S. Measles Tracking & SSPE Risk: U.S. measles cases reached 2,321 (per Johns Hopkins tracker), raising clinical concerns over acute complications and Subacute Sclerosing Panencephalitis (SSPE), a fatal neurodegenerative condition occurring in 1 in 600 infants infected under age one.
+    21:02 Pediatric Nirsevimab Impact: Retrospective data from Spain published in Pediatric Infectious Disease Journal shows Nirsevimab implementation halved pediatric RSV hospitalizations (5.04 to 2.5 per baseline unit) and PICU admissions.
+    22:23 Remdesivir Mitigates Renal Allograft Loss: A JAMA Network Open study of 432 kidney transplant recipients with COVID-19 demonstrates that early Remdesivir treatment lowers acute graft loss risk by 47% (HR 0.53).
+    27:04 Distinct Muscle Pathology in Long COVID/ME-CFS: A Nature Communications study comparing Long COVID and ME/CFS patients to healthy controls subjected to 60 days of strict bed rest demonstrates that disease-related muscle dysfunction involves structural fiber composition changes rather than simple disuse atrophy.
+    31:05 Striatal VMAT2 Reduction in Long COVID: A PET imaging study in eBioMedicine reveals significant loss of Vesicular Monoamine Transporter 2 (VMAT2) in the striatum of Long COVID patients, demonstrating quantifiable disruption of dopaminergic nerve terminal integrity.
+
+
+diese zusammenfassung ist fuer mich kaum verstaendlich. ich brauche sowohl ein glossary der technical / medical terms und des jargons. ausserdem wuerde ich auch gern die zusammenfassung in deutscher sprache erhalten. da nicht alle nutzer der webseite ein glossary haben wollen (oder deutschen output) moechte ich entsprechende gui elemente einfuehren. ausserdem soll die auswahl in der datenbank gespeichert werden und eine entsprechende migration erzeugt werden.
+
+
+nutze tools um konsistenten und aufgeraeumten quellcode zu gewaehrleisten (siehe  /workspace/src/rs-summarizer/.kiro/skills/cargo-workflow/SKILL.md)
+
+
+Schaue dir den Quellcode an und die Architektur dieser Software. Nutze deepwiki mcp fuer plops/rs-summarizer um dokumentation zu bekommen und fragen beantworten zu lassen. falls abhaengigkeiten eingefuehrt werden sind diese mitsamt ihrer github organisation in deps.md aufzuschreiben, so dass wir spaeter einfach die deepwiki abfragen konstruieren koennen. nutze rust tools um auf die neueste vorhandene version zu switchen (auch wenn vor kompatibilitaet gewarnt wird, wenn wir gerade eine dependency einfuehren ist es wichtig, die neueste version zu nehmen, siehe cargo-workflow skill) und schon vorab usage examples in den plan aufzunehmen (mit deepwiki mcp zu erfragen)
+
+du befindest dich in einem docker container, basierend auf ubuntu. du darfst neue programme installieren, falls noetig. 
+
+Schlage vor, wie wir dieses Feature implementieren können. Habe ich alle Requirements aufgelistet, die wichtig sind, oder kannst du dir vorstellen, dass noch andere Dinge werden sollen? Liste mir diese auf Vorschlägen, was man am besten umsetzen könnte.
+
+Schreibe einen Implementierungsplan. Dieser Implementierungsplan soll einen unabhängigen AI-Agenten dazu befähigen, selbstständig einen Kontext aufzubauen, der die wesentlichen
+quellen beinhaltet. Das heißt, der Implementierungsplan hat eine Liste von Dateien, die sich der Agent sich anschauen sollte, mit einer kurzen Beschreibung für jede Datei.
+Weiterhin soll der Implementierungsplan eine Erklärung Commit Messages sendet werden sollen. Und zwar sollen diese mit einer umfassenden Beschreibung und als Conventional Commit format ausgeführt werden.
+
+Neue Unit-Tests und Integration-Tests sollen wie erforderlich eingeführt werden.
+Diese sollen auch ausgeführt werden.
+
+schreibe task.md wo du die implementierungs und test schritte aufeinander abfolgen laesst, so dass ein agent die tasks seriell abarbeiten kann und die arbeit in jedem schritt getested und validiert wird.
+
+Nach der vollständigen Implementierung, wenn alle Tests abgeschlossen sind und alles committed ist, soll auch ein Walkthrough-Dokument entgeschrieben werden und 
+in plan/2026.../walkthrough.md abgelegt werden. Dieses soll zusammenfassen, was wirklich implementiert wurde, welche Stellen aufgrund der Tests oder wie auch immer gemacht wurden, als im Untergrund auch Learnings und mögliche Erweiterungen. liste auch die neuen programme die mit in den docker container aufgenommen werden sollten 
