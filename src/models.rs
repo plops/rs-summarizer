@@ -41,6 +41,14 @@ pub struct SubmitForm {
     pub google_search_grounding: bool,
     #[serde(default)]
     pub url_context: bool,
+    #[serde(default)]
+    pub include_glossary: bool,
+    #[serde(default = "default_output_language")]
+    pub output_language: String,
+}
+
+fn default_output_language() -> String {
+    "en".to_string()
 }
 
 #[derive(Debug, serde::Deserialize)]

@@ -299,6 +299,8 @@ pub async fn run_model_pipeline(
     is_hn: bool,
     google_search_grounding: bool,
     url_context: bool,
+    include_glossary: bool,
+    output_language: &str,
 ) -> Result<SummaryOutput, ProcessError> {
     let summary_svc = SummaryService::new(app.gemini_api_key.clone());
 
@@ -376,6 +378,8 @@ pub async fn run_model_pipeline(
                     &model,
                     google_search_grounding,
                     url_context,
+                    include_glossary,
+                    output_language,
                 )
                 .await
             {
@@ -537,6 +541,8 @@ async fn process_summary_inner(
                     is_hn,
                     summary.google_search_grounding,
                     summary.url_context,
+                    summary.include_glossary,
+                    &summary.output_language,
                 )
                 .await?;
 
@@ -607,6 +613,8 @@ async fn process_summary_inner(
             true,
             summary.google_search_grounding,
             summary.url_context,
+            summary.include_glossary,
+            &summary.output_language,
         )
         .await?;
     } else {
@@ -624,6 +632,8 @@ async fn process_summary_inner(
                 false,
                 summary.google_search_grounding,
                 summary.url_context,
+                summary.include_glossary,
+                &summary.output_language,
             )
             .await?;
 

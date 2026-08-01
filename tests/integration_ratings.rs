@@ -67,6 +67,8 @@ async fn test_rating_workflow_and_anonymity() {
         model: "gemini-3.6-flash".to_string(),
         google_search_grounding: false,
         url_context: false,
+        include_glossary: false,
+        output_language: "en".to_string(),
     };
     let id = db::insert_new_summary(&pool, &form, "127.0.0.1", "2026-01-01T00:00:00Z")
         .await
@@ -168,6 +170,8 @@ async fn test_invalid_rating_values() {
         model: "gemini-3.6-flash".to_string(),
         google_search_grounding: false,
         url_context: false,
+        include_glossary: false,
+        output_language: "en".to_string(),
     };
     let id = db::insert_new_summary(&pool, &form, "127.0.0.1", "2026-01-01T00:00:00Z")
         .await

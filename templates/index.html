@@ -30,6 +30,25 @@
                 <textarea id="transcript" name="transcript" rows="6" placeholder="00:00:00 Welcome to this video...&#10;or paste article content here..."></textarea>
                 <small>If you paste content or a transcript here, it will be used directly or alongside the URL (e.g. for paywalled Hacker News articles).</small>
 
+                <fieldset style="margin-top: 1.5rem; border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 8px; padding: 1rem; background: rgba(0, 0, 0, 0.01);">
+                    <legend style="padding: 0 0.5rem; font-weight: bold; font-size: 0.9rem;">Ausgabeoptionen (Glossar & Sprache)</legend>
+                    
+                    <div style="margin-bottom: 0.75rem;">
+                        <label for="include_glossary">
+                            <input type="checkbox" id="include_glossary" name="include_glossary" value="true" role="switch">
+                            Glossar für Medizin- / Fachbegriffe & Jargon erzeugen
+                        </label>
+                    </div>
+
+                    <div>
+                        <label for="output_language" style="font-weight: bold;">Ausgabesprache:</label>
+                        <select id="output_language" name="output_language" style="margin-top: 0.25rem;">
+                            <option value="en" selected>Original / Englisch</option>
+                            <option value="de">Deutsch</option>
+                        </select>
+                    </div>
+                </fieldset>
+
                 <fieldset id="extra-options" style="margin-top: 1.5rem; border: 1px solid rgba(0, 0, 0, 0.1); border-radius: 8px; padding: 1rem; background: rgba(0, 0, 0, 0.01); display: none;">
                     <legend style="padding: 0 0.5rem; font-weight: bold; font-size: 0.9rem;">Model Features</legend>
                     

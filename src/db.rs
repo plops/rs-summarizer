@@ -29,10 +29,15 @@ pub async fn insert_new_summary(
     timestamp_start: &str,
 ) -> Result<i64, sqlx::Error> {
     let transcript = form.transcript.as_deref().unwrap_or("");
+    let lang = if form.output_language.is_empty() {
+        "en"
+    } else {
+        &form.output_language
+    };
 
     let result = sqlx::query(
-        "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, google_search_grounding, url_context) \
-         VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, google_search_grounding, url_context, include_glossary, output_language) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&form.model)
     .bind(&form.original_source_link)
@@ -41,6 +46,8 @@ pub async fn insert_new_summary(
     .bind(timestamp_start)
     .bind(form.google_search_grounding)
     .bind(form.url_context)
+    .bind(form.include_glossary)
+    .bind(lang)
     .execute(db)
     .await?;
 
@@ -323,6 +330,8 @@ mod tests {
             model: "gemini-3.6-flash".to_string(),
             google_search_grounding: false,
             url_context: false,
+            include_glossary: false,
+            output_language: "en".to_string(),
         };
         let summary_id = insert_new_summary(&pool, &form, "127.0.0.1", "2026-01-01T00:00:00Z")
             .await

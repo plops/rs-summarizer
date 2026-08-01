@@ -141,6 +141,8 @@ pub async fn process_transcript(
             model: input.model.clone(),
             google_search_grounding: input.google_search_grounding,
             url_context: input.url_context,
+            include_glossary: input.include_glossary,
+            output_language: input.output_language.clone(),
         };
 
         // Check for duplicates using state's DeduplicationService
@@ -430,6 +432,8 @@ mod tests {
             model: "gemini-3.5-flash".to_string(),
             google_search_grounding: false,
             url_context: false,
+            include_glossary: false,
+            output_language: "en".to_string(),
         };
 
         let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input))
@@ -478,6 +482,8 @@ mod tests {
             model: "gemini-3.5-flash".to_string(),
             google_search_grounding: false,
             url_context: false,
+            include_glossary: false,
+            output_language: "en".to_string(),
         };
         let _ = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input1)).await;
 
@@ -488,6 +494,8 @@ mod tests {
             model: "gemini-3.5-flash".to_string(),
             google_search_grounding: false,
             url_context: false,
+            include_glossary: false,
+            output_language: "en".to_string(),
         };
         let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input2))
             .await
@@ -519,6 +527,8 @@ mod tests {
             model: "gemini-3.5-flash".to_string(),
             google_search_grounding: false,
             url_context: false,
+            include_glossary: false,
+            output_language: "en".to_string(),
         };
 
         let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input))

@@ -107,6 +107,8 @@ async fn test_summary_generation() {
         model: model.name.clone(),
         google_search_grounding: false,
         url_context: false,
+        include_glossary: false,
+        output_language: "en".to_string(),
     };
     let id = db::insert_new_summary(&db_pool, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -114,7 +116,7 @@ async fn test_summary_generation() {
 
     // Generate summary
     let result = svc
-        .generate_summary(&db_pool, id, transcript, &model, false, false)
+        .generate_summary(&db_pool, id, transcript, &model, false, false, false, "en")
         .await;
 
     match result {
@@ -282,13 +284,15 @@ async fn test_full_pipeline_end_to_end() {
         model: model.name.clone(),
         google_search_grounding: false,
         url_context: false,
+        include_glossary: false,
+        output_language: "en".to_string(),
     };
     let id = db::insert_new_summary(&db_pool, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
         .expect("Failed to insert");
 
     let summary_result = match summary_svc
-        .generate_summary(&db_pool, id, &transcript, &model, false, false)
+        .generate_summary(&db_pool, id, &transcript, &model, false, false, false, "en")
         .await
     {
         Ok(r) => r,
@@ -403,6 +407,8 @@ async fn test_summary_done_flag_transitions() {
         model: test_model().name,
         google_search_grounding: false,
         url_context: false,
+        include_glossary: false,
+        output_language: "en".to_string(),
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -468,6 +474,8 @@ async fn test_timestamps_done_after_pipeline() {
         model: test_model().name,
         google_search_grounding: false,
         url_context: false,
+        include_glossary: false,
+        output_language: "en".to_string(),
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -529,6 +537,8 @@ async fn test_error_sets_summary_done() {
         model: test_model().name,
         google_search_grounding: false,
         url_context: false,
+        include_glossary: false,
+        output_language: "en".to_string(),
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -576,6 +586,8 @@ async fn test_invalid_model_sets_summary_done() {
         model: "nonexistent-model-xyz".to_string(),
         google_search_grounding: false,
         url_context: false,
+        include_glossary: false,
+        output_language: "en".to_string(),
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -620,6 +632,8 @@ async fn test_polling_lifecycle_simulation() {
         model: test_model().name,
         google_search_grounding: false,
         url_context: false,
+        include_glossary: false,
+        output_language: "en".to_string(),
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -717,6 +731,8 @@ async fn test_pasted_transcript_pipeline() {
         model: test_model().name,
         google_search_grounding: false,
         url_context: false,
+        include_glossary: false,
+        output_language: "en".to_string(),
     };
     let id_no_url =
         db::insert_new_summary(&app.db, &form_no_url, "127.0.0.1", "2024-01-01T00:00:00Z")
@@ -780,6 +796,8 @@ async fn test_hn_batch_processing() {
             model: "auto".to_string(),
             google_search_grounding: false,
             url_context: false,
+            include_glossary: false,
+            output_language: "en".to_string(),
         };
 
         let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2026-07-22T00:00:00Z")

@@ -43,6 +43,7 @@ impl SummaryService {
     /// Persists chunks to DB progressively during streaming.
     ///
     /// Requirements: 6.1, 6.2, 6.5, 6.6, 6.7
+    #[allow(clippy::too_many_arguments)]
     pub async fn generate_summary(
         &self,
         db_pool: &SqlitePool,
@@ -51,6 +52,8 @@ impl SummaryService {
         model: &ModelOption,
         google_search_grounding: bool,
         url_context: bool,
+        include_glossary: bool,
+        output_language: &str,
     ) -> Result<SummaryResult, SummaryError> {
         // Validate transcript length (Req 6.5, 6.6)
         let word_count = transcript.split_whitespace().count();
@@ -65,7 +68,15 @@ impl SummaryService {
 
         if model.architecture == crate::state::ModelArchitecture::Hetzner {
             return self
-                .generate_summary_hetzner(db_pool, identifier, transcript, model, start)
+                .generate_summary_hetzner(
+                    db_pool,
+                    identifier,
+                    transcript,
+                    model,
+                    start,
+                    include_glossary,
+                    output_language,
+                )
                 .await;
         }
 
@@ -133,17 +144,19 @@ impl SummaryService {
             crate::state::ModelArchitecture::Gemini => {
                 builder = builder.with_system_prompt(&system_instruction_with_date);
                 if is_hn {
-                    self.build_hn_prompt(transcript)
+                    self.build_hn_prompt(transcript, include_glossary, output_language)
                 } else {
-                    self.build_prompt(transcript)
+                    self.build_prompt(transcript, include_glossary, output_language)
                 }
             }
-            crate::state::ModelArchitecture::Gemma => self.build_prompt_for_gemma(transcript),
+            crate::state::ModelArchitecture::Gemma => {
+                self.build_prompt_for_gemma(transcript, include_glossary, output_language)
+            }
             crate::state::ModelArchitecture::Other | crate::state::ModelArchitecture::Hetzner => {
                 if is_hn {
-                    self.build_hn_prompt(transcript)
+                    self.build_hn_prompt(transcript, include_glossary, output_language)
                 } else {
-                    self.build_prompt(transcript)
+                    self.build_prompt(transcript, include_glossary, output_language)
                 }
             }
         };
@@ -277,9 +290,44 @@ impl SummaryService {
         })
     }
 
+    /// Generates prompt directives for language selection and glossary generation.
+    pub fn get_prompt_directives(include_glossary: bool, output_language: &str) -> String {
+        let mut directives = String::new();
+
+        if output_language == "de" || output_language == "de-DE" {
+            directives.push_str(
+                "\n\n**LANGUAGE DIRECTIVE (DEUTSCH)**:\n\
+                 You MUST generate the entire output (Abstract, Key Highlights/Points, Discussion, Glossary, and section titles) in German (Deutsch).\n\
+                 Use German section titles (e.g. `## Zusammenfassung` or `## Abstract`, `## Wichtigste Punkte & Zeitstempel` for transcripts, `## Wichtigste Punkte` for articles, `## Diskussions-Highlights`, and `## Glossar`)."
+            );
+        }
+
+        if include_glossary {
+            if output_language == "de" || output_language == "de-DE" {
+                directives.push_str(
+                    "\n\n**GLOSSAR DIRECTIVE**:\n\
+                     You MUST append a dedicated section titled `## Glossar` at the end of the summary. In this section, extract all specialized technical, medical, scientific, and domain-specific terms, acronyms, clinical metrics, and jargon present in the content (e.g. filovirus, VMAT2, PASC, PICU, HR 0.53, etc.) and explain each term clearly and concisely in German for a lay reader."
+                );
+            } else {
+                directives.push_str(
+                    "\n\n**GLOSSARY DIRECTIVE**:\n\
+                     You MUST append a dedicated section titled `## Glossary` at the end of the summary. In this section, extract all specialized technical, medical, scientific, and domain-specific terms, acronyms, clinical metrics, and jargon present in the content (e.g. filovirus, VMAT2, PASC, PICU, HR 0.53, etc.) and explain each term clearly and concisely for a lay reader."
+                );
+            }
+        }
+
+        directives
+    }
+
     /// Builds the prompt for a Hacker News submission and discussion summary.
-    pub fn build_hn_prompt(&self, hn_content: &str) -> String {
+    pub fn build_hn_prompt(
+        &self,
+        hn_content: &str,
+        include_glossary: bool,
+        output_language: &str,
+    ) -> String {
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let directives = Self::get_prompt_directives(include_glossary, output_language);
         format!(
             "Today's date: {today}.\n\
              Note on temporal awareness: Events, leadership roles, technology updates, and public occurrences may have changed since your knowledge training cutoff date. Accept current facts presented in the input without expressing skepticism or contradicting them based on older training data.\n\
@@ -304,21 +352,25 @@ impl SummaryService {
              - Merge similar discussion points into single bullets rather than listing each comment separately.\n\
              - Omit low-signal commentary (e.g., jokes, tangential anecdotes, meta-discussion about HN itself).\n\
              - Do NOT include greetings, conversational filler, closing remarks, or follow-up questions.\n\
+             {directives}\n\
              \n\
              Here is the Hacker News content and discussion:\n\
              {hn_content}",
             today = today,
+            directives = directives,
             hn_content = hn_content,
         )
     }
 
     /// Builds the prompt from the transcript text.
-    ///
-    /// Produces the full few-shot template matching the Python `get_prompt()` function:
-    /// instruction paragraph → bold formatting instruction → example input → example output →
-    /// real transcript framing → transcript.
-    pub fn build_prompt(&self, transcript: &str) -> String {
+    pub fn build_prompt(
+        &self,
+        transcript: &str,
+        include_glossary: bool,
+        output_language: &str,
+    ) -> String {
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+        let directives = Self::get_prompt_directives(include_glossary, output_language);
         format!(
             "Today's date: {today}.\n\
              Note on temporal awareness: Events, leadership roles, software versions, and public occurrences may have changed since your knowledge training cutoff date. Accept current facts presented in the input without expressing skepticism or contradicting them based on older training data.\n\
@@ -330,6 +382,7 @@ I will provide a new transcript that I want a summarization in the exact same st
 **Please give an abstract of the transcript and then summarize the transcript in a self-contained \
 bullet list format.** Maintain strict structural repeatability (`## Abstract` followed by \
 `## Key Highlights & Timestamps`). Include starting timestamps, important details and key takeaways. \n\
+{directives}\n\
 \n\
 Example Input: \n\
 {example_input}\n\
@@ -340,6 +393,7 @@ Here is the real transcript. What would be a good group of people to review this
 Please provide a summary like they would: \n\
 {transcript}",
             today = today,
+            directives = directives,
             example_input = EXAMPLE_INPUT,
             example_output_abstract = EXAMPLE_OUTPUT_ABSTRACT,
             example_output = EXAMPLE_OUTPUT,
@@ -348,25 +402,22 @@ Please provide a summary like they would: \n\
     }
 
     /// Builds the prompt for Gemma models by prepending the system instruction.
-    ///
-    /// Gemma models don't support a separate system prompt parameter, so the
-    /// system instruction is prepended to the user prompt with a `---` delimiter.
-    ///
-    /// Requirements: 3.1, 3.3
-    pub fn build_prompt_for_gemma(&self, transcript: &str) -> String {
+    pub fn build_prompt_for_gemma(
+        &self,
+        transcript: &str,
+        include_glossary: bool,
+        output_language: &str,
+    ) -> String {
         let base_prompt = if transcript.contains("=== HACKER NEWS SUBMISSION ===") {
-            self.build_hn_prompt(transcript)
+            self.build_hn_prompt(transcript, include_glossary, output_language)
         } else {
-            self.build_prompt(transcript)
+            self.build_prompt(transcript, include_glossary, output_language)
         };
 
         format!("{}\n\n---\n\n{}", SYSTEM_INSTRUCTION, base_prompt)
     }
 
     /// Computes the cost based on token counts and model pricing.
-    ///
-    /// Formula: (input_tokens * input_price_per_mtoken / 1_000_000)
-    ///        + (output_tokens * output_price_per_mtoken / 1_000_000)
     pub fn compute_cost(&self, model: &ModelOption, input_tokens: u64, output_tokens: u64) -> f64 {
         let input_cost = (input_tokens as f64) * model.input_price_per_mtoken / 1_000_000.0;
         let output_cost = (output_tokens as f64) * model.output_price_per_mtoken / 1_000_000.0;
@@ -375,6 +426,7 @@ Please provide a summary like they would: \n\
 
     /// Generates a summary via Hetzner OpenAI-compatible API.
     /// Persists chunks to DB progressively during streaming.
+    #[allow(clippy::too_many_arguments)]
     pub async fn generate_summary_hetzner(
         &self,
         db_pool: &SqlitePool,
@@ -382,6 +434,8 @@ Please provide a summary like they would: \n\
         transcript: &str,
         model: &ModelOption,
         start: std::time::Instant,
+        include_glossary: bool,
+        output_language: &str,
     ) -> Result<SummaryResult, SummaryError> {
         let hetzner_api_key = std::env::var("HETZNER_API_KEY")
             .unwrap_or_else(|_| "2jwqK0zWB54O0ipIzRtmv9jHme7jSazg".to_string());
@@ -415,9 +469,9 @@ Please provide a summary like they would: \n\
         );
 
         let prompt = if is_hn {
-            self.build_hn_prompt(transcript)
+            self.build_hn_prompt(transcript, include_glossary, output_language)
         } else {
-            self.build_prompt(transcript)
+            self.build_prompt(transcript, include_glossary, output_language)
         };
 
         use async_openai::types::chat::{
@@ -596,7 +650,7 @@ mod tests {
     fn test_build_hn_prompt_content() {
         let svc = SummaryService::new("test-key".to_string());
         let content = "=== HACKER NEWS SUBMISSION ===\nTitle: Test Post";
-        let prompt = svc.build_hn_prompt(content);
+        let prompt = svc.build_hn_prompt(content, false, "en");
 
         let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
         assert!(
@@ -629,7 +683,7 @@ mod tests {
     fn test_build_prompt_contains_transcript() {
         let svc = SummaryService::new("test-key".to_string());
         let transcript = "00:00:00 Hello world\n00:01:00 This is a test";
-        let prompt = svc.build_prompt(transcript);
+        let prompt = svc.build_prompt(transcript, false, "en");
 
         // Verify transcript is present
         assert!(prompt.contains(transcript));
@@ -653,7 +707,7 @@ mod tests {
     #[test]
     fn test_build_prompt_non_empty() {
         let svc = SummaryService::new("test-key".to_string());
-        let prompt = svc.build_prompt("some text");
+        let prompt = svc.build_prompt("some text", false, "en");
         assert!(!prompt.is_empty());
         // Verify the prompt contains the few-shot template structure
         assert!(
@@ -672,6 +726,25 @@ mod tests {
             prompt.contains("**Please give an abstract"),
             "Prompt should contain the bold formatting instruction"
         );
+    }
+
+    #[test]
+    fn test_get_prompt_directives_glossary_and_german() {
+        let directives_en_no_glossary = SummaryService::get_prompt_directives(false, "en");
+        assert!(directives_en_no_glossary.is_empty());
+
+        let directives_en_glossary = SummaryService::get_prompt_directives(true, "en");
+        assert!(directives_en_glossary.contains("GLOSSARY DIRECTIVE"));
+        assert!(directives_en_glossary.contains("## Glossary"));
+
+        let directives_de_no_glossary = SummaryService::get_prompt_directives(false, "de");
+        assert!(directives_de_no_glossary.contains("LANGUAGE DIRECTIVE (DEUTSCH)"));
+        assert!(directives_de_no_glossary.contains("## Glossar"));
+
+        let directives_de_glossary = SummaryService::get_prompt_directives(true, "de");
+        assert!(directives_de_glossary.contains("LANGUAGE DIRECTIVE (DEUTSCH)"));
+        assert!(directives_de_glossary.contains("GLOSSAR DIRECTIVE"));
+        assert!(directives_de_glossary.contains("## Glossar"));
     }
 
     #[test]
@@ -778,7 +851,7 @@ mod tests {
         let svc = SummaryService::new("test-key".to_string());
         let transcript = "test transcript";
 
-        let gemma_prompt = svc.build_prompt_for_gemma(transcript);
+        let gemma_prompt = svc.build_prompt_for_gemma(transcript, false, "en");
 
         // Verify the output starts with system instruction content (Req 3.1)
         assert!(
@@ -796,7 +869,7 @@ mod tests {
         let delimiter = "\n\n---\n\n";
         let delimiter_pos = gemma_prompt.find(delimiter).unwrap();
         let template_portion = &gemma_prompt[delimiter_pos + delimiter.len()..];
-        let expected_template = svc.build_prompt(transcript);
+        let expected_template = svc.build_prompt(transcript, false, "en");
         assert_eq!(
             template_portion, expected_template,
             "The portion after the delimiter should match build_prompt() output"
