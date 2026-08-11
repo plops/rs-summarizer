@@ -64,11 +64,12 @@ The code finds VTT files by scanning the temp directory for files matching the p
 
 ## Error Handling
 
-The `list_subtitles()` function checks for specific error patterns:
+The `list_subtitles()` and `download_subtitles()` functions check for specific error patterns:
 
-- **429 / Too Many Requests** → `TranscriptError::YtDlpFailed` with rate limit message
-- **"Sign in to confirm" / bot detection** → `TranscriptError::YtDlpFailed` with auth message
-- **Non-zero exit + no subtitle info** → `TranscriptError::YtDlpFailed` with stderr
+- **"The page needs to be reloaded"** → `TranscriptError::YtDlpFailed` prompting to restart Firefox and visit YouTube to refresh cookies
+- **429 / Too Many Requests** → `TranscriptError::YtDlpFailed` with rate limit and browser restart message
+- **"Sign in to confirm" / bot detection** → `TranscriptError::YtDlpFailed` with auth and browser restart message
+- **Non-zero exit + no subtitle info** → `TranscriptError::YtDlpFailed` with stderr, cookie refresh hint, and command
 - **Non-zero exit + has subtitle info** → Continue parsing (yt-dlp sometimes exits non-zero but still outputs useful data)
 
 ## Language Selection Priority

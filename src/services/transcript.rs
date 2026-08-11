@@ -104,18 +104,23 @@ impl TranscriptService {
 
     /// Invokes yt-dlp --list-subs to get available subtitle languages.
     async fn list_subtitles(&self, url: &str) -> Result<String, TranscriptError> {
+        let mut args = vec!["yt-dlp".to_string()];
+        args.extend(cookie_args());
+        args.push("--list-subs".to_string());
+        args.push(url.to_string());
+
+        let cmd_str = format!("uvx {}", args.join(" "));
+        tracing::info!(cmd = %cmd_str, "Executing yt-dlp to list subtitles");
+
         let output = Command::new("uvx")
-            .args([
-                "yt-dlp",
-                "--cookies-from-browser",
-                "firefox",
-                "--list-subs",
-                url,
-            ])
+            .args(&args)
             .output()
             .await
             .map_err(|e| {
-                TranscriptError::YtDlpFailed(format!("Failed to execute yt-dlp: {}", e))
+                TranscriptError::YtDlpFailed(format!(
+                    "Failed to execute yt-dlp (cmd: `{}`): {}",
+                    cmd_str, e
+                ))
             })?;
 
         // yt-dlp may exit with non-zero but still produce useful output on stderr/stdout
@@ -126,32 +131,43 @@ impl TranscriptService {
         let combined = format!("{}\n{}", stdout, stderr);
 
         if combined.trim().is_empty() {
-            return Err(TranscriptError::YtDlpFailed(
-                "yt-dlp produced no output".to_string(),
-            ));
+            return Err(TranscriptError::YtDlpFailed(format!(
+                "yt-dlp produced no output (cmd: `{}`)",
+                cmd_str
+            )));
         }
 
         // Check for known error patterns that indicate failure (not just missing subs)
         if !output.status.success() {
+            if combined.contains("The page needs to be reloaded")
+                || combined.contains("page needs to be reloaded")
+            {
+                return Err(TranscriptError::YtDlpFailed(format!(
+                    "YouTube session expired ('The page needs to be reloaded'). Please restart Firefox and visit YouTube to refresh cookies, or provide a cookies.txt file. (cmd: `{}`)",
+                    cmd_str
+                )));
+            }
             // Check if it's a bot/rate-limit issue vs genuinely no subtitles
             if combined.contains("Sign in to confirm") || combined.contains("bot") {
-                return Err(TranscriptError::YtDlpFailed(
-                    "YouTube requires authentication. Try again later or use --cookies."
-                        .to_string(),
-                ));
+                return Err(TranscriptError::YtDlpFailed(format!(
+                    "YouTube requires authentication. Please restart Firefox and visit YouTube to refresh cookies, or provide a cookies.txt file. (cmd: `{}`)",
+                    cmd_str
+                )));
             }
             if combined.contains("429") || combined.contains("Too Many Requests") {
-                return Err(TranscriptError::YtDlpFailed(
-                    "YouTube rate limited (429 Too Many Requests). Try again later.".to_string(),
-                ));
+                return Err(TranscriptError::YtDlpFailed(format!(
+                    "YouTube rate limited (429 Too Many Requests). Please restart Firefox to refresh cookies or try again later. (cmd: `{}`)",
+                    cmd_str
+                )));
             }
             // If it failed but has subtitle info in the output, continue parsing
             if !combined.contains("Available subtitles")
                 && !combined.contains("Available automatic captions")
             {
                 return Err(TranscriptError::YtDlpFailed(format!(
-                    "yt-dlp failed: {}",
-                    stderr.trim()
+                    "yt-dlp failed: {} (note: please restart Firefox to refresh cookies if needed) (cmd: `{}`)",
+                    stderr.trim(),
+                    cmd_str
                 )));
             }
         }
@@ -166,35 +182,66 @@ impl TranscriptService {
         lang: &str,
         output_template: &str,
     ) -> Result<(), TranscriptError> {
+        let mut args = vec!["yt-dlp".to_string()];
+        args.extend(cookie_args());
+        args.extend([
+            "--write-sub".to_string(),
+            "--write-auto-sub".to_string(),
+            "--sub-lang".to_string(),
+            lang.to_string(),
+            "--sub-format".to_string(),
+            "vtt".to_string(),
+            "--skip-download".to_string(),
+            "--format".to_string(),
+            "mhtml".to_string(),
+            "-o".to_string(),
+            output_template.to_string(),
+            url.to_string(),
+        ]);
+
+        let cmd_str = format!("uvx {}", args.join(" "));
+        tracing::info!(cmd = %cmd_str, "Executing yt-dlp to download subtitles");
+
         let output = Command::new("uvx")
-            .args([
-                "yt-dlp",
-                "--cookies-from-browser",
-                "firefox",
-                "--write-sub",
-                "--write-auto-sub",
-                "--sub-lang",
-                lang,
-                "--sub-format",
-                "vtt",
-                "--skip-download",
-                "--format",
-                "mhtml",
-                "-o",
-                output_template,
-                url,
-            ])
+            .args(&args)
             .output()
             .await
             .map_err(|e| {
-                TranscriptError::YtDlpFailed(format!("Failed to execute yt-dlp download: {}", e))
+                TranscriptError::YtDlpFailed(format!(
+                    "Failed to execute yt-dlp download (cmd: `{}`): {}",
+                    cmd_str, e
+                ))
             })?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            let stderr_trimmed = stderr.trim();
+
+            if stderr_trimmed.contains("The page needs to be reloaded")
+                || stderr_trimmed.contains("page needs to be reloaded")
+            {
+                return Err(TranscriptError::YtDlpFailed(format!(
+                    "YouTube session expired ('The page needs to be reloaded'). Please restart Firefox and visit YouTube to refresh cookies, then try again. (cmd: `{}`)",
+                    cmd_str
+                )));
+            }
+            if stderr_trimmed.contains("Sign in to confirm") || stderr_trimmed.contains("bot") {
+                return Err(TranscriptError::YtDlpFailed(format!(
+                    "YouTube requires authentication. Please restart Firefox and visit YouTube to refresh cookies, then try again. (cmd: `{}`)",
+                    cmd_str
+                )));
+            }
+            if stderr_trimmed.contains("429") || stderr_trimmed.contains("Too Many Requests") {
+                return Err(TranscriptError::YtDlpFailed(format!(
+                    "YouTube rate limited (429 Too Many Requests). Please restart Firefox to refresh cookies or try again later. (cmd: `{}`)",
+                    cmd_str
+                )));
+            }
+
             return Err(TranscriptError::YtDlpFailed(format!(
-                "yt-dlp subtitle download failed: {}",
-                stderr.trim()
+                "yt-dlp subtitle download failed: {} (note: please restart Firefox to refresh cookies if needed) (cmd: `{}`)",
+                stderr_trimmed,
+                cmd_str
             )));
         }
 
@@ -339,6 +386,29 @@ fn is_language_code(s: &str) -> bool {
         && s.chars()
             .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '-')
         && s.chars().next().map_or(false, |c| c.is_ascii_lowercase())
+}
+
+/// Returns the cookie arguments for yt-dlp.
+/// Checks environment variables YTDLP_COOKIES, COOKIES_FILE, or a local cookies.txt file.
+/// Defaults to `--cookies-from-browser firefox`.
+fn cookie_args() -> Vec<String> {
+    if let Ok(path) = std::env::var("YTDLP_COOKIES") {
+        if !path.trim().is_empty() && std::path::Path::new(path.trim()).exists() {
+            return vec!["--cookies".to_string(), path.trim().to_string()];
+        }
+    }
+    if let Ok(path) = std::env::var("COOKIES_FILE") {
+        if !path.trim().is_empty() && std::path::Path::new(path.trim()).exists() {
+            return vec!["--cookies".to_string(), path.trim().to_string()];
+        }
+    }
+    if std::path::Path::new("cookies.txt").exists() {
+        return vec!["--cookies".to_string(), "cookies.txt".to_string()];
+    }
+    vec![
+        "--cookies-from-browser".to_string(),
+        "firefox".to_string(),
+    ]
 }
 
 /// RAII guard that cleans up temporary files when dropped.
@@ -499,5 +569,11 @@ en-orig  English (Original)      vtt, ttml, srv3, srv2, srv1, json3
         assert!(codes.contains(&"en".to_string()));
         assert!(codes.contains(&"de".to_string()));
         assert!(codes.contains(&"en-orig".to_string()));
+    }
+
+    #[test]
+    fn test_cookie_args_defaults() {
+        let args = cookie_args();
+        assert!(!args.is_empty());
     }
 }
