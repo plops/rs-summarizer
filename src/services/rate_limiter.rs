@@ -44,7 +44,6 @@ impl RateLimiter {
         match *last_day {
             Some(day) if day == today => {
                 // Same day, no reset needed
-                return;
             }
             _ => {
                 // New day or first run — reset all counters

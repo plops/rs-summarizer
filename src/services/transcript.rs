@@ -385,7 +385,7 @@ fn is_language_code(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .all(|c| c.is_ascii_alphabetic() || c.is_ascii_digit() || c == '-')
-        && s.chars().next().map_or(false, |c| c.is_ascii_lowercase())
+        && s.chars().next().is_some_and(|c| c.is_ascii_lowercase())
 }
 
 /// Returns the cookie arguments for yt-dlp.
@@ -405,10 +405,7 @@ fn cookie_args() -> Vec<String> {
     if std::path::Path::new("cookies.txt").exists() {
         return vec!["--cookies".to_string(), "cookies.txt".to_string()];
     }
-    vec![
-        "--cookies-from-browser".to_string(),
-        "firefox".to_string(),
-    ]
+    vec!["--cookies-from-browser".to_string(), "firefox".to_string()]
 }
 
 /// RAII guard that cleans up temporary files when dropped.

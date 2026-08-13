@@ -128,6 +128,7 @@ pub async fn update_model(
 }
 
 /// Mark summary as done with token counts, cost, and end timestamp.
+#[allow(clippy::too_many_arguments)]
 pub async fn mark_summary_done(
     db: &SqlitePool,
     identifier: i64,

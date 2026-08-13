@@ -18,13 +18,16 @@ let gemini_model = Model::Custom(format!("models/{}", model.name));
 let client = Gemini::with_model(&self.api_key, gemini_model)?;
 ```
 
-## Available Text Generation Models (as of June 2026)
+## Available Text Generation Models (as of August 2026)
 
 | Config Name | API ID | RPM | RPD | Notes |
 |-------------|--------|-----|-----|-------|
-| `gemini-3.5-flash` | `models/gemini-3.5-flash` | 5 | 20 | Default selection |
-| `gemma-4-31b-it` | `models/gemma-4-31b-it` | 15 | 1500 | Free, no system prompt |
-| `gemma-4-26b-a4b-it` | `models/gemma-4-26b-a4b-it` | 15 | 1500 | Free, no system prompt |
+| `gemini-3.7-flash` | `models/gemini-3.7-flash` | 5 | 20 | Latest flagship Flash model |
+| `gemini-3.6-flash` | `models/gemini-3.6-flash` | 5 | 20 | Previous generation Flash model |
+| `gemini-3.5-flash-lite` | `models/gemini-3.5-flash-lite` | 15 | 500 | Latest Flash Lite, high quota |
+| `gemini-3.5-flash` | `models/gemini-3.5-flash` | 5 | 20 | Stable Flash model |
+| `gemma-4-31b-it` | `models/gemma-4-31b-it` | 30 | 14400 | Free MoE, no system prompt |
+| `gemma-4-26b-a4b-it` | `models/gemma-4-26b-a4b-it` | 30 | 14400 | Free MoE, no system prompt |
 | `gemini-3.1-flash-lite` | `models/gemini-3.1-flash-lite` | 15 | 500 | Stable version, high quota |
 | `gemini-2.5-flash` | `models/gemini-2.5-flash` | 5 | 20 | Solid all-rounder |
 | `gemini-2.5-flash-lite` | `models/gemini-2.5-flash-lite` | 10 | 20 | Lightweight |

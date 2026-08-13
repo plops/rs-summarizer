@@ -34,6 +34,9 @@ pub struct ModelOption {
     pub architecture: ModelArchitecture,
 }
 
+pub type ModelLockMap =
+    Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<Option<std::time::Instant>>>>>>;
+
 #[derive(Clone)]
 pub struct AppState {
     pub db: SqlitePool,
@@ -43,8 +46,7 @@ pub struct AppState {
     pub gemini_api_key: String,
     pub nn_mapper: Option<std::sync::Arc<std::sync::Mutex<crate::services::nn_mapper::NnMapper>>>,
     pub viz_data: Option<std::sync::Arc<crate::models::VizData>>,
-    pub model_locks:
-        Arc<RwLock<HashMap<String, Arc<tokio::sync::Mutex<Option<std::time::Instant>>>>>>,
+    pub model_locks: ModelLockMap,
     pub dedup_service: crate::services::deduplication::DeduplicationService,
     pub download_limiter: Arc<crate::services::download_limiter::DownloadLimiter>,
 }
@@ -81,7 +83,17 @@ pub fn get_default_models() -> Vec<ModelOption> {
             rpd_limit: 1000,
             architecture: ModelArchitecture::Gemini,
         },
-        // 1. Gemini 3.6 Flash (Text-out models)
+        // 1. Gemini 3.7 Flash (Text-out models)
+        ModelOption {
+            name: "gemini-3.7-flash".to_string(),
+            input_price_per_mtoken: 0.10,
+            output_price_per_mtoken: 0.40,
+            context_window: 1_000_000,
+            rpm_limit: 5,
+            rpd_limit: 20,
+            architecture: ModelArchitecture::Gemini,
+        },
+        // 2. Gemini 3.6 Flash (Text-out models)
         ModelOption {
             name: "gemini-3.6-flash".to_string(),
             input_price_per_mtoken: 0.10,
@@ -254,6 +266,18 @@ mod model_checks {
     #[test]
     fn test_updated_model_limits() {
         let models = get_default_models();
+
+        // Verify Gemini 3.7 Flash limits
+        let gemini_37 = models
+            .iter()
+            .find(|m| m.name == "gemini-3.7-flash")
+            .unwrap();
+        assert_eq!(gemini_37.rpm_limit, 5);
+        assert_eq!(gemini_37.rpd_limit, 20);
+        assert_eq!(gemini_37.context_window, 1_000_000);
+        assert_eq!(gemini_37.input_price_per_mtoken, 0.10);
+        assert_eq!(gemini_37.output_price_per_mtoken, 0.40);
+        assert_eq!(gemini_37.architecture, ModelArchitecture::Gemini);
 
         // Verify Gemini 3.6 Flash limits
         let gemini_36 = models

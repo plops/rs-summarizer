@@ -21,6 +21,12 @@ pub struct MetadataCache {
     entries: Arc<RwLock<Vec<SummaryMetadata>>>,
 }
 
+impl Default for MetadataCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MetadataCache {
     pub fn new() -> Self {
         Self {
@@ -29,6 +35,7 @@ impl MetadataCache {
     }
 
     /// Load all summary metadata from the database at startup.
+    #[allow(clippy::type_complexity)]
     pub async fn load_from_db(&self, db: &SqlitePool) -> Result<(), sqlx::Error> {
         let rows: Vec<(
             i64,

@@ -37,6 +37,12 @@ pub struct HackerNewsService {
     client: reqwest::Client,
 }
 
+impl Default for HackerNewsService {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl HackerNewsService {
     pub fn new() -> Self {
         let client = reqwest::Client::builder()

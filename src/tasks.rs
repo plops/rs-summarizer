@@ -75,12 +75,25 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
     match model_name {
         "hetzner-qwen-3.6-35b" => vec![
             "hetzner-qwen-3.6-35b",
+            "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
             "gemini-3.5-flash-lite",
         ],
+        "gemini-3.7-flash" => vec![
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3-flash-preview",
+            "gemini-2.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
+            "hetzner-qwen-3.6-35b",
+        ],
         "gemini-3.6-flash" => vec![
             "gemini-3.6-flash",
+            "gemini-3.7-flash",
             "gemini-3.5-flash",
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
@@ -93,12 +106,15 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
-            "gemini-3.5-flash",
+            "gemini-3.7-flash",
             "gemini-3.6-flash",
+            "gemini-3.5-flash",
             "hetzner-qwen-3.6-35b",
         ],
         "gemini-3.5-flash" => vec![
             "gemini-3.5-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
             "gemini-3.5-flash-lite",
@@ -107,6 +123,8 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
         ],
         "gemini-3-flash-preview" => vec![
             "gemini-3-flash-preview",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
             "gemini-2.5-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
@@ -114,6 +132,8 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
         ],
         "gemini-2.5-flash" => vec![
             "gemini-2.5-flash",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "hetzner-qwen-3.6-35b",
@@ -122,6 +142,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
             "gemini-3.5-flash-lite",
+            "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
             "gemini-3-flash-preview",
@@ -132,6 +153,8 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-2.5-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
             "hetzner-qwen-3.6-35b",
         ],
         other => vec![other],
@@ -311,14 +334,14 @@ pub async fn run_model_pipeline(
             model_name = if word_count < 3000 {
                 "gemini-3.5-flash-lite".to_string()
             } else {
-                "gemini-3.6-flash".to_string()
+                "gemini-3.7-flash".to_string()
             };
         } else {
             let duration_secs = get_transcript_duration_secs(input_text);
             model_name = if duration_secs < 1800 {
                 "gemini-3.5-flash-lite".to_string()
             } else {
-                "gemini-3.6-flash".to_string()
+                "gemini-3.7-flash".to_string()
             };
         }
     }
@@ -750,15 +773,28 @@ mod tests {
 
     #[test]
     fn test_get_fallback_chain_new_models() {
+        let chain_37_flash = get_fallback_chain("gemini-3.7-flash");
+        assert_eq!(chain_37_flash[0], "gemini-3.7-flash");
+        assert!(chain_37_flash.contains(&"gemini-3.6-flash"));
+        assert!(chain_37_flash.contains(&"gemini-3.5-flash"));
+        assert!(chain_37_flash.contains(&"gemini-3.5-flash-lite"));
+
         let chain_36_flash = get_fallback_chain("gemini-3.6-flash");
         assert_eq!(chain_36_flash[0], "gemini-3.6-flash");
+        assert!(chain_36_flash.contains(&"gemini-3.7-flash"));
         assert!(chain_36_flash.contains(&"gemini-3.5-flash"));
         assert!(chain_36_flash.contains(&"gemini-3.5-flash-lite"));
 
         let chain_35_lite = get_fallback_chain("gemini-3.5-flash-lite");
         assert_eq!(chain_35_lite[0], "gemini-3.5-flash-lite");
+        assert!(chain_35_lite.contains(&"gemini-3.7-flash"));
         assert!(chain_35_lite.contains(&"gemini-3.1-flash-lite"));
         assert!(chain_35_lite.contains(&"gemini-2.5-flash-lite"));
+
+        let chain_hetzner = get_fallback_chain("hetzner-qwen-3.6-35b");
+        assert_eq!(chain_hetzner[0], "hetzner-qwen-3.6-35b");
+        assert!(chain_hetzner.contains(&"gemini-3.7-flash"));
+        assert!(chain_hetzner.contains(&"gemini-3.6-flash"));
     }
 
     #[test]
@@ -804,15 +840,35 @@ mod tests {
         let model_short = if short_words < 3000 {
             "gemini-3.5-flash-lite"
         } else {
-            "gemini-3.6-flash"
+            "gemini-3.7-flash"
         };
         let model_long = if long_words < 3000 {
             "gemini-3.5-flash-lite"
         } else {
-            "gemini-3.6-flash"
+            "gemini-3.7-flash"
         };
 
         assert_eq!(model_short, "gemini-3.5-flash-lite");
-        assert_eq!(model_long, "gemini-3.6-flash");
+        assert_eq!(model_long, "gemini-3.7-flash");
+    }
+
+    #[test]
+    fn test_transcript_duration_auto_selection_thresholds() {
+        let short_duration = 1799;
+        let long_duration = 1800;
+
+        let model_short = if short_duration < 1800 {
+            "gemini-3.5-flash-lite"
+        } else {
+            "gemini-3.7-flash"
+        };
+        let model_long = if long_duration < 1800 {
+            "gemini-3.5-flash-lite"
+        } else {
+            "gemini-3.7-flash"
+        };
+
+        assert_eq!(model_short, "gemini-3.5-flash-lite");
+        assert_eq!(model_long, "gemini-3.7-flash");
     }
 }
