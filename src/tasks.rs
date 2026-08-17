@@ -75,6 +75,39 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
     match model_name {
         "hetzner-qwen-3.6-35b" => vec![
             "hetzner-qwen-3.6-35b",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+        ],
+        "hetzner-deepseek-v4-flash" => vec![
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
+            "hetzner-qwen-3.6-35b",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+        ],
+        "hetzner-glm-5.2" => vec![
+            "hetzner-glm-5.2",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-kimi-k2.7-code",
+            "hetzner-qwen-3.6-35b",
+            "gemini-3.7-flash",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
+        ],
+        "hetzner-kimi-k2.7-code" => vec![
+            "hetzner-kimi-k2.7-code",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-qwen-3.6-35b",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
@@ -89,6 +122,9 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
             "hetzner-qwen-3.6-35b",
         ],
         "gemini-3.6-flash" => vec![
@@ -100,6 +136,9 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
             "hetzner-qwen-3.6-35b",
         ],
         "gemini-3.5-flash-lite" => vec![
@@ -109,6 +148,9 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
             "hetzner-qwen-3.6-35b",
         ],
         "gemini-3.5-flash" => vec![
@@ -119,6 +161,9 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-2.5-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
             "hetzner-qwen-3.6-35b",
         ],
         "gemini-3-flash-preview" => vec![
@@ -128,6 +173,9 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-2.5-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
             "hetzner-qwen-3.6-35b",
         ],
         "gemini-2.5-flash" => vec![
@@ -136,6 +184,9 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.6-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
             "hetzner-qwen-3.6-35b",
         ],
         "gemini-3.1-flash-lite" => vec![
@@ -147,6 +198,9 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash",
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
             "hetzner-qwen-3.6-35b",
         ],
         "gemini-2.5-flash-lite" => vec![
@@ -155,6 +209,9 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.1-flash-lite",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
             "hetzner-qwen-3.6-35b",
         ],
         other => vec![other],
@@ -793,8 +850,61 @@ mod tests {
 
         let chain_hetzner = get_fallback_chain("hetzner-qwen-3.6-35b");
         assert_eq!(chain_hetzner[0], "hetzner-qwen-3.6-35b");
+        assert!(chain_hetzner.contains(&"hetzner-deepseek-v4-flash"));
+        assert!(chain_hetzner.contains(&"hetzner-glm-5.2"));
+        assert!(chain_hetzner.contains(&"hetzner-kimi-k2.7-code"));
         assert!(chain_hetzner.contains(&"gemini-3.7-flash"));
         assert!(chain_hetzner.contains(&"gemini-3.6-flash"));
+    }
+
+    #[test]
+    fn test_fallback_chain_hetzner_deepseek() {
+        let chain = get_fallback_chain("hetzner-deepseek-v4-flash");
+        assert_eq!(chain[0], "hetzner-deepseek-v4-flash");
+        assert!(chain.contains(&"hetzner-glm-5.2"));
+        assert!(chain.contains(&"hetzner-kimi-k2.7-code"));
+        assert!(chain.contains(&"hetzner-qwen-3.6-35b"));
+        assert!(chain.contains(&"gemini-3.7-flash"));
+    }
+
+    #[test]
+    fn test_fallback_chain_hetzner_glm() {
+        let chain = get_fallback_chain("hetzner-glm-5.2");
+        assert_eq!(chain[0], "hetzner-glm-5.2");
+        assert!(chain.contains(&"hetzner-deepseek-v4-flash"));
+        assert!(chain.contains(&"hetzner-qwen-3.6-35b"));
+        assert!(chain.contains(&"gemini-3.7-flash"));
+    }
+
+    #[test]
+    fn test_fallback_chain_hetzner_kimi() {
+        let chain = get_fallback_chain("hetzner-kimi-k2.7-code");
+        assert_eq!(chain[0], "hetzner-kimi-k2.7-code");
+        assert!(chain.contains(&"hetzner-deepseek-v4-flash"));
+        assert!(chain.contains(&"hetzner-glm-5.2"));
+        assert!(chain.contains(&"hetzner-qwen-3.6-35b"));
+        assert!(chain.contains(&"gemini-3.7-flash"));
+    }
+
+    #[test]
+    fn test_gemini_chains_include_all_hetzner_models() {
+        let hetzner_models = vec![
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
+            "hetzner-qwen-3.6-35b",
+        ];
+        for gemini_model in &["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"] {
+            let chain = get_fallback_chain(gemini_model);
+            for hetzner in &hetzner_models {
+                assert!(
+                    chain.contains(hetzner),
+                    "Fallback chain for {} should contain {}",
+                    gemini_model,
+                    hetzner
+                );
+            }
+        }
     }
 
     #[test]
