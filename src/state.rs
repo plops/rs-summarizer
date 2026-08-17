@@ -86,8 +86,8 @@ pub fn get_default_models() -> Vec<ModelOption> {
         // 1. Gemini 3.7 Flash (Text-out models)
         ModelOption {
             name: "gemini-3.7-flash".to_string(),
-            input_price_per_mtoken: 0.10,
-            output_price_per_mtoken: 0.40,
+            input_price_per_mtoken: 0.75,
+            output_price_per_mtoken: 3.75,
             context_window: 1_000_000,
             rpm_limit: 5,
             rpd_limit: 20,
@@ -96,8 +96,8 @@ pub fn get_default_models() -> Vec<ModelOption> {
         // 2. Gemini 3.6 Flash (Text-out models)
         ModelOption {
             name: "gemini-3.6-flash".to_string(),
-            input_price_per_mtoken: 0.10,
-            output_price_per_mtoken: 0.40,
+            input_price_per_mtoken: 0.75,
+            output_price_per_mtoken: 3.75,
             context_window: 1_000_000,
             rpm_limit: 5,
             rpd_limit: 20,
@@ -106,8 +106,8 @@ pub fn get_default_models() -> Vec<ModelOption> {
         // 2. Gemini 3.5 Flash Lite (Text-out models)
         ModelOption {
             name: "gemini-3.5-flash-lite".to_string(),
-            input_price_per_mtoken: 0.075,
-            output_price_per_mtoken: 0.30,
+            input_price_per_mtoken: 0.30,
+            output_price_per_mtoken: 2.50,
             context_window: 1_000_000,
             rpm_limit: 15,
             rpd_limit: 500,
@@ -116,8 +116,8 @@ pub fn get_default_models() -> Vec<ModelOption> {
         // 3. Gemini 3.5 Flash (Text-out models)
         ModelOption {
             name: "gemini-3.5-flash".to_string(),
-            input_price_per_mtoken: 0.10,
-            output_price_per_mtoken: 0.40,
+            input_price_per_mtoken: 1.50,
+            output_price_per_mtoken: 9.00,
             context_window: 1_000_000,
             rpm_limit: 5,
             rpd_limit: 20,
@@ -146,8 +146,8 @@ pub fn get_default_models() -> Vec<ModelOption> {
         // 6. Gemini 3.1 Flash Lite (Text-out models)
         ModelOption {
             name: "gemini-3.1-flash-lite".to_string(),
-            input_price_per_mtoken: 0.075,
-            output_price_per_mtoken: 0.30,
+            input_price_per_mtoken: 0.25,
+            output_price_per_mtoken: 1.50,
             context_window: 1_048_576,
             rpm_limit: 15,
             rpd_limit: 500,
@@ -156,8 +156,8 @@ pub fn get_default_models() -> Vec<ModelOption> {
         // 7. Gemini 2.5 Flash (Text-out models)
         ModelOption {
             name: "gemini-2.5-flash".to_string(),
-            input_price_per_mtoken: 0.10,
-            output_price_per_mtoken: 0.40,
+            input_price_per_mtoken: 0.30,
+            output_price_per_mtoken: 1.00,
             context_window: 1_048_576,
             rpm_limit: 5,
             rpd_limit: 20,
@@ -166,8 +166,8 @@ pub fn get_default_models() -> Vec<ModelOption> {
         // 8. Gemini 2.5 Flash Lite (Text-out models)
         ModelOption {
             name: "gemini-2.5-flash-lite".to_string(),
-            input_price_per_mtoken: 0.075,
-            output_price_per_mtoken: 0.30,
+            input_price_per_mtoken: 0.10,
+            output_price_per_mtoken: 0.40,
             context_window: 1_048_576,
             rpm_limit: 10,
             rpd_limit: 20,
@@ -176,8 +176,8 @@ pub fn get_default_models() -> Vec<ModelOption> {
         // 9. Gemini 3 Flash Preview (Text-out models)
         ModelOption {
             name: "gemini-3-flash-preview".to_string(),
-            input_price_per_mtoken: 0.10,
-            output_price_per_mtoken: 0.40,
+            input_price_per_mtoken: 0.50,
+            output_price_per_mtoken: 1.00,
             context_window: 1_048_576,
             rpm_limit: 5,
             rpd_limit: 20,
@@ -186,6 +186,36 @@ pub fn get_default_models() -> Vec<ModelOption> {
         // 10. Hetzner Qwen 3.6 35B (OpenAI-compatible experimental inference API)
         ModelOption {
             name: "hetzner-qwen-3.6-35b".to_string(),
+            input_price_per_mtoken: 0.0,
+            output_price_per_mtoken: 0.0,
+            context_window: 262_144,
+            rpm_limit: 60,
+            rpd_limit: 14400,
+            architecture: ModelArchitecture::Hetzner,
+        },
+        // 11. Hetzner DeepSeek V4 Flash (OpenAI-compatible experimental inference API)
+        ModelOption {
+            name: "hetzner-deepseek-v4-flash".to_string(),
+            input_price_per_mtoken: 0.0,
+            output_price_per_mtoken: 0.0,
+            context_window: 512_000,
+            rpm_limit: 60,
+            rpd_limit: 14400,
+            architecture: ModelArchitecture::Hetzner,
+        },
+        // 12. Hetzner GLM 5.2 NVFP4 (OpenAI-compatible experimental inference API)
+        ModelOption {
+            name: "hetzner-glm-5.2".to_string(),
+            input_price_per_mtoken: 0.0,
+            output_price_per_mtoken: 0.0,
+            context_window: 512_000,
+            rpm_limit: 60,
+            rpd_limit: 14400,
+            architecture: ModelArchitecture::Hetzner,
+        },
+        // 13. Hetzner Kimi K2.7 Code (OpenAI-compatible experimental inference API)
+        ModelOption {
+            name: "hetzner-kimi-k2.7-code".to_string(),
             input_price_per_mtoken: 0.0,
             output_price_per_mtoken: 0.0,
             context_window: 262_144,
@@ -275,8 +305,8 @@ mod model_checks {
         assert_eq!(gemini_37.rpm_limit, 5);
         assert_eq!(gemini_37.rpd_limit, 20);
         assert_eq!(gemini_37.context_window, 1_000_000);
-        assert_eq!(gemini_37.input_price_per_mtoken, 0.10);
-        assert_eq!(gemini_37.output_price_per_mtoken, 0.40);
+        assert_eq!(gemini_37.input_price_per_mtoken, 0.75);
+        assert_eq!(gemini_37.output_price_per_mtoken, 3.75);
         assert_eq!(gemini_37.architecture, ModelArchitecture::Gemini);
 
         // Verify Gemini 3.6 Flash limits
@@ -319,6 +349,54 @@ mod model_checks {
         assert_eq!(hetzner.rpm_limit, 60);
         assert_eq!(hetzner.rpd_limit, 14400);
         assert_eq!(hetzner.architecture, ModelArchitecture::Hetzner);
+    }
+
+    #[test]
+    fn test_all_hetzner_models_registered() {
+        let models = get_default_models();
+        let hetzner_names: Vec<&str> = vec![
+            "hetzner-qwen-3.6-35b",
+            "hetzner-deepseek-v4-flash",
+            "hetzner-glm-5.2",
+            "hetzner-kimi-k2.7-code",
+        ];
+        for name in &hetzner_names {
+            let model = models.iter().find(|m| m.name == *name);
+            assert!(
+                model.is_some(),
+                "Hetzner model '{}' not found in defaults",
+                name
+            );
+            let m = model.unwrap();
+            assert_eq!(m.architecture, ModelArchitecture::Hetzner);
+            assert_eq!(m.input_price_per_mtoken, 0.0);
+            assert_eq!(m.output_price_per_mtoken, 0.0);
+        }
+    }
+
+    #[test]
+    fn test_hetzner_context_windows() {
+        let models = get_default_models();
+        let qwen = models
+            .iter()
+            .find(|m| m.name == "hetzner-qwen-3.6-35b")
+            .unwrap();
+        assert_eq!(qwen.context_window, 262_144);
+        let deepseek = models
+            .iter()
+            .find(|m| m.name == "hetzner-deepseek-v4-flash")
+            .unwrap();
+        assert_eq!(deepseek.context_window, 512_000);
+        let glm = models
+            .iter()
+            .find(|m| m.name == "hetzner-glm-5.2")
+            .unwrap();
+        assert_eq!(glm.context_window, 512_000);
+        let kimi = models
+            .iter()
+            .find(|m| m.name == "hetzner-kimi-k2.7-code")
+            .unwrap();
+        assert_eq!(kimi.context_window, 262_144);
     }
 
     #[test]

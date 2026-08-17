@@ -106,5 +106,32 @@
     "rpm_limit": 60,
     "rpd_limit": 14400,
     "architecture": "Hetzner"
+  },
+  {
+    "name": "hetzner-deepseek-v4-flash",
+    "input_price_per_mtoken": 0.0,
+    "output_price_per_mtoken": 0.0,
+    "context_window": 512000,
+    "rpm_limit": 60,
+    "rpd_limit": 14400,
+    "architecture": "Hetzner"
+  },
+  {
+    "name": "hetzner-glm-5.2",
+    "input_price_per_mtoken": 0.0,
+    "output_price_per_mtoken": 0.0,
+    "context_window": 512000,
+    "rpm_limit": 60,
+    "rpd_limit": 14400,
+    "architecture": "Hetzner"
+  },
+  {
+    "name": "hetzner-kimi-k2.7-code",
+    "input_price_per_mtoken": 0.0,
+    "output_price_per_mtoken": 0.0,
+    "context_window": 262144,
+    "rpm_limit": 60,
+    "rpd_limit": 14400,
+    "architecture": "Hetzner"
   }
 ]
