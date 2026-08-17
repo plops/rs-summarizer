@@ -387,10 +387,7 @@ mod model_checks {
             .find(|m| m.name == "hetzner-deepseek-v4-flash")
             .unwrap();
         assert_eq!(deepseek.context_window, 512_000);
-        let glm = models
-            .iter()
-            .find(|m| m.name == "hetzner-glm-5.2")
-            .unwrap();
+        let glm = models.iter().find(|m| m.name == "hetzner-glm-5.2").unwrap();
         assert_eq!(glm.context_window, 512_000);
         let kimi = models
             .iter()

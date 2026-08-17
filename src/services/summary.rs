@@ -929,9 +929,6 @@ mod tests {
             "Qwen/Qwen3.6-35B-A3B-FP8"
         );
         // Unknown names pass through unchanged
-        assert_eq!(
-            resolve_hetzner_model_name("unknown-model"),
-            "unknown-model"
-        );
+        assert_eq!(resolve_hetzner_model_name("unknown-model"), "unknown-model");
     }
 }
