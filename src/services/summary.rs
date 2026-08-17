@@ -447,11 +447,7 @@ Please provide a summary like they would: \n\
             .with_api_key(hetzner_api_key);
         let client = async_openai::Client::with_config(config);
 
-        let actual_model_name = if model.name.contains('/') {
-            model.name.clone()
-        } else {
-            "Qwen/Qwen3.6-35B-A3B-FP8".to_string()
-        };
+        let actual_model_name = resolve_hetzner_model_name(&model.name).to_string();
 
         tracing::info!(
             identifier = identifier,
@@ -582,6 +578,17 @@ Please provide a summary like they would: \n\
             cost,
             duration_secs,
         })
+    }
+}
+
+/// Maps internal Hetzner model names to their API-side model identifiers.
+fn resolve_hetzner_model_name(internal_name: &str) -> &str {
+    match internal_name {
+        "hetzner-qwen-3.6-35b" => "Qwen/Qwen3.6-35B-A3B-FP8",
+        "hetzner-deepseek-v4-flash" => "DeepSeek-V4-Flash-0731",
+        "hetzner-glm-5.2" => "GLM-5.2-NVFP4",
+        "hetzner-kimi-k2.7-code" => "Kimi-K2.7-Code",
+        other => other, // pass-through for direct API names (e.g. containing '/')
     }
 }
 
@@ -896,5 +903,35 @@ mod tests {
     #[test]
     fn test_hetzner_model_architecture_as_str() {
         assert_eq!(ModelArchitecture::Hetzner.as_str(), "Hetzner");
+    }
+
+    #[test]
+    fn test_resolve_hetzner_model_name() {
+        assert_eq!(
+            resolve_hetzner_model_name("hetzner-qwen-3.6-35b"),
+            "Qwen/Qwen3.6-35B-A3B-FP8"
+        );
+        assert_eq!(
+            resolve_hetzner_model_name("hetzner-deepseek-v4-flash"),
+            "DeepSeek-V4-Flash-0731"
+        );
+        assert_eq!(
+            resolve_hetzner_model_name("hetzner-glm-5.2"),
+            "GLM-5.2-NVFP4"
+        );
+        assert_eq!(
+            resolve_hetzner_model_name("hetzner-kimi-k2.7-code"),
+            "Kimi-K2.7-Code"
+        );
+        // Pass-through for direct API names
+        assert_eq!(
+            resolve_hetzner_model_name("Qwen/Qwen3.6-35B-A3B-FP8"),
+            "Qwen/Qwen3.6-35B-A3B-FP8"
+        );
+        // Unknown names pass through unchanged
+        assert_eq!(
+            resolve_hetzner_model_name("unknown-model"),
+            "unknown-model"
+        );
     }
 }
