@@ -124,6 +124,12 @@ jobs:
             chmod +x staging/sqlite-backup.sh
           fi
 
+          # Copy PO provider install script if present
+          if [ -f scripts/install_po_provider.sh ]; then
+            cp scripts/install_po_provider.sh staging/
+            chmod +x staging/install_po_provider.sh
+          fi
+
           # Copy export viewer if present
           if [ -d scripts/export_viewer ]; then
             cp -r scripts/export_viewer staging/
