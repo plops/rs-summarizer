@@ -1,0 +1,58 @@
+du arbeitest im auftrag von wol pumba (wolpumba@gmail.com)
+
+youtube hat in letzter zeit immer haeufiger probleme gemacht und keine captions zurueckgegeben. ich habe auf dem host das folgende docker image gestartet:
+
+/workspace/src/rs-summarizer/scripts/install_po_provider.sh
+
+jetzt kann yt-dlp anscheinend wieder arbeiten:
+
+
+$ uvx --with bgutil-ytdlp-pot-provider yt-dlp --cookies-from-browser firefox --extractor-args "youtube:player_client=mweb" --list-subs "https://youtube.com"
+Extracting cookies from firefox
+Extracted 81 cookies from firefox
+[youtube:recommended] Extracting URL: https://youtube.com
+[youtube:tab] Extracting URL: https://www.youtube.com/feed/recommended
+[youtube:tab] recommended: Downloading webpage
+[download] Downloading playlist: recommended
+[youtube:tab] Playlist recommended: Downloading 0 items
+[download] Finished downloading playlist: recommended
+kiel@ubuntu-2gb-ash-1:~/host$ uvx --with bgutil-ytdlp-pot-provider yt-dlp --cookies-from-browser firefox --extractor-args "youtube:player_client=mweb" --list-subs "https://youtube.com/watch?v=wYjkiI-Lm-8"
+Extracting cookies from firefox
+Extracted 81 cookies from firefox
+[youtube] Extracting URL: https://youtube.com/watch?v=wYjkiI-Lm-8
+[youtube] wYjkiI-Lm-8: Downloading webpage
+[youtube] wYjkiI-Lm-8: Downloading mweb client config
+[youtube] wYjkiI-Lm-8: Downloading mweb player API JSON
+[youtube] [pot:bgutil:http] Generating a gvs PO Token for mweb client via bgutil HTTP server
+[youtube] wYjkiI-Lm-8: Downloading player c74cbcd6-main
+[youtube] [jsc:deno] Solving JS challenges using deno
+[info] Available automatic captions for wYjkiI-Lm-8:
+Language Name                  Formats
+ab       Abkhazian             vtt, srt, ttml, srv3, srv2, srv1, json3
+...
+
+sorge dafuer dass dies im rust code entsprechend angepasst wird.
+
+
+ die architektur soll maintainable und erweiterbar sein.
+
+nutze tools um konsistenten und aufgeraeumten quellcode zu gewaehrleisten
+
+
+Schaue dir den Quellcode an und die Architektur dieser Software. Nutze deepwiki mcp fuer plops/rs-summarizer um dokumentation zu bekommen und fragen beantworten zu lassen. falls abhaengigkeiten eingefuehrt werden sind diese mitsamt ihrer github organisation in deps.md aufzuschreiben, so dass wir spaeter einfach die deepwiki abfragen konstruieren koennen. nutze rust tools um auf die neueste vorhandene version zu switchen (auch wenn vor kompatibilitaet gewarnt wird, wenn wir gerade eine dependency einfuehren ist es wichtig, die neueste version zu nehmen) und schon vorab usage examples in den plan aufzunehmen (mit deepwiki mcp zu erfragen)
+
+du befindest dich in einem docker container, basierend auf ubuntu. du darfst neue programme installieren, falls noetig. 
+
+Schlage vor, wie wir dieses Feature implementieren können. Habe ich alle Requirements aufgelistet, die wichtig sind, oder kannst du dir vorstellen, dass noch andere Dinge werden sollen? Liste mir diese auf Vorschlägen, was man am besten umsetzen könnte.
+
+Schreibe einen Implementierungsplan. Dieser Implementierungsplan soll einen unabhängigen AI-Agenten dazu befähigen, selbstständig einen Kontext aufzubauen, der die wesentlichen
+quellen beinhaltet. Das heißt, der Implementierungsplan hat eine Liste von Dateien, die sich der Agent sich anschauen sollte, mit einer kurzen Beschreibung für jede Datei.
+Weiterhin soll der Implementierungsplan eine Erklärung Commit Messages sendet werden sollen. Und zwar sollen diese mit einer umfassenden Beschreibung und als Conventional Commit format ausgeführt werden.
+
+Neue Unit-Tests und Integration-Tests sollen wie erforderlich eingeführt werden.
+Diese sollen auch ausgeführt werden.
+
+schreibe task.md wo du die implementierungs und test schritte aufeinander abfolgen laesst, so dass ein agent die tasks seriell abarbeiten kann und die arbeit in jedem schritt getested und validiert wird.
+
+Nach der vollständigen Implementierung, wenn alle Tests abgeschlossen sind und alles committed ist, soll auch ein Walkthrough-Dokument entgeschrieben werden und 
+in plan/2026.../walkthrough.md abgelegt werden. Dieses soll zusammenfassen, was wirklich implementiert wurde, welche Stellen aufgrund der Tests oder wie auch immer gemacht wurden, als im Untergrund auch Learnings und mögliche Erweiterungen. liste auch die neuen programme die mit in den docker container aufgenommen werden sollten 

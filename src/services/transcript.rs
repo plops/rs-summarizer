@@ -1,3 +1,4 @@
+use std::net::ToSocketAddrs;
 use std::path::PathBuf;
 use tokio::process::Command;
 use tracing;
@@ -104,8 +105,9 @@ impl TranscriptService {
 
     /// Invokes yt-dlp --list-subs to get available subtitle languages.
     async fn list_subtitles(&self, url: &str) -> Result<String, TranscriptError> {
-        let mut args = vec!["yt-dlp".to_string()];
+        let mut args = base_uvx_args();
         args.extend(cookie_args());
+        args.extend(extractor_args());
         args.push("--list-subs".to_string());
         args.push(url.to_string());
 
@@ -139,6 +141,14 @@ impl TranscriptService {
 
         // Check for known error patterns that indicate failure (not just missing subs)
         if !output.status.success() {
+            if (combined.contains("Connection refused") && combined.contains("4416"))
+                || (combined.contains("pot:bgutil") && combined.contains("Max retries exceeded"))
+            {
+                return Err(TranscriptError::YtDlpFailed(format!(
+                    "Failed to connect to PO Token Provider on port 4416. Ensure docker container 'ytdlp-pot-provider' is running and POT_PROVIDER_URL is configured correctly. (cmd: `{}`)",
+                    cmd_str
+                )));
+            }
             if combined.contains("The page needs to be reloaded")
                 || combined.contains("page needs to be reloaded")
             {
@@ -150,7 +160,7 @@ impl TranscriptService {
             // Check if it's a bot/rate-limit issue vs genuinely no subtitles
             if combined.contains("Sign in to confirm") || combined.contains("bot") {
                 return Err(TranscriptError::YtDlpFailed(format!(
-                    "YouTube requires authentication. Please restart Firefox and visit YouTube to refresh cookies, or provide a cookies.txt file. (cmd: `{}`)",
+                    "YouTube requires authentication or detected a bot. Please ensure the PO Token Provider is running and refresh Firefox cookies if needed. (cmd: `{}`)",
                     cmd_str
                 )));
             }
@@ -182,8 +192,9 @@ impl TranscriptService {
         lang: &str,
         output_template: &str,
     ) -> Result<(), TranscriptError> {
-        let mut args = vec!["yt-dlp".to_string()];
+        let mut args = base_uvx_args();
         args.extend(cookie_args());
+        args.extend(extractor_args());
         args.extend([
             "--write-sub".to_string(),
             "--write-auto-sub".to_string(),
@@ -217,6 +228,15 @@ impl TranscriptService {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
             let stderr_trimmed = stderr.trim();
 
+            if (stderr_trimmed.contains("Connection refused") && stderr_trimmed.contains("4416"))
+                || (stderr_trimmed.contains("pot:bgutil")
+                    && stderr_trimmed.contains("Max retries exceeded"))
+            {
+                return Err(TranscriptError::YtDlpFailed(format!(
+                    "Failed to connect to PO Token Provider on port 4416. Ensure docker container 'ytdlp-pot-provider' is running and POT_PROVIDER_URL is configured correctly. (cmd: `{}`)",
+                    cmd_str
+                )));
+            }
             if stderr_trimmed.contains("The page needs to be reloaded")
                 || stderr_trimmed.contains("page needs to be reloaded")
             {
@@ -227,7 +247,7 @@ impl TranscriptService {
             }
             if stderr_trimmed.contains("Sign in to confirm") || stderr_trimmed.contains("bot") {
                 return Err(TranscriptError::YtDlpFailed(format!(
-                    "YouTube requires authentication. Please restart Firefox and visit YouTube to refresh cookies, then try again. (cmd: `{}`)",
+                    "YouTube requires authentication or detected a bot. Please ensure the PO Token Provider is running and refresh Firefox cookies if needed. (cmd: `{}`)",
                     cmd_str
                 )));
             }
@@ -388,9 +408,89 @@ fn is_language_code(s: &str) -> bool {
         && s.chars().next().is_some_and(|c| c.is_ascii_lowercase())
 }
 
+/// Returns the uvx and plugin arguments to run yt-dlp.
+/// Uses bgutil-ytdlp-pot-provider by default unless DISABLE_POT_PROVIDER is set to true/1.
+fn base_uvx_args() -> Vec<String> {
+    let disable_pot = std::env::var("DISABLE_POT_PROVIDER")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    if disable_pot {
+        vec!["yt-dlp".to_string()]
+    } else {
+        vec![
+            "--with".to_string(),
+            "bgutil-ytdlp-pot-provider".to_string(),
+            "yt-dlp".to_string(),
+        ]
+    }
+}
+
+/// Resolves the base URL for the PO Token Provider HTTP server.
+/// Checks environment variables POT_PROVIDER_URL, BGUTIL_POT_PROVIDER_URL, and YTDLP_POT_PROVIDER_URL.
+/// If unset, checks whether `host.docker.internal` resolves (common Docker container setup).
+fn resolve_pot_provider_url() -> Option<String> {
+    if let Ok(url) = std::env::var("POT_PROVIDER_URL")
+        .or_else(|_| std::env::var("BGUTIL_POT_PROVIDER_URL"))
+        .or_else(|_| std::env::var("YTDLP_POT_PROVIDER_URL"))
+    {
+        let trimmed = url.trim();
+        if !trimmed.is_empty() {
+            return Some(trimmed.to_string());
+        }
+    }
+
+    // If no explicit env var is set, check if host.docker.internal resolves
+    if let Ok(mut addrs) = ("host.docker.internal", 4416).to_socket_addrs() {
+        if addrs.next().is_some() {
+            return Some("http://host.docker.internal:4416".to_string());
+        }
+    }
+
+    None
+}
+
+/// Returns the extractor arguments for YouTube player client, PO token provider base URL,
+/// and any custom extractor arguments.
+fn extractor_args() -> Vec<String> {
+    let mut args = Vec::new();
+
+    // Player client: default to mweb
+    let player_client = std::env::var("YTDLP_PLAYER_CLIENT").unwrap_or_else(|_| "mweb".to_string());
+    let player_client = player_client.trim();
+    if !player_client.is_empty() {
+        args.extend([
+            "--extractor-args".to_string(),
+            format!("youtube:player_client={}", player_client),
+        ]);
+    }
+
+    // POT provider base URL
+    if let Some(pot_url) = resolve_pot_provider_url() {
+        let trimmed = pot_url.trim();
+        if !trimmed.is_empty() {
+            args.extend([
+                "--extractor-args".to_string(),
+                format!("youtubepot-bgutilhttp:base_url={}", trimmed),
+            ]);
+        }
+    }
+
+    // Custom extractor args passthrough
+    if let Ok(extra) = std::env::var("YTDLP_EXTRACTOR_ARGS") {
+        let trimmed = extra.trim();
+        if !trimmed.is_empty() {
+            args.extend(["--extractor-args".to_string(), trimmed.to_string()]);
+        }
+    }
+
+    args
+}
+
 /// Returns the cookie arguments for yt-dlp.
 /// Checks environment variables YTDLP_COOKIES, COOKIES_FILE, or a local cookies.txt file.
-/// Defaults to `--cookies-from-browser firefox`.
+/// If browser cookies are requested via YTDLP_COOKIES_FROM_BROWSER or if Firefox profile paths exist,
+/// adds `--cookies-from-browser firefox`. Otherwise omits cookie flags (relying on PO Token provider).
 fn cookie_args() -> Vec<String> {
     if let Ok(path) = std::env::var("YTDLP_COOKIES") {
         if !path.trim().is_empty() && std::path::Path::new(path.trim()).exists() {
@@ -405,7 +505,30 @@ fn cookie_args() -> Vec<String> {
     if std::path::Path::new("cookies.txt").exists() {
         return vec!["--cookies".to_string(), "cookies.txt".to_string()];
     }
-    vec!["--cookies-from-browser".to_string(), "firefox".to_string()]
+    if let Ok(browser) = std::env::var("YTDLP_COOKIES_FROM_BROWSER") {
+        if !browser.trim().is_empty() {
+            return vec![
+                "--cookies-from-browser".to_string(),
+                browser.trim().to_string(),
+            ];
+        }
+    }
+    // Check if firefox profile path exists on host or container
+    if let Ok(home) = std::env::var("HOME") {
+        let home_path = std::path::Path::new(&home);
+        if home_path.join(".mozilla/firefox").exists()
+            || home_path.join(".config/mozilla/firefox").exists()
+            || home_path
+                .join("snap/firefox/common/.mozilla/firefox")
+                .exists()
+            || home_path
+                .join(".var/app/org.mozilla.firefox/.mozilla/firefox")
+                .exists()
+        {
+            return vec!["--cookies-from-browser".to_string(), "firefox".to_string()];
+        }
+    }
+    Vec::new()
 }
 
 /// RAII guard that cleans up temporary files when dropped.
@@ -568,9 +691,93 @@ en-orig  English (Original)      vtt, ttml, srv3, srv2, srv1, json3
         assert!(codes.contains(&"en-orig".to_string()));
     }
 
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn test_cookie_args_defaults() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("YTDLP_COOKIES_FROM_BROWSER", "firefox");
         let args = cookie_args();
-        assert!(!args.is_empty());
+        assert_eq!(
+            args,
+            vec!["--cookies-from-browser".to_string(), "firefox".to_string()]
+        );
+        std::env::remove_var("YTDLP_COOKIES_FROM_BROWSER");
+    }
+
+    #[test]
+    fn test_base_uvx_args_default() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("DISABLE_POT_PROVIDER");
+        let args = base_uvx_args();
+        assert_eq!(
+            args,
+            vec![
+                "--with".to_string(),
+                "bgutil-ytdlp-pot-provider".to_string(),
+                "yt-dlp".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_base_uvx_args_disabled() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("DISABLE_POT_PROVIDER", "1");
+        let args = base_uvx_args();
+        assert_eq!(args, vec!["yt-dlp".to_string()]);
+        std::env::remove_var("DISABLE_POT_PROVIDER");
+    }
+
+    #[test]
+    fn test_extractor_args_default() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("YTDLP_PLAYER_CLIENT");
+        std::env::remove_var("YTDLP_EXTRACTOR_ARGS");
+        let args = extractor_args();
+        assert!(args.contains(&"--extractor-args".to_string()));
+        assert!(args.contains(&"youtube:player_client=mweb".to_string()));
+    }
+
+    #[test]
+    fn test_extractor_args_custom_pot_url_and_player_client() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::set_var("POT_PROVIDER_URL", "http://192.168.1.50:4416");
+        std::env::set_var("YTDLP_PLAYER_CLIENT", "android");
+        std::env::set_var("YTDLP_EXTRACTOR_ARGS", "youtube:skip=hls");
+
+        let args = extractor_args();
+        assert!(args.contains(&"youtube:player_client=android".to_string()));
+        assert!(
+            args.contains(&"youtubepot-bgutilhttp:base_url=http://192.168.1.50:4416".to_string())
+        );
+        assert!(args.contains(&"youtube:skip=hls".to_string()));
+
+        std::env::remove_var("POT_PROVIDER_URL");
+        std::env::remove_var("YTDLP_PLAYER_CLIENT");
+        std::env::remove_var("YTDLP_EXTRACTOR_ARGS");
+    }
+
+    #[test]
+    fn test_resolve_pot_provider_url_env_precedence() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        std::env::remove_var("POT_PROVIDER_URL");
+        std::env::remove_var("BGUTIL_POT_PROVIDER_URL");
+        std::env::remove_var("YTDLP_POT_PROVIDER_URL");
+
+        std::env::set_var("BGUTIL_POT_PROVIDER_URL", "http://bgutil-host:4416");
+        assert_eq!(
+            resolve_pot_provider_url(),
+            Some("http://bgutil-host:4416".to_string())
+        );
+
+        std::env::set_var("POT_PROVIDER_URL", "http://pot-host:4416");
+        assert_eq!(
+            resolve_pot_provider_url(),
+            Some("http://pot-host:4416".to_string())
+        );
+
+        std::env::remove_var("POT_PROVIDER_URL");
+        std::env::remove_var("BGUTIL_POT_PROVIDER_URL");
     }
 }

@@ -1,92 +1,102 @@
 ---
 name: yt-dlp-invocation
-description: Use when invoking yt-dlp via uvx, handling subtitle download failures, working with Firefox cookie authentication, or debugging format resolution errors.
+description: Use when invoking yt-dlp via uvx, handling subtitle download failures, configuring PO Token provider (bgutil), working with cookie authentication, or debugging format resolution errors.
 ---
 
 # yt-dlp Invocation Patterns
 
 ## Overview
 
-rs-summarizer uses yt-dlp (via `uvx`) to download YouTube video subtitles. All invocations use Firefox cookies for authentication and specific flags to avoid format resolution errors.
+rs-summarizer uses `yt-dlp` (via `uvx`) to download YouTube video subtitles. Invocations load the `bgutil-ytdlp-pot-provider` plugin and target the `mweb` player client to bypass YouTube's bot detection and Proof-of-Origin (PO) token requirements. JavaScript challenges are solved via Deno (`[jsc:deno]`).
 
 ## Command Pattern
 
-yt-dlp is never installed globally. It's run via `uvx yt-dlp` which downloads and executes it through the `uv` Python package manager.
+`yt-dlp` is run via `uvx --with bgutil-ytdlp-pot-provider yt-dlp` without requiring global Python package installations.
 
 ### Listing Subtitles
 
 ```rust
-Command::new("uvx")
-    .args(["yt-dlp", "--cookies-from-browser", "firefox", "--list-subs", url])
+let mut args = base_uvx_args();
+args.extend(cookie_args());
+args.extend(extractor_args());
+args.push("--list-subs".to_string());
+args.push(url.to_string());
+```
+
+Command executed:
+```bash
+uvx --with bgutil-ytdlp-pot-provider yt-dlp \
+    --extractor-args "youtube:player_client=mweb" \
+    --extractor-args "youtubepot-bgutilhttp:base_url=http://host.docker.internal:4416" \
+    --list-subs "<URL>"
 ```
 
 ### Downloading Subtitles
 
 ```rust
-Command::new("uvx")
-    .args([
-        "yt-dlp",
-        "--cookies-from-browser", "firefox",
-        "--write-sub",
-        "--write-auto-sub",
-        "--sub-lang", lang,
-        "--sub-format", "vtt",
-        "--skip-download",
-        "--format", "mhtml",
-        "-o", output_template,
-        url,
-    ])
+let mut args = base_uvx_args();
+args.extend(cookie_args());
+args.extend(extractor_args());
+args.extend([
+    "--write-sub".to_string(),
+    "--write-auto-sub".to_string(),
+    "--sub-lang".to_string(),
+    lang.to_string(),
+    "--sub-format".to_string(),
+    "vtt".to_string(),
+    "--skip-download".to_string(),
+    "--format".to_string(),
+    "mhtml".to_string(),
+    "-o".to_string(),
+    output_template.to_string(),
+    url.to_string(),
+]);
 ```
 
-## Critical Flags
+## Critical Flags & Arguments
 
-| Flag | Purpose |
-|------|---------|
-| `--cookies-from-browser firefox` | Authenticates with YouTube to avoid bot detection / 429 errors |
+| Flag / Option | Purpose |
+|---------------|---------|
+| `--with bgutil-ytdlp-pot-provider` | Ephemerally loads the PO token provider plugin for yt-dlp |
+| `--extractor-args "youtube:player_client=mweb"` | Directs yt-dlp to YouTube mobile web client where PO tokens are resolved |
+| `--extractor-args "youtubepot-bgutilhttp:base_url=..."` | Configures the HTTP endpoint of the `bgutil-ytdlp-pot-provider` container |
 | `--write-sub` | Downloads manually-uploaded subtitles |
 | `--write-auto-sub` | Downloads auto-generated captions (most videos only have these) |
-| `--format "mhtml"` | Selects storyboard format to avoid "Requested format not available" errors when `--skip-download` can't resolve a video format |
+| `--format "mhtml"` | Selects storyboard format to avoid "Requested format not available" errors |
 | `--skip-download` | Don't download the actual video file |
 | `--sub-format vtt` | Download subtitles in WebVTT format |
 | `-o template` | Output filename template (yt-dlp appends `.lang.vtt`) |
 
-## Why `--format "mhtml"`?
+## Environment Variables
 
-When using `--cookies-from-browser`, yt-dlp sometimes gets a different format list from YouTube that doesn't include standard video formats. The `--skip-download` flag still tries to resolve a format, and fails with "Requested format is not available". Using `--format "mhtml"` (storyboard) bypasses this because storyboards are always available.
+- `POT_PROVIDER_URL` (or `BGUTIL_POT_PROVIDER_URL`, `YTDLP_POT_PROVIDER_URL`): Base URL for the PO token server (e.g. `http://host.docker.internal:4416` or `http://127.0.0.1:4416`). Auto-detects `host.docker.internal:4416` in container environments.
+- `YTDLP_PLAYER_CLIENT`: Override player client (default: `mweb`).
+- `YTDLP_EXTRACTOR_ARGS`: Additional custom extractor arguments.
+- `DISABLE_POT_PROVIDER`: Set to `1` or `true` to omit `--with bgutil-ytdlp-pot-provider`.
+- `YTDLP_COOKIES` / `COOKIES_FILE` / `cookies.txt`: Path to cookies text file.
+- `YTDLP_COOKIES_FROM_BROWSER`: Browser name to extract cookies from (e.g. `firefox`). Automatically detected if Firefox profile directories exist in `$HOME`.
+
+## System Dependencies
+
+- **`deno`**: Installed in PATH (`/usr/local/bin/deno` and persistent `/root/.cargo/bin/deno`) for solving YouTube client JavaScript challenges (`[jsc:deno]`).
+- **`ytdlp-pot-provider`**: Docker container (`brainicism/bgutil-ytdlp-pot-provider:latest`) running on port `4416` on the host.
 
 ## Output File Naming
 
 yt-dlp creates files like: `{output_template}.{lang}.vtt`
-
 Example: `-o "/dev/shm/transcript_42"` → `/dev/shm/transcript_42.en.vtt`
-
-The code finds VTT files by scanning the temp directory for files matching the prefix and `.vtt` extension.
 
 ## Error Handling
 
 The `list_subtitles()` and `download_subtitles()` functions check for specific error patterns:
-
-- **"The page needs to be reloaded"** → `TranscriptError::YtDlpFailed` prompting to restart Firefox and visit YouTube to refresh cookies
-- **429 / Too Many Requests** → `TranscriptError::YtDlpFailed` with rate limit and browser restart message
-- **"Sign in to confirm" / bot detection** → `TranscriptError::YtDlpFailed` with auth and browser restart message
-- **Non-zero exit + no subtitle info** → `TranscriptError::YtDlpFailed` with stderr, cookie refresh hint, and command
-- **Non-zero exit + has subtitle info** → Continue parsing (yt-dlp sometimes exits non-zero but still outputs useful data)
-
-## Language Selection Priority
-
-The `pick_best_language()` function selects from available languages:
-
-1. `-orig` languages matching preferred base order (en, de, fr, es, pt, it, nl, ja, ko, zh)
-2. Any `-orig` language (sorted alphabetically)
-3. Non-orig languages matching preferred base order
-4. Any language with `en` prefix (e.g. `en-US`)
-5. First language sorted alphabetically
-
-## Temp File Cleanup
-
-VTT files are stored in `/dev/shm` (tmpfs) and cleaned up via a `TempFileGuard` RAII struct that removes files on drop, ensuring cleanup even on error paths.
+- **Port 4416 / POT Provider connection errors** → Diagnostic error prompting to ensure `ytdlp-pot-provider` Docker container is running and `POT_PROVIDER_URL` is set.
+- **"The page needs to be reloaded"** → Prompts refreshing YouTube session/cookies.
+- **429 / Too Many Requests** → Rate limit notification.
+- **"Sign in to confirm" / bot detection** → Prompts checking PO provider status and cookies.
+- **Non-zero exit + has subtitle info** → Continues parsing if subtitle data is present.
 
 ## Relevant Files
 
 - `src/services/transcript.rs` — All yt-dlp invocation logic
 - `tests/integration_transcript.rs` — Integration tests for download
+- `scripts/install_po_provider.sh` — Setup script for PO Token Provider container
