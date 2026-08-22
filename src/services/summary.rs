@@ -585,9 +585,7 @@ Please provide a summary like they would: \n\
 fn resolve_hetzner_model_name(internal_name: &str) -> &str {
     match internal_name {
         "hetzner-qwen-3.6-35b" => "Qwen/Qwen3.6-35B-A3B-FP8",
-        "hetzner-deepseek-v4-flash" => "DeepSeek-V4-Flash-0731",
-        "hetzner-glm-5.2" => "GLM-5.2-NVFP4",
-        "hetzner-kimi-k2.7-code" => "Kimi-K2.7-Code",
+        "hetzner-qwen-3.8-27b" => "Qwen3.8-27B",
         other => other, // pass-through for direct API names (e.g. containing '/')
     }
 }
@@ -912,21 +910,17 @@ mod tests {
             "Qwen/Qwen3.6-35B-A3B-FP8"
         );
         assert_eq!(
-            resolve_hetzner_model_name("hetzner-deepseek-v4-flash"),
-            "DeepSeek-V4-Flash-0731"
-        );
-        assert_eq!(
-            resolve_hetzner_model_name("hetzner-glm-5.2"),
-            "GLM-5.2-NVFP4"
-        );
-        assert_eq!(
-            resolve_hetzner_model_name("hetzner-kimi-k2.7-code"),
-            "Kimi-K2.7-Code"
+            resolve_hetzner_model_name("hetzner-qwen-3.8-27b"),
+            "Qwen3.8-27B"
         );
         // Pass-through for direct API names
         assert_eq!(
             resolve_hetzner_model_name("Qwen/Qwen3.6-35B-A3B-FP8"),
             "Qwen/Qwen3.6-35B-A3B-FP8"
+        );
+        assert_eq!(
+            resolve_hetzner_model_name("Qwen3.8-27B"),
+            "Qwen3.8-27B"
         );
         // Unknown names pass through unchanged
         assert_eq!(resolve_hetzner_model_name("unknown-model"), "unknown-model");
