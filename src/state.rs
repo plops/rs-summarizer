@@ -193,29 +193,9 @@ pub fn get_default_models() -> Vec<ModelOption> {
             rpd_limit: 14400,
             architecture: ModelArchitecture::Hetzner,
         },
-        // 11. Hetzner DeepSeek V4 Flash (OpenAI-compatible experimental inference API)
+        // 11. Hetzner Qwen 3.8 27B (OpenAI-compatible experimental inference API)
         ModelOption {
-            name: "hetzner-deepseek-v4-flash".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 512_000,
-            rpm_limit: 60,
-            rpd_limit: 14400,
-            architecture: ModelArchitecture::Hetzner,
-        },
-        // 12. Hetzner GLM 5.2 NVFP4 (OpenAI-compatible experimental inference API)
-        ModelOption {
-            name: "hetzner-glm-5.2".to_string(),
-            input_price_per_mtoken: 0.0,
-            output_price_per_mtoken: 0.0,
-            context_window: 512_000,
-            rpm_limit: 60,
-            rpd_limit: 14400,
-            architecture: ModelArchitecture::Hetzner,
-        },
-        // 13. Hetzner Kimi K2.7 Code (OpenAI-compatible experimental inference API)
-        ModelOption {
-            name: "hetzner-kimi-k2.7-code".to_string(),
+            name: "hetzner-qwen-3.8-27b".to_string(),
             input_price_per_mtoken: 0.0,
             output_price_per_mtoken: 0.0,
             context_window: 262_144,
@@ -354,12 +334,7 @@ mod model_checks {
     #[test]
     fn test_all_hetzner_models_registered() {
         let models = get_default_models();
-        let hetzner_names: Vec<&str> = vec![
-            "hetzner-qwen-3.6-35b",
-            "hetzner-deepseek-v4-flash",
-            "hetzner-glm-5.2",
-            "hetzner-kimi-k2.7-code",
-        ];
+        let hetzner_names: Vec<&str> = vec!["hetzner-qwen-3.6-35b", "hetzner-qwen-3.8-27b"];
         for name in &hetzner_names {
             let model = models.iter().find(|m| m.name == *name);
             assert!(
@@ -377,23 +352,16 @@ mod model_checks {
     #[test]
     fn test_hetzner_context_windows() {
         let models = get_default_models();
-        let qwen = models
+        let qwen36 = models
             .iter()
             .find(|m| m.name == "hetzner-qwen-3.6-35b")
             .unwrap();
-        assert_eq!(qwen.context_window, 262_144);
-        let deepseek = models
+        assert_eq!(qwen36.context_window, 262_144);
+        let qwen38 = models
             .iter()
-            .find(|m| m.name == "hetzner-deepseek-v4-flash")
+            .find(|m| m.name == "hetzner-qwen-3.8-27b")
             .unwrap();
-        assert_eq!(deepseek.context_window, 512_000);
-        let glm = models.iter().find(|m| m.name == "hetzner-glm-5.2").unwrap();
-        assert_eq!(glm.context_window, 512_000);
-        let kimi = models
-            .iter()
-            .find(|m| m.name == "hetzner-kimi-k2.7-code")
-            .unwrap();
-        assert_eq!(kimi.context_window, 262_144);
+        assert_eq!(qwen38.context_window, 262_144);
     }
 
     #[test]
