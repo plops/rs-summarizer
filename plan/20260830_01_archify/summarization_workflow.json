@@ -1,0 +1,111 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Transcript Summarization & Fallback Workflow",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "main-flow",
+        "label": "Happy path execution",
+        "focus": ["user_submit", "dedup_check", "job_spawn", "fetch_content", "rate_check", "primary_llm", "format_enrich", "persist_db", "htmx_poll"],
+        "note": "Follow the end-to-end flow from URL submission to final rendered summary."
+      },
+      {
+        "id": "rate-limit-fallback",
+        "label": "Inference fallback chain",
+        "focus": ["rate_check", "primary_llm", "fallback_retry", "format_enrich"],
+        "note": "Examine how rate limits or provider errors trigger seamless model failover."
+      },
+      {
+        "id": "dedup-cache",
+        "label": "Deduplication fast path",
+        "focus": ["user_submit", "dedup_check", "cached_return"],
+        "note": "See how duplicate URLs return existing records instantly without re-running."
+      }
+    ]
+  },
+  "lanes": [
+    { "id": "client", "label": "Client Interface" },
+    { "id": "orchestration", "label": "Task Orchestration" },
+    { "id": "extraction", "label": "Content Extraction" },
+    { "id": "inference", "label": "LLM Inference & Quotas" },
+    { "id": "storage", "label": "Formatting & Storage" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "Intake & Dedup", "fromCol": 0, "toCol": 1 },
+    { "id": "extraction_phase", "label": "Extraction & Quotas", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "inference_delivery", "label": "Inference & Delivery", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "dedup_group", "label": "Deduplication Layer", "lane": "orchestration", "fromCol": 1, "toCol": 2 },
+    { "id": "inference_group", "label": "Multi-Model Failover", "lane": "inference", "fromCol": 4, "toCol": 5, "variant": "security" },
+    { "id": "storage_group", "label": "Persistence & Output", "lane": "storage", "fromCol": 4, "toCol": 5 }
+  ],
+  "mainPath": [
+    "user_submit",
+    "dedup_check",
+    "job_spawn",
+    "fetch_content",
+    "rate_check",
+    "primary_llm",
+    "format_enrich",
+    "persist_db",
+    "htmx_poll"
+  ],
+  "nodes": [
+    { "id": "user_submit", "lane": "client", "col": 0, "type": "external", "label": "Submit Request", "sublabel": "YouTube / HN URL", "width": 132 },
+    { "id": "cached_return", "lane": "client", "col": 1, "type": "frontend", "label": "Instant Cached View", "sublabel": "Immediate HTML Render", "tag": "Cache Hit", "width": 132 },
+    { "id": "htmx_poll", "lane": "client", "col": 5, "type": "frontend", "label": "Live Polling View", "sublabel": "HTMX DOM Patching", "tag": "Async Done", "width": 132 },
+    { "id": "dedup_check", "lane": "orchestration", "col": 1, "type": "backend", "label": "Dedup Check", "sublabel": "URL & Hash Lookup", "tag": "Cache Guard", "width": 132 },
+    { "id": "job_spawn", "lane": "orchestration", "col": 2, "type": "backend", "label": "Spawn Worker", "sublabel": "tokio::spawn task", "width": 132 },
+    { "id": "fetch_content", "lane": "extraction", "col": 2, "type": "external", "label": "Extract Content", "sublabel": "yt-dlp VTT / HN API", "brand": "youtube", "width": 132 },
+    { "id": "rate_check", "lane": "inference", "col": 3, "type": "security", "label": "Rate Guard", "sublabel": "RPM / RPD & Lock", "tag": "Quota Guard", "width": 132 },
+    { "id": "primary_llm", "lane": "inference", "col": 4, "type": "cloud", "label": "Primary Model", "sublabel": "Gemini 3.5 / Qwen", "brand": "google-gemini", "width": 132 },
+    { "id": "fallback_retry", "lane": "inference", "col": 5, "type": "cloud", "label": "Fallback Chain", "sublabel": "DeepSeek / Kimi / GLM", "brand": "openai", "width": 132 },
+    { "id": "format_enrich", "lane": "storage", "col": 4, "type": "backend", "label": "Enrich & Embed", "sublabel": "Timestamps + Vectors", "width": 132 },
+    { "id": "persist_db", "lane": "storage", "col": 5, "type": "database", "label": "SQLite Store", "sublabel": "Save Summary Row", "brand": "sqlite", "width": 132 }
+  ],
+  "edges": [
+    { "id": "submit-to-dedup", "from": "user_submit", "to": "dedup_check", "label": "POST form", "variant": "emphasis" },
+    { "id": "dedup-hit", "from": "dedup_check", "to": "cached_return", "label": "cache hit", "variant": "dashed", "role": "branch" },
+    { "id": "dedup-to-spawn", "from": "dedup_check", "to": "job_spawn", "label": "new item", "variant": "emphasis" },
+    { "id": "spawn-to-fetch", "from": "job_spawn", "to": "fetch_content", "label": "fetch", "variant": "default" },
+    { "id": "fetch-to-rate", "from": "fetch_content", "to": "rate_check", "label": "transcript", "variant": "emphasis" },
+    { "id": "rate-to-primary", "from": "rate_check", "to": "primary_llm", "label": "quota ok", "variant": "emphasis" },
+    { "id": "primary-to-fallback", "from": "primary_llm", "to": "fallback_retry", "label": "rate limit / err", "variant": "security", "role": "error" },
+    { "id": "primary-to-format", "from": "primary_llm", "to": "format_enrich", "label": "generated", "variant": "emphasis" },
+    { "id": "fallback-to-format", "from": "fallback_retry", "to": "format_enrich", "label": "fallback result", "variant": "dashed", "fromSide": "bottom", "toSide": "right" },
+    { "id": "format-to-db", "from": "format_enrich", "to": "persist_db", "label": "commit", "variant": "emphasis" },
+    { "id": "db-to-poll", "from": "persist_db", "to": "htmx_poll", "label": "ready", "variant": "emphasis", "role": "return" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Smart Deduplication",
+      "items": [
+        "Normalizes single or space-separated multiple URLs from submission",
+        "Checks SQLite index by URL and trimmed transcript text hash",
+        "Instant return for cached items without redundant external fetches"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Robust Multi-Model Failover",
+      "items": [
+        "In-memory tracking of RPM and daily RPD quotas with active model locks",
+        "Automatic fallback chain across Gemini and Hetzner OpenAI-compatible vLLM endpoints",
+        "Transient error handling gracefully switches to next available model"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Asynchronous HTMX Experience",
+      "items": [
+        "Background tokio tasks decouple processing from HTTP request cycle",
+        "Client polls /generations/:id with hx-trigger for partial DOM replacement",
+        "Automated YouTube timestamp hyperlinking and 3072d vector generation"
+      ]
+    }
+  ]
+}

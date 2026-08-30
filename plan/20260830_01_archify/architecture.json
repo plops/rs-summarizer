@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "rs-summarizer Architecture",
+    "quality_profile": "showcase",
+    "viewBox": [1080, 680],
+    "views": [
+      {
+        "id": "ingestion-path",
+        "label": "Ingestion and dispatch",
+        "focus": ["ui", "axum", "worker", "dedup", "db"],
+        "note": "Client submission, deduplication check, and async task dispatch into SQLite."
+      },
+      {
+        "id": "extraction-and-llm",
+        "label": "Content extraction and LLM inference",
+        "focus": ["worker", "ytdlp", "hn_api", "ratelimit", "gemini", "hetzner"],
+        "note": "External content ingestion and resilient multi-model inference fallback."
+      },
+      {
+        "id": "analytics-viz",
+        "label": "Embeddings and visualization",
+        "focus": ["worker", "db", "gemini", "viz_tool", "axum"],
+        "note": "Vector embeddings generation, SQLite persistence, and UMAP clustering GUI."
+      }
+    ]
+  },
+  "components": [
+    { "id": "ui", "type": "frontend", "label": "HTMX Web Client", "sublabel": "Browser / Mobile UI", "pos": [40, 240], "size": [140, 60] },
+    { "id": "axum", "type": "backend", "label": "Axum Web Server", "sublabel": "Router & State (:5001)", "tag": "Tokio Async", "brand": "rust", "pos": [280, 240], "size": [150, 60] },
+    { "id": "dedup", "type": "backend", "label": "Dedup Service", "sublabel": "URL & Hash Cache", "pos": [280, 80], "size": [150, 60] },
+    { "id": "viz_tool", "type": "backend", "label": "Viz Tool Subsystem", "sublabel": "fast-umap + egui GUI", "pos": [280, 400], "size": [150, 60] },
+    { "id": "ratelimit", "type": "security", "label": "Rate Limiter", "sublabel": "RPM / RPD Tracker", "tag": "Quota Guard", "pos": [530, 80], "size": [150, 60] },
+    { "id": "worker", "type": "backend", "label": "Task Orchestrator", "sublabel": "Background Worker", "tag": "tokio::spawn", "pos": [530, 240], "size": [150, 60] },
+    { "id": "db", "type": "database", "label": "SQLite Store", "sublabel": "WAL Mode : summaries.db", "brand": "sqlite", "pos": [530, 400], "size": [150, 60] },
+    { "id": "ytdlp", "type": "external", "label": "YouTube Subtitles", "sublabel": "yt-dlp + VTT Parser", "brand": "youtube", "pos": [860, 60], "size": [150, 60] },
+    { "id": "hn_api", "type": "external", "label": "Hacker News", "sublabel": "Firebase REST API", "brand": "firebase", "pos": [860, 180], "size": [150, 60] },
+    { "id": "gemini", "type": "cloud", "label": "Google Gemini API", "sublabel": "LLM & 3072d Embeddings", "brand": "google-gemini", "pos": [860, 320], "size": [150, 60] },
+    { "id": "hetzner", "type": "cloud", "label": "Hetzner vLLM", "sublabel": "Qwen / DeepSeek / Kimi", "brand": "openai", "pos": [860, 460], "size": [150, 60] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "rs-summarizer Core Application", "wraps": ["axum", "dedup", "worker", "ratelimit", "db", "viz_tool"] },
+    { "kind": "security-group", "label": "External Content & LLM Providers", "wraps": ["ytdlp", "hn_api", "gemini", "hetzner"] }
+  ],
+  "connections": [
+    { "id": "ui-to-axum", "from": "ui", "to": "axum", "label": "HTTP / HTMX", "variant": "emphasis" },
+    { "id": "axum-to-dedup", "from": "axum", "to": "dedup", "label": "Check Dedup", "fromSide": "top", "toSide": "bottom" },
+    { "id": "axum-to-worker", "from": "axum", "to": "worker", "label": "Spawn Task", "variant": "emphasis" },
+    { "id": "axum-to-viz", "from": "axum", "to": "viz_tool", "label": "NN Mapper", "fromSide": "bottom", "toSide": "top", "labelAt": [355, 350] },
+    { "id": "worker-to-ratelimit", "from": "worker", "to": "ratelimit", "label": "Rate Check", "fromSide": "top", "toSide": "bottom" },
+    { "id": "worker-to-ytdlp", "from": "worker", "to": "ytdlp", "label": "Fetch VTT", "labelAt": [815, 78] },
+    { "id": "worker-to-hn", "from": "worker", "to": "hn_api", "label": "Fetch Comments", "labelAt": [815, 198] },
+    { "id": "worker-to-gemini", "from": "worker", "to": "gemini", "label": "Summary & Embed", "labelAt": [815, 338] },
+    { "id": "worker-to-hetzner", "from": "worker", "to": "hetzner", "label": "Fallback Model", "variant": "dashed", "labelAt": [815, 478] },
+    { "id": "worker-to-db", "from": "worker", "to": "db", "label": "Persist Summary", "fromSide": "bottom", "toSide": "top", "labelAt": [605, 350] },
+    { "id": "viz-to-db", "from": "viz_tool", "to": "db", "label": "Read Vectors", "fromSide": "right", "toSide": "left" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Asynchronous Web Core",
+      "items": [
+        "Axum web server with Askama HTML templates and HTMX live polling",
+        "Deduplication service prevents redundant fetches by URL and text hash",
+        "Tokio async background worker manages lifecycle and state transitions"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Resilient Multi-Model Inference",
+      "items": [
+        "Dynamic rate limiter enforces RPM/RPD quotas with active model locks",
+        "Automatic fallback chain across Gemini and Hetzner OpenAI-compatible vLLM models",
+        "YouTube transcript extraction with automatic timestamp markdown linking"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Persistence & 2D Projection",
+      "items": [
+        "SQLite with WAL mode storing transcripts, summaries, embeddings, and ratings",
+        "Integrated fast-umap GPU/CPU engine for DBSCAN clustering and egui GUI",
+        "Parametric NN Mapper loaded into Axum state for real-time 2D coordinates"
+      ]
+    }
+  ]
+}

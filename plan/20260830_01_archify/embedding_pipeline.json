@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Vector Embedding & Visualization Pipeline",
+    "quality_profile": "showcase",
+    "viewBox": [1040, 660],
+    "views": [
+      {
+        "id": "ingestion-projection",
+        "label": "Embedding to 2D projection",
+        "focus": ["gemini_embed", "sqlite_db", "export_cli", "data_loader", "nn_descent", "fast_umap", "viz_gui"],
+        "note": "Follow 3072-dimensional embeddings from Gemini API down to 2D UMAP projection."
+      },
+      {
+        "id": "clustering-titling",
+        "label": "Clustering and LLM titling",
+        "focus": ["fast_umap", "dbscan", "cluster_titler", "axum_viz"],
+        "note": "Examine DBSCAN density clustering and Gemini-powered batch cluster titling."
+      },
+      {
+        "id": "runtime-search",
+        "label": "Runtime serving and search",
+        "focus": ["axum_viz", "vector_search", "viz_gui"],
+        "note": "Observe how coordinates, cluster metadata, and vector similarity are served at runtime."
+      }
+    ]
+  },
+  "stages": [
+    { "label": "Ingest & Persist" },
+    { "label": "Extract & Graph" },
+    { "label": "Project & Cluster" },
+    { "label": "Explore & Serve" }
+  ],
+  "nodes": [
+    { "id": "gemini_embed", "type": "cloud", "label": "Gemini Embed", "sublabel": "3072d Vectors", "brand": "google-gemini", "stage": 0, "row": 0, "tag": "f32 floats", "width": 136 },
+    { "id": "sqlite_db", "type": "database", "label": "SQLite Store", "sublabel": "summaries.db", "brand": "sqlite", "stage": 0, "row": 1, "tag": "BLOB vectors", "width": 136 },
+    { "id": "export_cli", "type": "backend", "label": "Export CLI", "sublabel": "export-db command", "stage": 0, "row": 2, "tag": "compact file", "width": 136 },
+    { "id": "data_loader", "type": "backend", "label": "Data Loader", "sublabel": "Byte Deserializer", "stage": 1, "row": 2, "tag": "dim truncation", "width": 136 },
+    { "id": "nn_descent", "type": "backend", "label": "k-NN Graph", "sublabel": "Nearest Neighbor", "stage": 1, "row": 1, "tag": "Rayon CPU", "width": 136 },
+    { "id": "fast_umap", "type": "backend", "label": "fast-umap (GPU)", "sublabel": "GPU 2D Projection", "stage": 2, "row": 0, "tag": "2D reduction", "width": 136 },
+    { "id": "dbscan", "type": "backend", "label": "DBSCAN Engine", "sublabel": "Density Clusters", "stage": 2, "row": 1, "tag": "noise filter", "width": 136 },
+    { "id": "cluster_titler", "type": "cloud", "label": "Cluster Titler", "sublabel": "LLM Batch Titles", "brand": "google-gemini", "stage": 2, "row": 2, "tag": "JSON titles", "width": 136 },
+    { "id": "viz_gui", "type": "frontend", "label": "egui Viz App", "sublabel": "Interactive 2D", "stage": 3, "row": 0, "tag": "eframe GUI", "width": 136 },
+    { "id": "axum_viz", "type": "backend", "label": "Axum Server", "sublabel": "AppState Cache", "brand": "rust", "stage": 3, "row": 1, "tag": "live coords", "width": 136 },
+    { "id": "vector_search", "type": "frontend", "label": "Similarity Query", "sublabel": "Cosine Distance", "stage": 3, "row": 2, "tag": "POST /search", "width": 136 }
+  ],
+  "flows": [
+    { "id": "gemini-to-db", "from": "gemini_embed", "to": "sqlite_db", "label": "raw f32 BLOB", "variant": "emphasis" },
+    { "id": "db-to-export", "from": "sqlite_db", "to": "export_cli", "label": "read records", "variant": "default" },
+    { "id": "export-to-loader", "from": "export_cli", "to": "data_loader", "label": "compact DB", "variant": "emphasis", "route": "straight" },
+    { "id": "loader-to-graph", "from": "data_loader", "to": "nn_descent", "label": "vector matrix", "variant": "default" },
+    { "id": "graph-to-umap", "from": "nn_descent", "to": "fast_umap", "label": "k-NN graph", "variant": "emphasis" },
+    { "id": "umap-to-dbscan", "from": "fast_umap", "to": "dbscan", "label": "2D coords", "variant": "emphasis" },
+    { "id": "dbscan-to-titler", "from": "dbscan", "to": "cluster_titler", "label": "cluster points", "variant": "default" },
+    { "id": "umap-to-gui", "from": "fast_umap", "to": "viz_gui", "label": "2D coords", "variant": "emphasis", "route": "straight" },
+    { "id": "dbscan-to-axum", "from": "dbscan", "to": "axum_viz", "label": "centroids", "variant": "emphasis", "route": "straight" },
+    { "id": "titler-to-search", "from": "cluster_titler", "to": "vector_search", "label": "titles JSON", "variant": "dashed", "route": "straight" },
+    { "id": "axum-to-search", "from": "axum_viz", "to": "vector_search", "label": "similarity query", "variant": "emphasis" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "High-Dimensional Ingestion",
+      "items": [
+        "Gemini generates 3072-dimensional dense embeddings stored as binary BLOBs in SQLite",
+        "Export CLI creates compact database snapshots optimized for memory mapping",
+        "Data loader deserializes f32 vectors with configurable dimensionality truncation"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Accelerated UMAP & Clustering",
+      "items": [
+        "Parallel nearest-neighbor descent builds sparse k-NN connectivity graphs via Rayon",
+        "Parametric GPU shaders (WGPU/Burn) project embeddings to 2D coordinate space",
+        "DBSCAN detects dense topic clusters while Gemini batch-titles each semantic cluster"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Exploration & Runtime Serving",
+      "items": [
+        "Interactive desktop GUI built with egui/eframe offers real-time filtering and cluster inspection",
+        "Computed 2D centroids, labels, and titles load directly into Axum server AppState",
+        "In-database vector similarity search powers real-time related summary queries"
+      ]
+    }
+  ]
+}
