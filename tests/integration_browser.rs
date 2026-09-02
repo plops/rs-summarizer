@@ -80,6 +80,7 @@ async fn test_app_state() -> AppState {
         model_counts: Arc::new(RwLock::new(HashMap::new())),
         last_reset_day: Arc::new(RwLock::new(None)),
         gemini_api_key,
+        #[cfg(feature = "nn-mapper")]
         nn_mapper: None,
         viz_data: None,
         model_locks: Arc::new(RwLock::new(HashMap::new())),
@@ -234,6 +235,7 @@ async fn test_app_state_with_low_limit() -> AppState {
         model_counts: Arc::new(RwLock::new(HashMap::new())),
         last_reset_day: Arc::new(RwLock::new(None)),
         gemini_api_key,
+        #[cfg(feature = "nn-mapper")]
         nn_mapper: None,
         viz_data: None,
         model_locks: Arc::new(RwLock::new(HashMap::new())),

@@ -21,6 +21,7 @@ async fn setup_test_app() -> (axum::Router, SqlitePool) {
         model_counts: Arc::new(RwLock::new(HashMap::new())),
         last_reset_day: Arc::new(RwLock::new(None)),
         gemini_api_key: "test_key".to_string(),
+        #[cfg(feature = "nn-mapper")]
         nn_mapper: None,
         viz_data: None,
         model_locks: Arc::new(RwLock::new(HashMap::new())),

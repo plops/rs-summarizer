@@ -29,11 +29,10 @@ reqwest = { version = "0.12", features = ["json"] }
 futures-util = "0.3"
 vtt = "1.0"
 pulldown-cmark = "0.13.3"
-fast-umap = { version = "1.6.0", features = ["gpu"] }
-burn = { version = "=0.20.1", features = ["wgpu", "autodiff"], default-features = false }
-burn-autodiff = "=0.20.1"
-burn-cubecl = "=0.20.1"
-cubecl = { version = "=0.9.0", features = ["wgpu"] }
+fast-umap = { version = "1.6.0", default-features = false, optional = true }
+burn-autodiff = { version = "=0.20.1", optional = true }
+burn-cubecl = { version = "=0.20.1", optional = true }
+cubecl = { version = "=0.9.0", features = ["wgpu"], optional = true }
 async-openai = { version = "0.41.1", features = ["chat-completion"] }
 
 [dev-dependencies]
@@ -43,3 +42,13 @@ serde_json = "1.0"
 tokio-util = { version = "0.7", features = ["rt"] }
 tempfile = "3.27"
 tower = { version = "0.5", features = ["util"] }
+
+[features]
+default = []
+nn-mapper = [
+    "dep:fast-umap",
+    "dep:burn-autodiff",
+    "dep:burn-cubecl",
+    "dep:cubecl",
+    "fast-umap/gpu",
+]

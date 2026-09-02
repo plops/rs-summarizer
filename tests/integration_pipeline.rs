@@ -373,6 +373,7 @@ async fn build_test_app_state() -> AppState {
         model_counts,
         last_reset_day,
         gemini_api_key: api_key,
+        #[cfg(feature = "nn-mapper")]
         nn_mapper: None,
         viz_data: None,
         model_locks: Arc::new(RwLock::new(HashMap::new())),

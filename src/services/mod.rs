@@ -2,6 +2,7 @@ pub mod deduplication;
 pub mod download_limiter;
 pub mod embedding;
 pub mod hacker_news;
+#[cfg(feature = "nn-mapper")]
 pub mod nn_mapper;
 pub mod rate_limiter;
 pub mod summary;

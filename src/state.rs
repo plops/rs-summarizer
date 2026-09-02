@@ -44,6 +44,7 @@ pub struct AppState {
     pub model_counts: Arc<RwLock<HashMap<String, u32>>>,
     pub last_reset_day: Arc<RwLock<Option<NaiveDate>>>,
     pub gemini_api_key: String,
+    #[cfg(feature = "nn-mapper")]
     pub nn_mapper: Option<std::sync::Arc<std::sync::Mutex<crate::services::nn_mapper::NnMapper>>>,
     pub viz_data: Option<std::sync::Arc<crate::models::VizData>>,
     pub model_locks: ModelLockMap,

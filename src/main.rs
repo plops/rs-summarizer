@@ -30,8 +30,10 @@ async fn main() -> anyhow::Result<()> {
     // Initialize database
     let db = db::init_db("sqlite:data/summaries.db").await?;
 
-    // Load visualization data and NN mapper if COMPACT_DB_PATH is set
-    let (nn_mapper, viz_data) = load_visualization_components().await;
+    // Load visualization data and the optional NN mapper if COMPACT_DB_PATH is set.
+    let viz_data = load_visualization_components().await;
+    #[cfg(feature = "nn-mapper")]
+    let nn_mapper = load_nn_mapper().await;
 
     // Configure model options
     let model_options = rs_summarizer::state::load_models_config(None);
@@ -43,6 +45,7 @@ async fn main() -> anyhow::Result<()> {
         model_counts: Arc::new(RwLock::new(HashMap::new())),
         last_reset_day: Arc::new(RwLock::new(None)),
         gemini_api_key,
+        #[cfg(feature = "nn-mapper")]
         nn_mapper,
         viz_data,
         model_locks: Arc::new(RwLock::new(HashMap::new())),
@@ -110,15 +113,12 @@ async fn shutdown_signal() {
     }
 }
 
-async fn load_visualization_components() -> (
-    Option<std::sync::Arc<std::sync::Mutex<rs_summarizer::services::nn_mapper::NnMapper>>>,
-    Option<std::sync::Arc<rs_summarizer::models::VizData>>,
-) {
+async fn load_visualization_components() -> Option<std::sync::Arc<rs_summarizer::models::VizData>> {
     let compact_db_path = match std::env::var("COMPACT_DB_PATH") {
         Ok(path) => path,
         Err(_) => {
             tracing::info!("COMPACT_DB_PATH not set, visualization components will not be loaded");
-            return (None, None);
+            return None;
         }
     };
 
@@ -131,19 +131,16 @@ async fn load_visualization_components() -> (
         .unwrap_or("compact");
     let parent_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
 
-    // Load NN Mapper
-    let nn_mapper = load_nn_mapper(parent_dir, stem).await;
-
     // Load VizData
-    let viz_data = load_viz_data(&compact_db_path, parent_dir, stem).await;
-
-    (nn_mapper, viz_data)
+    load_viz_data(&compact_db_path, parent_dir, stem).await
 }
 
-async fn load_nn_mapper(
-    parent_dir: &std::path::Path,
-    stem: &str,
-) -> Option<std::sync::Arc<std::sync::Mutex<rs_summarizer::services::nn_mapper::NnMapper>>> {
+#[cfg(feature = "nn-mapper")]
+async fn load_nn_mapper() -> Option<std::sync::Arc<std::sync::Mutex<rs_summarizer::services::nn_mapper::NnMapper>>> {
+    let compact_db_path = std::env::var("COMPACT_DB_PATH").ok()?;
+    let db_path = std::path::Path::new(&compact_db_path);
+    let stem = db_path.file_stem().and_then(|s| s.to_str()).unwrap_or("compact");
+    let parent_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
     let model_path = parent_dir.join(format!("{}_nn_mapper.bin", stem));
 
     if !model_path.exists() {
