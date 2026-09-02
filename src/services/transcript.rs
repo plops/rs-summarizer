@@ -696,19 +696,19 @@ en-orig  English (Original)      vtt, ttml, srv3, srv2, srv1, json3
     #[test]
     fn test_cookie_args_defaults() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::set_var("YTDLP_COOKIES_FROM_BROWSER", "firefox");
+        unsafe { std::env::set_var("YTDLP_COOKIES_FROM_BROWSER", "firefox") };
         let args = cookie_args();
         assert_eq!(
             args,
             vec!["--cookies-from-browser".to_string(), "firefox".to_string()]
         );
-        std::env::remove_var("YTDLP_COOKIES_FROM_BROWSER");
+        unsafe { std::env::remove_var("YTDLP_COOKIES_FROM_BROWSER") };
     }
 
     #[test]
     fn test_base_uvx_args_default() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::remove_var("DISABLE_POT_PROVIDER");
+        unsafe { std::env::remove_var("DISABLE_POT_PROVIDER") };
         let args = base_uvx_args();
         assert_eq!(
             args,
@@ -723,17 +723,19 @@ en-orig  English (Original)      vtt, ttml, srv3, srv2, srv1, json3
     #[test]
     fn test_base_uvx_args_disabled() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::set_var("DISABLE_POT_PROVIDER", "1");
+        unsafe { std::env::set_var("DISABLE_POT_PROVIDER", "1") };
         let args = base_uvx_args();
         assert_eq!(args, vec!["yt-dlp".to_string()]);
-        std::env::remove_var("DISABLE_POT_PROVIDER");
+        unsafe { std::env::remove_var("DISABLE_POT_PROVIDER") };
     }
 
     #[test]
     fn test_extractor_args_default() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::remove_var("YTDLP_PLAYER_CLIENT");
-        std::env::remove_var("YTDLP_EXTRACTOR_ARGS");
+        unsafe {
+            std::env::remove_var("YTDLP_PLAYER_CLIENT");
+            std::env::remove_var("YTDLP_EXTRACTOR_ARGS");
+        }
         let args = extractor_args();
         assert!(args.contains(&"--extractor-args".to_string()));
         assert!(args.contains(&"youtube:player_client=mweb".to_string()));
@@ -742,9 +744,11 @@ en-orig  English (Original)      vtt, ttml, srv3, srv2, srv1, json3
     #[test]
     fn test_extractor_args_custom_pot_url_and_player_client() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::set_var("POT_PROVIDER_URL", "http://192.168.1.50:4416");
-        std::env::set_var("YTDLP_PLAYER_CLIENT", "android");
-        std::env::set_var("YTDLP_EXTRACTOR_ARGS", "youtube:skip=hls");
+        unsafe {
+            std::env::set_var("POT_PROVIDER_URL", "http://192.168.1.50:4416");
+            std::env::set_var("YTDLP_PLAYER_CLIENT", "android");
+            std::env::set_var("YTDLP_EXTRACTOR_ARGS", "youtube:skip=hls");
+        }
 
         let args = extractor_args();
         assert!(args.contains(&"youtube:player_client=android".to_string()));
@@ -753,31 +757,37 @@ en-orig  English (Original)      vtt, ttml, srv3, srv2, srv1, json3
         );
         assert!(args.contains(&"youtube:skip=hls".to_string()));
 
-        std::env::remove_var("POT_PROVIDER_URL");
-        std::env::remove_var("YTDLP_PLAYER_CLIENT");
-        std::env::remove_var("YTDLP_EXTRACTOR_ARGS");
+        unsafe {
+            std::env::remove_var("POT_PROVIDER_URL");
+            std::env::remove_var("YTDLP_PLAYER_CLIENT");
+            std::env::remove_var("YTDLP_EXTRACTOR_ARGS");
+        }
     }
 
     #[test]
     fn test_resolve_pot_provider_url_env_precedence() {
         let _guard = ENV_MUTEX.lock().unwrap();
-        std::env::remove_var("POT_PROVIDER_URL");
-        std::env::remove_var("BGUTIL_POT_PROVIDER_URL");
-        std::env::remove_var("YTDLP_POT_PROVIDER_URL");
+        unsafe {
+            std::env::remove_var("POT_PROVIDER_URL");
+            std::env::remove_var("BGUTIL_POT_PROVIDER_URL");
+            std::env::remove_var("YTDLP_POT_PROVIDER_URL");
+        }
 
-        std::env::set_var("BGUTIL_POT_PROVIDER_URL", "http://bgutil-host:4416");
+        unsafe { std::env::set_var("BGUTIL_POT_PROVIDER_URL", "http://bgutil-host:4416") };
         assert_eq!(
             resolve_pot_provider_url(),
             Some("http://bgutil-host:4416".to_string())
         );
 
-        std::env::set_var("POT_PROVIDER_URL", "http://pot-host:4416");
+        unsafe { std::env::set_var("POT_PROVIDER_URL", "http://pot-host:4416") };
         assert_eq!(
             resolve_pot_provider_url(),
             Some("http://pot-host:4416".to_string())
         );
 
-        std::env::remove_var("POT_PROVIDER_URL");
-        std::env::remove_var("BGUTIL_POT_PROVIDER_URL");
+        unsafe {
+            std::env::remove_var("POT_PROVIDER_URL");
+            std::env::remove_var("BGUTIL_POT_PROVIDER_URL");
+        }
     }
 }

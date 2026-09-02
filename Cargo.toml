@@ -8,7 +8,7 @@ fast-umap = { path = "third_party/fast-umap" }
 [package]
 name = "rs-summarizer"
 version = "1.6.1"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
 tokio = { version = "1.52", features = ["full"] }
