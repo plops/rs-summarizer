@@ -83,9 +83,9 @@ pub fn get_default_models() -> Vec<ModelOption> {
             rpd_limit: 1000,
             architecture: ModelArchitecture::Gemini,
         },
-        // 1. Gemini 3.7 Flash (Text-out models)
+        // 0. Gemini 3.6 Flash (Text-out models)
         ModelOption {
-            name: "gemini-3.7-flash".to_string(),
+            name: "gemini-3.6-flash".to_string(),
             input_price_per_mtoken: 0.75,
             output_price_per_mtoken: 3.75,
             context_window: 1_000_000,
@@ -93,9 +93,19 @@ pub fn get_default_models() -> Vec<ModelOption> {
             rpd_limit: 20,
             architecture: ModelArchitecture::Gemini,
         },
-        // 2. Gemini 3.6 Flash (Text-out models)
+        // 1. Gemini 3.8 Flash (Text-out models)
         ModelOption {
-            name: "gemini-3.6-flash".to_string(),
+            name: "gemini-3.8-flash".to_string(),
+            input_price_per_mtoken: 0.75,
+            output_price_per_mtoken: 3.75,
+            context_window: 1_000_000,
+            rpm_limit: 5,
+            rpd_limit: 20,
+            architecture: ModelArchitecture::Gemini,
+        },
+        // 2. Gemini 3.7 Flash (Text-out models)
+        ModelOption {
+            name: "gemini-3.7-flash".to_string(),
             input_price_per_mtoken: 0.75,
             output_price_per_mtoken: 3.75,
             context_window: 1_000_000,
