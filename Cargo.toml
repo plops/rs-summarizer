@@ -11,29 +11,29 @@ version = "1.6.1"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1.52", features = ["full"] }
-axum = "0.8"
+tokio = { version = "1.53.1", features = ["full"] }
+axum = "0.8.9"
 sqlx = { version = "0.9", features = ["sqlite", "runtime-tokio", "macros"] }
-gemini-rust = "1.7.1"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+gemini-rust = "2.0.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
 askama = "0.16"
-regex = "1.12"
-tracing = "0.1"
-tracing-subscriber = "0.3"
-thiserror = "2.0"
+regex = "1.13.1"
+tracing = "0.1.44"
+tracing-subscriber = "0.3.23"
+thiserror = "2.0.20"
 anyhow = "1.0"
-chrono = { version = "0.4", features = ["serde"] }
-tower-http = { version = "0.6", features = ["fs"] }
-reqwest = { version = "0.12", features = ["json"] }
-futures-util = "0.3"
+chrono = { version = "0.4.45", features = ["serde"] }
+tower-http = { version = "0.7.1", features = ["fs"] }
+reqwest = { version = "0.13.4", features = ["json"] }
+futures-util = "0.3.34"
 vtt = "1.0"
-pulldown-cmark = "0.13.3"
+pulldown-cmark = "0.13.4"
 fast-umap = { version = "1.6.0", default-features = false, optional = true }
 burn-autodiff = { version = "=0.20.1", optional = true }
 burn-cubecl = { version = "=0.20.1", optional = true }
 cubecl = { version = "=0.9.0", features = ["wgpu"], optional = true }
-async-openai = { version = "0.41.1", features = ["chat-completion"] }
+async-openai = { version = "0.41.3", features = ["chat-completion"] }
 
 [dev-dependencies]
 proptest = "1.11"
