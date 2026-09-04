@@ -48,8 +48,10 @@ output rejection, migration/backfill, CAS/epoch ownership, retry reset, and
 the terminal UI polling/retry contract.
 
 `GEMINI_LIVE_TEST` was not set, so no API key was loaded and no billable live
-request was made. The WebDriver tests are opt-in and remain ignored without a
-configured browser driver. The `sqlx` CLI is not installed in this container;
+request was made. The WebDriver suite passed serially with
+`TEST_BROWSER=chromium`, the matching ChromeDriver path documented below, and
+`--ignored --test-threads=1`; serial execution avoids its fixed-port
+collisions. The `sqlx` CLI is not installed in this container;
 migration behavior is instead exercised directly against empty and pre-007
 SQLite fixtures by the database tests.
 
