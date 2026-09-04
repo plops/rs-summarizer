@@ -47,13 +47,16 @@ and omits the named level while retaining the original persisted choice.
   do not fail this gate.
 - `cargo build --release` — passed.
 
-The ignored browser suite was explicitly attempted with
-`cargo test --test integration_browser -- --ignored`; it could not start its
-22 browser-dependent cases because `geckodriver` is not installed in this
-container. No live Gemini request was made: it requires credentials and incurs
-cost, while the provider mapping and fallback behavior are covered without a
-network call. The full suite also leaves 13 live pipeline/transcript tests and
-three live transcript tests ignored for those external-service requirements.
+The Firefox attempt could not start because `geckodriver` is not installed.
+The harness subsequently gained Chromium support and was run with the
+container's headless Chrome for Testing plus matching ChromeDriver: 16 of 25
+browser tests passed. The remaining nine are existing assertion/fixture issues
+(including an obsolete title expectation, an invalid YouTube ID, and keyboard
+tab order changed by the new selector), not WebDriver startup failures. No live
+Gemini request was made: it requires credentials and incurs cost, while the
+provider mapping and fallback behavior are covered without a network call. The
+full suite still leaves 13 live pipeline/transcript tests and three live
+transcript tests ignored for their external-service requirements.
 
 ## Migration and release proof
 
@@ -84,6 +87,6 @@ committed.
 
 ## Container additions
 
-None. Rust/Cargo, SQLite, and `tar` already provided all implementation and
-verification tooling. Firefox/geckodriver would be needed only to execute the
-ignored browser suite locally.
+None were installed permanently. Rust/Cargo, SQLite, `tar`, and the supplied
+headless Chrome were sufficient; matching ChromeDriver was downloaded only to
+`/tmp` for the Chromium browser-test run.

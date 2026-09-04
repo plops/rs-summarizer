@@ -1,17 +1,16 @@
 //! Browser-based integration tests using fantoccini (WebDriver).
 //!
-//! These tests spin up the actual application server and drive a headless Firefox
+//! These tests spin up the actual application server and drive a headless browser
 //! browser against it, verifying the full user-facing behavior including HTMX
 //! interactions, form submissions, and page navigation.
 //!
 //! Prerequisites:
-//! - geckodriver must be in PATH (or ~/bin/geckodriver)
-//! - Firefox must be installed
+//! - geckodriver + Firefox, or chromedriver + Chrome/Chromium, must be installed
 //! - GEMINI_API_KEY env var for tests that trigger summarization
 //!
 //! Run with: cargo test --test integration_browser -- --ignored
-#![allow(clippy::zombie_processes)] // Each test kills geckodriver during cleanup.
-//! (These tests are ignored by default since they require geckodriver + Firefox)
+#![allow(clippy::zombie_processes)] // Each test kills its WebDriver during cleanup.
+//! (These tests are ignored by default since they require a browser + WebDriver)
 
 use fantoccini::{Client, ClientBuilder, Locator};
 use rs_summarizer::state::{AppState, ModelArchitecture, ModelOption};
@@ -24,8 +23,19 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
 
-/// Find geckodriver binary, checking ~/bin first then PATH.
+/// Select Firefox by default, or Chrome/Chromium when `TEST_BROWSER=chromium`.
+fn use_chromium() -> bool {
+    matches!(
+        std::env::var("TEST_BROWSER").as_deref(),
+        Ok("chromium") | Ok("chrome")
+    )
+}
+
+/// Find the configured WebDriver binary.
 fn geckodriver_path() -> String {
+    if use_chromium() {
+        return std::env::var("CHROMEDRIVER").unwrap_or_else(|_| "chromedriver".to_string());
+    }
     let home_bin = format!(
         "{}/bin/geckodriver",
         std::env::var("HOME").unwrap_or_default()
@@ -36,14 +46,19 @@ fn geckodriver_path() -> String {
     "geckodriver".to_string()
 }
 
-/// Start geckodriver on a given port and return the child process handle.
+/// Start the selected WebDriver on a given port and return its child process handle.
 fn start_geckodriver(port: u16) -> std::process::Child {
-    std::process::Command::new(geckodriver_path())
-        .args(["--port", &port.to_string()])
+    let mut command = std::process::Command::new(geckodriver_path());
+    if use_chromium() {
+        command.arg(format!("--port={port}"));
+    } else {
+        command.args(["--port", &port.to_string()]);
+    }
+    command
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .expect("Failed to start geckodriver. Is it installed?")
+        .expect("Failed to start the selected WebDriver. Is it installed?")
 }
 
 /// Create a test AppState with an in-memory SQLite database.
@@ -248,8 +263,21 @@ async fn test_app_state_with_low_limit() -> AppState {
     }
 }
 
-/// Connect a headless Firefox browser via WebDriver.
+/// Connect the configured headless browser via WebDriver.
 async fn connect_browser(geckodriver_port: u16) -> Client {
+    if use_chromium() {
+        let chrome_binary = std::env::var("CHROME_BINARY").unwrap_or_else(|_| {
+            "/opt/archify-browser/chrome/linux-152.0.7977.75/chrome-linux64/chrome".to_string()
+        });
+        let caps = json!({
+            "goog:chromeOptions": {
+                "binary": chrome_binary,
+                "args": ["--headless=new", "--no-sandbox", "--disable-dev-shm-usage"]
+            }
+        });
+        return connect_with_retry(geckodriver_port, caps).await;
+    }
+
     // Detect Firefox binary path (may be "firefox-bin" on some distros)
     let firefox_binary = if std::path::Path::new("/usr/bin/firefox-bin").exists() {
         "/usr/bin/firefox-bin"
@@ -266,7 +294,11 @@ async fn connect_browser(geckodriver_port: u16) -> Client {
         }
     });
 
-    // Retry connection a few times while geckodriver starts up
+    connect_with_retry(geckodriver_port, caps).await
+}
+
+async fn connect_with_retry(geckodriver_port: u16, caps: serde_json::Value) -> Client {
+    // Retry connection a few times while the selected WebDriver starts up.
     let mut last_err = None;
     for _ in 0..10 {
         match ClientBuilder::native()
@@ -282,7 +314,7 @@ async fn connect_browser(geckodriver_port: u16) -> Client {
         }
     }
     panic!(
-        "Failed to connect to geckodriver after retries: {:?}",
+        "Failed to connect to WebDriver after retries: {:?}",
         last_err
     );
 }
