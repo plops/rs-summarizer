@@ -6,6 +6,7 @@ use crate::state::ModelOption;
 #[template(path = "index.html")]
 pub struct IndexTemplate {
     pub models: Vec<ModelOption>,
+    pub app_version: &'static str,
 }
 
 #[derive(Template)]
@@ -26,6 +27,7 @@ use crate::models::RatingStats;
 pub struct BrowseSummaryItem {
     pub identifier: i64,
     pub model: String,
+    pub rs_summarizer_version: String,
     pub cost: f64,
     pub original_source_link: String,
     pub summary_html: String,
@@ -44,6 +46,7 @@ pub struct RatingPartialTemplate {
 #[template(path = "browse.html")]
 pub struct BrowseTemplate {
     pub summaries: Vec<BrowseSummaryItem>,
+    pub app_version: &'static str,
     pub page: u32,
     pub has_next: bool,
 }
