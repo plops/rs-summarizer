@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
     if recovered > 0 {
         tracing::warn!(
             recovered,
-            "Recovered stale running generations into queued state"
+            "Recovered interrupted generation work into queued state"
         );
     }
 

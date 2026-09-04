@@ -66,8 +66,9 @@ the new columns until all deployed binaries no longer rely on them.
 Interactions supplies a meaningful lifecycle terminal event, unlike treating
 stream EOF as implicit success. The product still needs a provider-event fake
 seam and a WebDriver abort/retry scenario before calling the browser coverage
-complete. A future worker/scheduler should resume persisted `retry_wait` rows
-after a process restart rather than only recovering stale `running` rows.
+complete. On restart, retry-wait work is recovered to queued work so that a
+crash cannot strand a non-terminal row; this favors recovery over preserving a
+stale in-memory delay.
 Thinking summaries are captured when Interactions emits typed thought-summary
 content; Gemini 2.5 retains its provider default because this API exposes named
 thinking levels for Gemini 3.

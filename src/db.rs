@@ -138,7 +138,7 @@ pub async fn recover_stale_generations(
     db: &SqlitePool,
     stale_before: &str,
 ) -> Result<u64, sqlx::Error> {
-    Ok(sqlx::query("UPDATE summaries SET generation_status='queued', generation_updated_at=?, generation_error_code='network_interrupted', generation_error_message='A previous generation was interrupted and will be retried.' WHERE generation_status='running' AND generation_updated_at < ?")
+    Ok(sqlx::query("UPDATE summaries SET generation_status='queued', generation_updated_at=?, generation_error_code='network_interrupted', generation_error_message='A previous generation was interrupted and will be retried.' WHERE (generation_status='running' AND generation_updated_at < ?) OR generation_status='retry_wait'")
         .bind(chrono::Utc::now().to_rfc3339()).bind(stale_before).execute(db).await?.rows_affected())
 }
 
@@ -584,6 +584,25 @@ mod tests {
         let retried = fetch_summary(&pool, queued_id).await.unwrap().unwrap();
         assert_eq!(retried.generation_status, "queued");
         assert!(retried.summary.is_empty());
+
+        sqlx::query("UPDATE summaries SET generation_status='retry_wait', next_retry_at='2099-01-01T00:00:00Z'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            recover_stale_generations(&pool, "2000-01-01T00:00:00Z")
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            fetch_summary(&pool, queued_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .generation_status,
+            "queued"
+        );
 
         // Apply the additive migration to an actual pre-007 fixture.
         let legacy = SqlitePool::connect("sqlite::memory:").await.unwrap();
