@@ -23,6 +23,16 @@
                 {% endfor %}
             </select>
 
+            <label for="thinking_level">Thinking effort</label>
+            <select id="thinking_level" name="thinking_level" aria-describedby="thinking-level-help">
+                <option value="auto">Auto (Gemini default)</option>
+                <option value="minimal">Minimal</option>
+                <option value="low">Low</option>
+                <option value="medium">Medium</option>
+                <option value="high" selected>High</option>
+            </select>
+            <small id="thinking-level-help">Gemini 3.* supports named thinking effort. Other models use Auto and do not receive a thinking-level setting.</small>
+
             <details>
                 <summary style="font-weight: bold; cursor: pointer; color: var(--primary);">Advanced Options</summary>
                 
@@ -105,6 +115,7 @@
 
                 // Toggle visibility of Grounding and URL Context options
                 const modelSelect = document.getElementById('model');
+                const thinkingLevelSelect = document.getElementById('thinking_level');
                 const extraOptions = document.getElementById('extra-options');
                 const groundingContainer = document.getElementById('grounding-container');
                 const urlContextContainer = document.getElementById('url-context-container');
@@ -136,6 +147,14 @@
                     if (groundingContainer) groundingContainer.style.display = showGrounding ? 'block' : 'none';
                     if (urlContextContainer) urlContextContainer.style.display = showUrlContext ? 'block' : 'none';
                     if (extraOptions) extraOptions.style.display = (showGrounding || showUrlContext) ? 'block' : 'none';
+
+                    const supportsThinking = modelSelect.value.toLowerCase().startsWith('gemini-3.');
+                    if (thinkingLevelSelect) {
+                        Array.from(thinkingLevelSelect.options).forEach(function(option) {
+                            option.disabled = option.value !== 'auto' && !supportsThinking;
+                        });
+                        if (!supportsThinking) thinkingLevelSelect.value = 'auto';
+                    }
                 }
 
                 if (modelSelect) {

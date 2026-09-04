@@ -8,7 +8,7 @@ use chrono::Utc;
 use std::net::SocketAddr;
 
 use crate::db;
-use crate::models::{BrowseParams, SearchForm, SubmitForm, SubmitRatingForm};
+use crate::models::{BrowseParams, SearchForm, SubmitForm, SubmitRatingForm, ThinkingPreference};
 use crate::services::embedding::EmbeddingService;
 use crate::services::rate_limiter::RateLimiter;
 use crate::state::AppState;
@@ -49,6 +49,20 @@ fn render_template<T: Template>(template: &T) -> Html<String> {
     }
 }
 
+fn supports_named_thinking_levels(model_name: &str) -> bool {
+    model_name.to_ascii_lowercase().starts_with("gemini-3.")
+}
+
+fn validate_thinking_preference(
+    model_name: &str,
+    preference: ThinkingPreference,
+) -> Result<(), &'static str> {
+    if preference != ThinkingPreference::Auto && !supports_named_thinking_levels(model_name) {
+        return Err("Named thinking levels are only supported by Gemini 3.* models.");
+    }
+    Ok(())
+}
+
 /// GET / — renders the index page with the submission form.
 pub async fn index(State(app): State<AppState>) -> impl IntoResponse {
     let template = IndexTemplate {
@@ -70,6 +84,10 @@ pub async fn process_transcript(
         Some(m) => m.clone(),
         None => return Html("<p>Invalid model selected.</p>".to_string()),
     };
+
+    if let Err(message) = validate_thinking_preference(&input.model, input.thinking_level) {
+        return Html(format!("<p>Invalid thinking preference: {message}</p>"));
+    }
 
     // Check rate limit
     let allowed =
@@ -549,5 +567,114 @@ mod tests {
             "Error: The provided value 'not_a_valid_link' is neither a valid YouTube URL"
         ));
         assert!(db::fetch_summary(&state.db, 1).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn named_thinking_levels_are_limited_to_gemini_3() {
+        assert!(
+            validate_thinking_preference("gemini-3.8-flash", ThinkingPreference::Medium).is_ok()
+        );
+        assert!(
+            validate_thinking_preference("gemini-2.5-flash", ThinkingPreference::Medium).is_err()
+        );
+        assert!(
+            validate_thinking_preference("hetzner-qwen-3.8-27b", ThinkingPreference::High).is_err()
+        );
+        assert!(validate_thinking_preference("gemini-2.5-flash", ThinkingPreference::Auto).is_ok());
+    }
+
+    #[tokio::test]
+    async fn multi_url_submission_preserves_thinking_level() {
+        let state = build_test_state().await;
+        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let input = SubmitForm {
+            original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ https://news.ycombinator.com/item?id=40000000".to_string(),
+            transcript: None,
+            model: "gemini-3.5-flash".to_string(),
+            google_search_grounding: false,
+            url_context: false,
+            include_glossary: false,
+            output_language: "en".to_string(),
+            thinking_level: ThinkingPreference::Medium,
+        };
+
+        let _ = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input)).await;
+        assert_eq!(
+            db::fetch_summary(&state.db, 1)
+                .await
+                .unwrap()
+                .unwrap()
+                .thinking_level,
+            ThinkingPreference::Medium
+        );
+        assert_eq!(
+            db::fetch_summary(&state.db, 2)
+                .await
+                .unwrap()
+                .unwrap()
+                .thinking_level,
+            ThinkingPreference::Medium
+        );
+    }
+
+    #[tokio::test]
+    async fn unsupported_model_rejects_named_thinking_level_before_insertion() {
+        let mut state = build_test_state().await;
+        let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+        let input = SubmitForm {
+            original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
+            transcript: None,
+            model: "gemini-3.5-flash".to_string(),
+            google_search_grounding: false,
+            url_context: false,
+            include_glossary: false,
+            output_language: "en".to_string(),
+            thinking_level: ThinkingPreference::Medium,
+        };
+        state.model_options = Arc::new(vec![crate::state::ModelOption {
+            name: "gemini-2.5-flash".to_string(),
+            input_price_per_mtoken: 0.10,
+            output_price_per_mtoken: 0.40,
+            context_window: 1_000_000,
+            rpm_limit: 5,
+            rpd_limit: 20,
+            architecture: crate::state::ModelArchitecture::Gemini,
+        }]);
+
+        let response = process_transcript(
+            State(state.clone()),
+            ConnectInfo(addr),
+            Form(SubmitForm {
+                model: "gemini-2.5-flash".to_string(),
+                ..input
+            }),
+        )
+        .await
+        .into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(
+            String::from_utf8(body.to_vec())
+                .unwrap()
+                .contains("Invalid thinking preference")
+        );
+        assert!(db::fetch_summary(&state.db, 1).await.unwrap().is_none());
+    }
+
+    #[test]
+    fn index_template_exposes_accessible_thinking_selector() {
+        let html = IndexTemplate {
+            models: crate::state::get_default_models(),
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("<label for=\"thinking_level\">Thinking effort</label>"));
+        assert!(html.contains("id=\"thinking-level-help\""));
+        for value in ["auto", "minimal", "low", "medium", "high"] {
+            assert!(html.contains(&format!("value=\"{value}\"")));
+        }
+        assert!(html.contains("value=\"high\" selected"));
+        assert!(html.contains("startsWith('gemini-3.')"));
     }
 }
