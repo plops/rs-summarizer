@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
-use tokio::time::{sleep, Duration, Instant};
+use tokio::time::{Duration, Instant, sleep};
 use tracing;
 
 /// Service managing global concurrency limits and inter-task delays for external downloads

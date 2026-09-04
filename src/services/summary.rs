@@ -132,8 +132,7 @@ impl SummaryService {
 
         let system_instruction_with_date = format!(
             "{}\n\nToday's date is {}. Keep in mind that new events, personnel changes, political developments, and world occurrences may have happened since your knowledge training cutoff date. Accept current facts presented in the input without making skeptical remarks or questioning them based on older training data.",
-            SYSTEM_INSTRUCTION,
-            today
+            SYSTEM_INSTRUCTION, today
         );
 
         // Model-aware prompt routing (Req 2.3, 3.1, 3.2):
@@ -823,7 +822,8 @@ mod tests {
             "SYSTEM_INSTRUCTION should contain 'Specifics Over Generalities'"
         );
         assert!(
-            SYSTEM_INSTRUCTION.contains("Strict Objectivity, High Data Density & Uniform Repeatability"),
+            SYSTEM_INSTRUCTION
+                .contains("Strict Objectivity, High Data Density & Uniform Repeatability"),
             "SYSTEM_INSTRUCTION should contain 'Strict Objectivity, High Data Density & Uniform Repeatability'"
         );
     }

@@ -1,6 +1,6 @@
 use axum::{
     body::Body,
-    http::{header, HeaderMap, Request, StatusCode},
+    http::{HeaderMap, Request, StatusCode, header},
 };
 use rs_summarizer::{
     build_router, db, models::SubmitForm, routes::extract_client_ip, state::AppState,
@@ -70,6 +70,7 @@ async fn test_rating_workflow_and_anonymity() {
         url_context: false,
         include_glossary: false,
         output_language: "en".to_string(),
+        thinking_level: Default::default(),
     };
     let id = db::insert_new_summary(&pool, &form, "127.0.0.1", "2026-01-01T00:00:00Z")
         .await
@@ -173,6 +174,7 @@ async fn test_invalid_rating_values() {
         url_context: false,
         include_glossary: false,
         output_language: "en".to_string(),
+        thinking_level: Default::default(),
     };
     let id = db::insert_new_summary(&pool, &form, "127.0.0.1", "2026-01-01T00:00:00Z")
         .await

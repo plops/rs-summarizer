@@ -143,6 +143,7 @@ pub async fn process_transcript(
             url_context: input.url_context,
             include_glossary: input.include_glossary,
             output_language: input.output_language.clone(),
+            thinking_level: input.thinking_level,
         };
 
         // Check for duplicates using state's DeduplicationService
@@ -435,6 +436,7 @@ mod tests {
             url_context: false,
             include_glossary: false,
             output_language: "en".to_string(),
+        thinking_level: Default::default(),
         };
 
         let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input))
@@ -485,6 +487,7 @@ mod tests {
             url_context: false,
             include_glossary: false,
             output_language: "en".to_string(),
+            thinking_level: Default::default(),
         };
         let _ = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input1)).await;
 
@@ -497,6 +500,7 @@ mod tests {
             url_context: false,
             include_glossary: false,
             output_language: "en".to_string(),
+        thinking_level: Default::default(),
         };
         let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input2))
             .await
@@ -530,6 +534,7 @@ mod tests {
             url_context: false,
             include_glossary: false,
             output_language: "en".to_string(),
+            thinking_level: Default::default(),
         };
 
         let response = process_transcript(State(state.clone()), ConnectInfo(addr), Form(input))

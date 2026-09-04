@@ -8,7 +8,7 @@ use tracing;
 use crate::db;
 use crate::errors::{ProcessError, SummaryError, TranscriptError};
 use crate::models::Summary;
-use crate::services::embedding::{embedding_to_bytes, EmbeddingService};
+use crate::services::embedding::{EmbeddingService, embedding_to_bytes};
 use crate::services::summary::SummaryService;
 use crate::services::transcript::TranscriptService;
 use crate::state::{AppState, ModelOption};
@@ -77,7 +77,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "hetzner-qwen-3.6-35b",
             "hetzner-qwen-3.8-27b",
             "gemini-3.8-flash",
-	    "gemini-3.7-flash",
+            "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
             "gemini-3.5-flash-lite",
@@ -85,7 +85,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
         "hetzner-qwen-3.8-27b" => vec![
             "hetzner-qwen-3.8-27b",
             "hetzner-qwen-3.6-35b",
-	    "gemini-3.8-flash",
+            "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
@@ -93,7 +93,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
         ],
         "gemini-3.7-flash" => vec![
             "gemini-3.7-flash",
-	    "gemini-3.8-flash",
+            "gemini-3.8-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
             "gemini-3-flash-preview",
@@ -106,7 +106,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
         ],
         "gemini-3.6-flash" => vec![
             "gemini-3.6-flash",
-	    "gemini-3.8-flash",
+            "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.5-flash",
             "gemini-3-flash-preview",
@@ -121,7 +121,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
-	    "gemini-3.8-flash",
+            "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
@@ -132,7 +132,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
-	    "gemini-3.8-flash",
+            "gemini-3.8-flash",
             "gemini-3-flash-preview",
             "gemini-2.5-flash",
             "gemini-3.5-flash-lite",
@@ -143,7 +143,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
         "gemini-3-flash-preview" => vec![
             "gemini-3-flash-preview",
             "gemini-3.7-flash",
-	    "gemini-3.8-flash",
+            "gemini-3.8-flash",
             "gemini-3.6-flash",
             "gemini-2.5-flash",
             "gemini-3.5-flash-lite",
@@ -154,7 +154,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
         "gemini-2.5-flash" => vec![
             "gemini-2.5-flash",
             "gemini-3.7-flash",
-	    "gemini-3.8-flash",
+            "gemini-3.8-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
@@ -165,7 +165,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
             "gemini-3.5-flash-lite",
-	    "gemini-3.8-flash",
+            "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
             "gemini-3.5-flash",
@@ -178,7 +178,7 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-2.5-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
-	    "gemini-3.8-flash",
+            "gemini-3.8-flash",
             "gemini-3.7-flash",
             "gemini-3.6-flash",
             "hetzner-qwen-3.8-27b",

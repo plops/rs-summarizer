@@ -1,4 +1,4 @@
-use pulldown_cmark::{html, Options, Parser};
+use pulldown_cmark::{Options, Parser, html};
 
 /// Renders markdown text to HTML using pulldown-cmark with common extensions enabled.
 pub fn render_markdown_to_html(markdown_input: &str) -> String {

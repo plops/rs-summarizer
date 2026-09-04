@@ -1,8 +1,8 @@
 use crate::errors::ExportError;
 use anyhow::Result;
 use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteJournalMode},
     Row, SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode},
 };
 use std::path::PathBuf;
 
@@ -199,7 +199,7 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::{sqlite::SqliteJournalMode, SqlitePool};
+    use sqlx::{SqlitePool, sqlite::SqliteJournalMode};
     use std::fs;
     use tempfile::TempDir;
 

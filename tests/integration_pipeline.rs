@@ -109,6 +109,7 @@ async fn test_summary_generation() {
         url_context: false,
         include_glossary: false,
         output_language: "en".to_string(),
+        thinking_level: Default::default(),
     };
     let id = db::insert_new_summary(&db_pool, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -286,6 +287,7 @@ async fn test_full_pipeline_end_to_end() {
         url_context: false,
         include_glossary: false,
         output_language: "en".to_string(),
+        thinking_level: Default::default(),
     };
     let id = db::insert_new_summary(&db_pool, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -410,6 +412,7 @@ async fn test_summary_done_flag_transitions() {
         url_context: false,
         include_glossary: false,
         output_language: "en".to_string(),
+        thinking_level: Default::default(),
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -477,6 +480,7 @@ async fn test_timestamps_done_after_pipeline() {
         url_context: false,
         include_glossary: false,
         output_language: "en".to_string(),
+        thinking_level: Default::default(),
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -540,6 +544,7 @@ async fn test_error_sets_summary_done() {
         url_context: false,
         include_glossary: false,
         output_language: "en".to_string(),
+        thinking_level: Default::default(),
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -589,6 +594,7 @@ async fn test_invalid_model_sets_summary_done() {
         url_context: false,
         include_glossary: false,
         output_language: "en".to_string(),
+        thinking_level: Default::default(),
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -635,6 +641,7 @@ async fn test_polling_lifecycle_simulation() {
         url_context: false,
         include_glossary: false,
         output_language: "en".to_string(),
+        thinking_level: Default::default(),
     };
     let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
         .await
@@ -734,6 +741,7 @@ async fn test_pasted_transcript_pipeline() {
         url_context: false,
         include_glossary: false,
         output_language: "en".to_string(),
+        thinking_level: Default::default(),
     };
     let id_no_url =
         db::insert_new_summary(&app.db, &form_no_url, "127.0.0.1", "2024-01-01T00:00:00Z")
@@ -773,9 +781,11 @@ async fn test_hn_submission_fetch() {
         !fetch_res.discussion_text.is_empty(),
         "Discussion text should not be empty"
     );
-    assert!(fetch_res
-        .combined_text
-        .contains("=== HACKER NEWS SUBMISSION ==="));
+    assert!(
+        fetch_res
+            .combined_text
+            .contains("=== HACKER NEWS SUBMISSION ===")
+    );
 }
 
 /// Test batch processing of multiple Hacker News submissions as individual DB rows.
@@ -799,6 +809,7 @@ async fn test_hn_batch_processing() {
             url_context: false,
             include_glossary: false,
             output_language: "en".to_string(),
+            thinking_level: Default::default(),
         };
 
         let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2026-07-22T00:00:00Z")

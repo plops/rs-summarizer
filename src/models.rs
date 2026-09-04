@@ -1,3 +1,65 @@
+use std::{fmt, str::FromStr};
+
+/// A persisted Gemini 3 thinking-effort preference.
+///
+/// Values intentionally use stable, lowercase database/form spellings rather
+/// than provider enum names so a queued summary remains portable across SDK
+/// upgrades.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize,
+)]
+#[sqlx(type_name = "TEXT", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingPreference {
+    Auto,
+    Minimal,
+    Low,
+    Medium,
+    #[default]
+    High,
+}
+
+impl ThinkingPreference {
+    pub const ALL: [Self; 5] = [
+        Self::Auto,
+        Self::Minimal,
+        Self::Low,
+        Self::Medium,
+        Self::High,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Minimal => "minimal",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
+impl fmt::Display for ThinkingPreference {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl FromStr for ThinkingPreference {
+    type Err = &'static str;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "auto" => Ok(Self::Auto),
+            "minimal" => Ok(Self::Minimal),
+            "low" => Ok(Self::Low),
+            "medium" => Ok(Self::Medium),
+            "high" => Ok(Self::High),
+            _ => Err("thinking preference must be auto, minimal, low, medium, or high"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct Summary {
     pub identifier: i64,
@@ -30,6 +92,7 @@ pub struct Summary {
     pub url_context: bool,
     pub thinking: String,
     pub thinking_tokens: i64,
+    pub thinking_level: ThinkingPreference,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -45,10 +108,38 @@ pub struct SubmitForm {
     pub include_glossary: bool,
     #[serde(default = "default_output_language")]
     pub output_language: String,
+    #[serde(default)]
+    pub thinking_level: ThinkingPreference,
 }
 
 fn default_output_language() -> String {
     "en".to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn thinking_preferences_parse_and_serialize_stably() {
+        for preference in ThinkingPreference::ALL {
+            assert_eq!(preference.as_str().parse(), Ok(preference));
+            assert_eq!(
+                serde_json::to_string(&preference).unwrap(),
+                format!("\"{preference}\"")
+            );
+        }
+        assert!("maximum".parse::<ThinkingPreference>().is_err());
+    }
+
+    #[test]
+    fn submit_form_omits_to_high() {
+        let form: SubmitForm = serde_json::from_str(
+            r#"{"original_source_link":"https://example.com","model":"gemini-3.8-flash"}"#,
+        )
+        .unwrap();
+        assert_eq!(form.thinking_level, ThinkingPreference::High);
+    }
 }
 
 #[derive(Debug, serde::Deserialize)]

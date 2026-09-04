@@ -260,8 +260,7 @@ impl TranscriptService {
 
             return Err(TranscriptError::YtDlpFailed(format!(
                 "yt-dlp subtitle download failed: {} (note: please restart Firefox to refresh cookies if needed) (cmd: `{}`)",
-                stderr_trimmed,
-                cmd_str
+                stderr_trimmed, cmd_str
             )));
         }
 

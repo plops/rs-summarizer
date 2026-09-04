@@ -36,8 +36,8 @@ pub async fn insert_new_summary(
     };
 
     let result = sqlx::query(
-        "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, google_search_grounding, url_context, include_glossary, output_language) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, google_search_grounding, url_context, include_glossary, output_language, thinking_level) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&form.model)
     .bind(&form.original_source_link)
@@ -48,6 +48,7 @@ pub async fn insert_new_summary(
     .bind(form.url_context)
     .bind(form.include_glossary)
     .bind(lang)
+    .bind(form.thinking_level)
     .execute(db)
     .await?;
 
@@ -333,6 +334,7 @@ mod tests {
             url_context: false,
             include_glossary: false,
             output_language: "en".to_string(),
+            thinking_level: Default::default(),
         };
         let summary_id = insert_new_summary(&pool, &form, "127.0.0.1", "2026-01-01T00:00:00Z")
             .await
@@ -398,5 +400,80 @@ mod tests {
 
         let err6 = upsert_rating(&pool, 1, "127.0.0.1", Some(4), Some(6)).await;
         assert!(err6.is_err());
+    }
+
+    #[tokio::test]
+    async fn thinking_level_defaults_is_constrained_and_round_trips() {
+        let pool = create_in_memory_db().await;
+        let default_identifier = sqlx::query("INSERT INTO summaries (model) VALUES (?)")
+            .bind("gemini-3.8-flash")
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        let default: String =
+            sqlx::query_scalar("SELECT thinking_level FROM summaries WHERE identifier = ?")
+                .bind(default_identifier)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(default, "high");
+
+        let invalid = sqlx::query("INSERT INTO summaries (model, thinking_level) VALUES (?, ?)")
+            .bind("gemini-3.8-flash")
+            .bind("maximum")
+            .execute(&pool)
+            .await;
+        assert!(invalid.is_err());
+
+        for preference in crate::models::ThinkingPreference::ALL {
+            let form = SubmitForm {
+                original_source_link: format!("https://example.com/{preference}"),
+                transcript: None,
+                model: "gemini-3.8-flash".to_string(),
+                google_search_grounding: false,
+                url_context: false,
+                include_glossary: false,
+                output_language: "en".to_string(),
+                thinking_level: preference,
+            };
+            let identifier = insert_new_summary(&pool, &form, "test", "2026-01-01T00:00:00Z")
+                .await
+                .unwrap();
+            assert_eq!(
+                fetch_summary(&pool, identifier)
+                    .await
+                    .unwrap()
+                    .unwrap()
+                    .thinking_level,
+                preference
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn thinking_level_migration_upgrades_a_legacy_schema() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE summaries (identifier INTEGER PRIMARY KEY, model TEXT NOT NULL DEFAULT '')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO summaries (model) VALUES ('gemini-3.7-flash')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!("../migrations/006_add_thinking_level.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let level: String = sqlx::query_scalar("SELECT thinking_level FROM summaries")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(level, "high");
     }
 }

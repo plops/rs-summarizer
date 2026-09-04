@@ -11,8 +11,8 @@ pub mod templates;
 pub mod utils;
 
 use axum::{
-    routing::{get, post},
     Router,
+    routing::{get, post},
 };
 use tower_http::services::ServeDir;
 

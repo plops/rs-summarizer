@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use rs_summarizer::commands::export_db::{run_export, ExportDbArgs};
+use rs_summarizer::commands::export_db::{ExportDbArgs, run_export};
 use rs_summarizer::state::AppState;
 use rs_summarizer::{build_router, db};
 
@@ -136,10 +136,14 @@ async fn load_visualization_components() -> Option<std::sync::Arc<rs_summarizer:
 }
 
 #[cfg(feature = "nn-mapper")]
-async fn load_nn_mapper() -> Option<std::sync::Arc<std::sync::Mutex<rs_summarizer::services::nn_mapper::NnMapper>>> {
+async fn load_nn_mapper()
+-> Option<std::sync::Arc<std::sync::Mutex<rs_summarizer::services::nn_mapper::NnMapper>>> {
     let compact_db_path = std::env::var("COMPACT_DB_PATH").ok()?;
     let db_path = std::path::Path::new(&compact_db_path);
-    let stem = db_path.file_stem().and_then(|s| s.to_str()).unwrap_or("compact");
+    let stem = db_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("compact");
     let parent_dir = db_path.parent().unwrap_or(std::path::Path::new("."));
     let model_path = parent_dir.join(format!("{}_nn_mapper.bin", stem));
 
@@ -348,7 +352,10 @@ async fn handle_export_command(args: &[String]) -> anyhow::Result<()> {
             }
             _ => {
                 eprintln!("Error: Unknown argument '{}'", args[i]);
-                eprintln!("Usage: {} export-db --source <path> --output <path> [--include-embeddings] [--compress]", args[0]);
+                eprintln!(
+                    "Usage: {} export-db --source <path> --output <path> [--include-embeddings] [--compress]",
+                    args[0]
+                );
                 std::process::exit(1);
             }
         }
