@@ -19,6 +19,7 @@ pub async fn init_db(database_url: &str) -> anyhow::Result<SqlitePool> {
     Ok(pool)
 }
 
+use crate::generation::{GenerationStatus, PublicErrorCode};
 use crate::models::{RatingStats, SubmitForm, Summary};
 
 /// Insert a new summary row and return the new identifier.
@@ -98,6 +99,49 @@ pub async fn update_summary_chunk(
     Ok(())
 }
 
+/// Append only if the caller still owns this generation epoch. This prevents a
+/// late stream from a cancelled attempt corrupting a retry's body.
+pub async fn append_summary_chunk_for_epoch(
+    db: &SqlitePool,
+    identifier: i64,
+    epoch: i64,
+    chunk: &str,
+) -> Result<bool, sqlx::Error> {
+    Ok(sqlx::query("UPDATE summaries SET summary = summary || ?, generation_updated_at = ? WHERE identifier = ? AND generation_epoch = ? AND generation_status = 'running'")
+        .bind(chunk).bind(chrono::Utc::now().to_rfc3339()).bind(identifier).bind(epoch).execute(db).await?.rows_affected() == 1)
+}
+
+/// Atomically transition a row, optionally beginning a fresh display epoch.
+pub async fn transition_generation(
+    db: &SqlitePool,
+    identifier: i64,
+    expected: GenerationStatus,
+    next: GenerationStatus,
+    error: Option<(PublicErrorCode, &str)>,
+    next_retry_at: Option<&str>,
+    fresh_epoch: bool,
+) -> Result<bool, sqlx::Error> {
+    debug_assert!(expected.can_transition_to(next));
+    let now = chrono::Utc::now().to_rfc3339();
+    let result = sqlx::query("UPDATE summaries SET generation_status = ?, generation_updated_at = ?, generation_started_at = CASE WHEN ? THEN ? ELSE generation_started_at END, generation_epoch = generation_epoch + CASE WHEN ? THEN 1 ELSE 0 END, generation_attempt = generation_attempt + CASE WHEN ? THEN 1 ELSE 0 END, summary = CASE WHEN ? THEN '' ELSE summary END, summary_done = CASE WHEN ? IN ('succeeded','failed','partial_failed') THEN 1 ELSE 0 END, generation_error_code = COALESCE(?, ''), generation_error_message = COALESCE(?, ''), next_retry_at = COALESCE(?, '') WHERE identifier = ? AND generation_status = ?")
+        .bind(next.as_str()).bind(&now).bind(fresh_epoch).bind(&now).bind(fresh_epoch).bind(fresh_epoch).bind(fresh_epoch).bind(next.as_str()).bind(error.map(|e| e.0.as_str())).bind(error.map(|e| e.1)).bind(next_retry_at).bind(identifier).bind(expected.as_str()).execute(db).await?;
+    Ok(result.rows_affected() == 1)
+}
+
+pub async fn retry_generation(db: &SqlitePool, identifier: i64) -> Result<bool, sqlx::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    Ok(sqlx::query("UPDATE summaries SET generation_status='queued', generation_epoch=generation_epoch+1, generation_attempt=generation_attempt+1, generation_updated_at=?, generation_started_at='', next_retry_at='', generation_error_code='', generation_error_message='', summary='', summary_done=0 WHERE identifier=? AND generation_status IN ('failed','partial_failed')")
+        .bind(now).bind(identifier).execute(db).await?.rows_affected() == 1)
+}
+
+pub async fn recover_stale_generations(
+    db: &SqlitePool,
+    stale_before: &str,
+) -> Result<u64, sqlx::Error> {
+    Ok(sqlx::query("UPDATE summaries SET generation_status='queued', generation_updated_at=?, generation_error_code='network_interrupted', generation_error_message='A previous generation was interrupted and will be retried.' WHERE generation_status='running' AND generation_updated_at < ?")
+        .bind(chrono::Utc::now().to_rfc3339()).bind(stale_before).execute(db).await?.rows_affected())
+}
+
 /// Overwrite the summary field completely (e.g. for errors).
 pub async fn update_summary_full(
     db: &SqlitePool,
@@ -141,7 +185,7 @@ pub async fn mark_summary_done(
     timestamp_end: &str,
 ) -> Result<(), sqlx::Error> {
     sqlx::query(
-        "UPDATE summaries SET summary_done = 1, summary_input_tokens = ?, summary_output_tokens = ?, \
+        "UPDATE summaries SET summary_done = 1, generation_status = 'succeeded', generation_error_code = '', generation_error_message = '', summary_input_tokens = ?, summary_output_tokens = ?, \
          thinking_tokens = ?, thinking = ?, cost = ?, summary_timestamp_end = ? WHERE identifier = ?"
     )
     .bind(input_tokens)
@@ -475,5 +519,86 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(level, "high");
+    }
+
+    #[tokio::test]
+    async fn generation_lifecycle_backfills_and_epoch_guards_chunks() {
+        let pool = create_in_memory_db().await;
+        let queued_id = sqlx::query("INSERT INTO summaries (model) VALUES ('m')")
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        assert_eq!(
+            fetch_summary(&pool, queued_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .generation_status,
+            "queued"
+        );
+        assert!(
+            transition_generation(
+                &pool,
+                queued_id,
+                GenerationStatus::Queued,
+                GenerationStatus::Running,
+                None,
+                None,
+                true
+            )
+            .await
+            .unwrap()
+        );
+        let row = fetch_summary(&pool, queued_id).await.unwrap().unwrap();
+        assert!(
+            append_summary_chunk_for_epoch(&pool, queued_id, row.generation_epoch, "first")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !append_summary_chunk_for_epoch(&pool, queued_id, row.generation_epoch + 1, "late")
+                .await
+                .unwrap()
+        );
+        assert!(
+            transition_generation(
+                &pool,
+                queued_id,
+                GenerationStatus::Running,
+                GenerationStatus::PartialFailed,
+                Some((PublicErrorCode::ProviderAborted, "stopped")),
+                None,
+                false
+            )
+            .await
+            .unwrap()
+        );
+        assert!(retry_generation(&pool, queued_id).await.unwrap());
+        let retried = fetch_summary(&pool, queued_id).await.unwrap().unwrap();
+        assert_eq!(retried.generation_status, "queued");
+        assert!(retried.summary.is_empty());
+
+        // Apply the additive migration to an actual pre-007 fixture.
+        let legacy = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql(include_str!("../migrations/001_initial.sql"))
+            .execute(&legacy)
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO summaries (model, summary_done) VALUES ('old', 1)")
+            .execute(&legacy)
+            .await
+            .unwrap();
+        sqlx::raw_sql(include_str!(
+            "../migrations/007_add_generation_lifecycle.sql"
+        ))
+        .execute(&legacy)
+        .await
+        .unwrap();
+        let backfilled: String = sqlx::query_scalar("SELECT generation_status FROM summaries")
+            .fetch_one(&legacy)
+            .await
+            .unwrap();
+        assert_eq!(backfilled, "succeeded");
     }
 }

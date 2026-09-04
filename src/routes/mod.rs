@@ -236,6 +236,26 @@ pub async fn get_generation(
     render_generation_partial(&app, identifier).await
 }
 
+/// Explicitly retry a terminal generation. The compare-and-set is idempotent:
+/// repeated clicks or requests while a worker owns it do not start extra work.
+pub async fn retry_generation(
+    State(app): State<AppState>,
+    Path(identifier): Path<i64>,
+) -> impl IntoResponse {
+    match db::retry_generation(&app.db, identifier).await {
+        Ok(true) => {
+            let app_clone = app.clone();
+            let db_clone = app.db.clone();
+            tokio::spawn(async move {
+                tasks::process_summary(db_clone, identifier, app_clone).await;
+            });
+            render_generation_partial(&app, identifier).await
+        }
+        Ok(false) => render_generation_partial(&app, identifier).await,
+        Err(_) => Html("<p>Unable to schedule retry.</p>".into()),
+    }
+}
+
 /// GET /browse — paginated browse page showing summaries from the metadata cache.
 pub async fn browse_summaries(
     State(app): State<AppState>,
@@ -392,6 +412,9 @@ async fn render_generation_partial(app: &AppState, identifier: i64) -> Html<Stri
                 identifier: s.identifier,
                 summary: summary_html,
                 summary_done: s.summary_done,
+                generation_status: s.generation_status,
+                error_message: s.generation_error_message,
+                next_retry_at: s.next_retry_at,
                 timestamps: timestamps_html,
             };
             render_template(&template)
@@ -675,5 +698,38 @@ mod tests {
         }
         assert!(html.contains("value=\"high\" selected"));
         assert!(html.contains("startsWith('gemini-3.')"));
+    }
+
+    #[test]
+    fn generation_partial_polls_only_active_states_and_exposes_retry() {
+        let active = GenerationPartialTemplate {
+            identifier: 7,
+            summary: String::new(),
+            summary_done: false,
+            generation_status: "retry_wait".into(),
+            error_message: String::new(),
+            next_retry_at: "2026-09-04T12:00:00Z".into(),
+            timestamps: String::new(),
+        }
+        .render()
+        .unwrap();
+        assert!(active.contains("hx-trigger=\"every 1s\""));
+        assert!(active.contains("Retry scheduled"));
+
+        let failed = GenerationPartialTemplate {
+            identifier: 7,
+            summary: "<p>partial</p>".into(),
+            summary_done: true,
+            generation_status: "partial_failed".into(),
+            error_message: "The model stopped before completing the summary.".into(),
+            next_retry_at: String::new(),
+            timestamps: String::new(),
+        }
+        .render()
+        .unwrap();
+        assert!(!failed.contains("hx-trigger=\"every 1s\""));
+        assert!(failed.contains("role=\"alert\""));
+        assert!(failed.contains("Retry summary"));
+        assert!(failed.contains("incomplete and was not published"));
     }
 }

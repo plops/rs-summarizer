@@ -1,12 +1,15 @@
-use futures_util::StreamExt;
-use gemini_rust::{Gemini, Model, Part, ThinkingLevel, Tool};
+use futures_util::{StreamExt, TryStreamExt};
+use gemini_rust::prelude::{
+    Gemini, InteractionContent, InteractionEvent, InteractionStatus, InteractionThinkingLevel,
+    StepDeltaData, ThinkingSummaries,
+};
 use sqlx::SqlitePool;
 use tracing;
 
-use crate::db;
 use crate::errors::SummaryError;
 use crate::models::ThinkingPreference;
 use crate::state::ModelOption;
+use crate::{db, generation};
 
 /// The "adaptive knowledge synthesis engine" persona prompt.
 const SYSTEM_INSTRUCTION: &str = include_str!("../../prompts/system_instruction.txt");
@@ -40,17 +43,17 @@ pub struct SummaryService {
 pub(crate) fn gemini_3_thinking_level(
     model_name: &str,
     preference: ThinkingPreference,
-) -> Option<ThinkingLevel> {
+) -> Option<InteractionThinkingLevel> {
     if !model_name.to_ascii_lowercase().starts_with("gemini-3.") {
         return None;
     }
 
     match preference {
         ThinkingPreference::Auto => None,
-        ThinkingPreference::Minimal => Some(ThinkingLevel::Minimal),
-        ThinkingPreference::Low => Some(ThinkingLevel::Low),
-        ThinkingPreference::Medium => Some(ThinkingLevel::Medium),
-        ThinkingPreference::High => Some(ThinkingLevel::High),
+        ThinkingPreference::Minimal => Some(InteractionThinkingLevel::Minimal),
+        ThinkingPreference::Low => Some(InteractionThinkingLevel::Low),
+        ThinkingPreference::Medium => Some(InteractionThinkingLevel::Medium),
+        ThinkingPreference::High => Some(InteractionThinkingLevel::High),
     }
 }
 
@@ -75,7 +78,6 @@ impl SummaryService {
     /// Persists chunks to DB progressively during streaming.
     ///
     /// Requirements: 6.1, 6.2, 6.5, 6.6, 6.7
-    #[allow(deprecated)] // gemini-rust's replacement has no streaming equivalent yet.
     #[allow(clippy::too_many_arguments)]
     pub async fn generate_summary(
         &self,
@@ -114,10 +116,8 @@ impl SummaryService {
                 .await;
         }
 
-        // Create Gemini client with the specified model
-        let gemini_model = Model::Custom(format!("models/{}", model.name));
-        let client = Gemini::with_model(&self.api_key, gemini_model)
-            .map_err(|e| SummaryError::ApiError(e.to_string()))?;
+        let client =
+            Gemini::new(&self.api_key).map_err(|e| SummaryError::ApiError(e.to_string()))?;
 
         tracing::info!(
             identifier = identifier,
@@ -126,20 +126,24 @@ impl SummaryService {
             "Starting summary generation"
         );
 
-        // Use streaming to persist chunks progressively (Req 6.1, 6.2)
-        let mut builder = client.generate_content();
+        let epoch = db::fetch_summary(db_pool, identifier)
+            .await
+            .map_err(|e| SummaryError::ApiError(format!("DB error: {e}")))?
+            .ok_or_else(|| SummaryError::ApiError("summary row disappeared".into()))?
+            .generation_epoch;
+        let mut builder = client.create_interaction().with_model(&model.name);
 
         // Configure grounding with Google Search if selected and architecture is Gemini or Gemma
         if google_search_grounding
             && (model.architecture == crate::state::ModelArchitecture::Gemini
                 || model.architecture == crate::state::ModelArchitecture::Gemma)
         {
-            builder = builder.with_tool(Tool::google_search());
+            builder = builder.with_google_search();
         }
 
         // Configure URL context if selected and architecture is Gemini
         if url_context && model.architecture == crate::state::ModelArchitecture::Gemini {
-            builder = builder.with_tool(Tool::url_context());
+            builder = builder.with_url_context();
         }
 
         // Gemini 3 uses named levels while Gemini 2.5 retains its separate,
@@ -149,11 +153,9 @@ impl SummaryService {
             if let Some(level) = gemini_3_thinking_level(&model.name, thinking_preference) {
                 builder = builder
                     .with_thinking_level(level)
-                    .with_thoughts_included(true);
-            } else if let Some(budget) = gemini_2_5_thinking_budget(&model.name) {
-                builder = builder
-                    .with_thinking_budget(budget)
-                    .with_thoughts_included(true);
+                    .with_thinking_summaries(ThinkingSummaries::Auto);
+            } else if gemini_2_5_thinking_budget(&model.name).is_some() {
+                // Interactions exposes named Gemini 3 thinking only. Keep the provider default for 2.5.
             }
         }
 
@@ -171,7 +173,7 @@ impl SummaryService {
         // - Other models: fallback base prompt
         let prompt = match model.architecture {
             crate::state::ModelArchitecture::Gemini => {
-                builder = builder.with_system_prompt(&system_instruction_with_date);
+                builder = builder.with_system_instruction(&system_instruction_with_date);
                 if is_hn {
                     self.build_hn_prompt(transcript, include_glossary, output_language)
                 } else {
@@ -191,7 +193,7 @@ impl SummaryService {
         };
 
         let mut stream = builder
-            .with_user_message(&prompt)
+            .with_text(&prompt)
             .execute_stream()
             .await
             .map_err(|e| {
@@ -211,77 +213,71 @@ impl SummaryService {
         let mut output_tokens: u64 = 0;
         let mut thinking_tokens: u64 = 0;
 
-        // Process streaming chunks, persisting each to DB progressively
-        while let Some(chunk_result) = stream.next().await {
-            match chunk_result {
-                Ok(response) => {
-                    // Extract text parts, separating thoughts if it's a Gemini model with thoughts
-                    if model.architecture == crate::state::ModelArchitecture::Gemini {
-                        if let Some(candidate) = response.candidates.first()
-                            && let Some(parts) = &candidate.content.parts
-                        {
-                            for part in parts {
-                                if let Part::Text { text, thought, .. } = part {
-                                    let is_thought = thought.unwrap_or(false);
-                                    if is_thought {
-                                        thinking_text.push_str(text);
-                                    } else if !text.is_empty() {
-                                        db::update_summary_chunk(db_pool, identifier, text)
-                                            .await
-                                            .map_err(|e| {
-                                            SummaryError::ApiError(format!("DB error: {}", e))
-                                        })?;
-                                        summary_text.push_str(text);
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        // For Gemma or others, store the entire text in summary progressively
-                        let chunk_text = response.text();
-                        if !chunk_text.is_empty() {
-                            db::update_summary_chunk(db_pool, identifier, &chunk_text)
-                                .await
-                                .map_err(|e| SummaryError::ApiError(format!("DB error: {}", e)))?;
-                            summary_text.push_str(&chunk_text);
-                        }
+        let mut completed = false;
+        while let Some(event) = stream
+            .try_next()
+            .await
+            .map_err(|e| SummaryError::ApiError(e.to_string()))?
+        {
+            match event {
+                InteractionEvent::StepDelta {
+                    delta: StepDeltaData::Text { text },
+                    ..
+                } if !text.is_empty() => {
+                    if !db::append_summary_chunk_for_epoch(db_pool, identifier, epoch, &text)
+                        .await
+                        .map_err(|e| SummaryError::ApiError(format!("DB error: {e}")))?
+                    {
+                        return Err(SummaryError::ApiError("generation ownership lost".into()));
                     }
-
-                    // Extract token counts from usage metadata (last chunk typically has them)
-                    if let Some(usage) = &response.usage_metadata {
-                        if let Some(prompt_tokens) = usage.prompt_token_count {
-                            input_tokens = prompt_tokens as u64;
-                        }
-                        if let Some(candidates_tokens) = usage.candidates_token_count {
-                            output_tokens = candidates_tokens as u64;
-                        }
-                        if let Some(thoughts_tokens) = usage.thoughts_token_count {
-                            thinking_tokens = thoughts_tokens as u64;
-                        }
+                    summary_text.push_str(&text);
+                }
+                InteractionEvent::StepDelta {
+                    delta:
+                        StepDeltaData::ThoughtSummary {
+                            content: Some(InteractionContent::Text { text, .. }),
+                        },
+                    ..
+                } => {
+                    thinking_text.push_str(&text);
+                }
+                InteractionEvent::StepStop {
+                    usage: Some(usage), ..
+                } => {
+                    input_tokens = usage.total_input_tokens.unwrap_or(0).max(0) as u64;
+                    output_tokens = usage.total_output_tokens.unwrap_or(0).max(0) as u64;
+                    thinking_tokens = usage.total_thought_tokens.unwrap_or(0).max(0) as u64;
+                }
+                InteractionEvent::InteractionCompleted { interaction, .. } => {
+                    completed = interaction.status == InteractionStatus::Completed;
+                    if !completed {
+                        return Err(SummaryError::ApiError(format!(
+                            "provider terminal status: {}",
+                            interaction.status.as_ref()
+                        )));
                     }
                 }
-                Err(e) => {
-                    let err_str = e.to_string();
-                    // Handle rate limiting mid-stream (Req 6.7)
-                    if is_rate_limit_error(&err_str) {
-                        // Append error to partial summary without setting summary_done
-                        let error_msg =
-                            "\n\n[Error: Rate limited (ResourceExhausted). Please retry later.]";
-                        db::update_summary_chunk(db_pool, identifier, error_msg)
-                            .await
-                            .map_err(|e| SummaryError::ApiError(format!("DB error: {}", e)))?;
-                        return Err(SummaryError::RateLimited);
-                    }
-                    return Err(SummaryError::ApiError(err_str));
+                InteractionEvent::Error { .. } => {
+                    return Err(SummaryError::ApiError("provider stream error".into()));
                 }
+                _ => {}
             }
         }
 
-        if summary_text.is_empty() && thinking_text.is_empty() {
+        if !completed {
+            return Err(SummaryError::ApiError(
+                "provider stream ended without successful terminal event".into(),
+            ));
+        }
+
+        if summary_text.is_empty() {
             return Err(SummaryError::ApiError(
                 "Gemini returned empty response".to_string(),
             ));
         }
+        generation::validate_complete_output(&summary_text, is_hn).map_err(|code| {
+            SummaryError::ApiError(format!("{}: {}", code.as_str(), code.message()))
+        })?;
 
         let duration_secs = start.elapsed().as_secs_f64();
 
@@ -631,19 +627,19 @@ mod tests {
     fn thinking_levels_map_only_for_gemini_3() {
         assert_eq!(
             gemini_3_thinking_level("gemini-3.8-flash", ThinkingPreference::Minimal),
-            Some(ThinkingLevel::Minimal)
+            Some(InteractionThinkingLevel::Minimal)
         );
         assert_eq!(
             gemini_3_thinking_level("gemini-3.7-flash", ThinkingPreference::Low),
-            Some(ThinkingLevel::Low)
+            Some(InteractionThinkingLevel::Low)
         );
         assert_eq!(
             gemini_3_thinking_level("gemini-3.6-flash", ThinkingPreference::Medium),
-            Some(ThinkingLevel::Medium)
+            Some(InteractionThinkingLevel::Medium)
         );
         assert_eq!(
             gemini_3_thinking_level("gemini-3.5-flash", ThinkingPreference::High),
-            Some(ThinkingLevel::High)
+            Some(InteractionThinkingLevel::High)
         );
         assert_eq!(
             gemini_3_thinking_level("gemini-3.8-flash", ThinkingPreference::Auto),

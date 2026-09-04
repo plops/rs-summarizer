@@ -14,6 +14,9 @@ pub struct GenerationPartialTemplate {
     pub identifier: i64,
     pub summary: String,
     pub summary_done: bool,
+    pub generation_status: String,
+    pub error_message: String,
+    pub next_retry_at: String,
     pub timestamps: String,
 }
 

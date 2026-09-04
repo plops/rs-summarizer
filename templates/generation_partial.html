@@ -1,13 +1,20 @@
 <div id="generation-{{ identifier }}" 
-     {% if !summary_done %}hx-post="/generations/{{ identifier }}" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}>
+     {% if generation_status == "queued" || generation_status == "running" || generation_status == "retry_wait" %}hx-post="/generations/{{ identifier }}" hx-trigger="every 1s" hx-swap="outerHTML"{% endif %}>
     <article>
-        {% if summary_done %}
+        {% if generation_status == "succeeded" %}
         <header>Summary Complete</header>
+        {% else if generation_status == "retry_wait" %}
+        <header>Retry scheduled <span aria-live="polite">{{ next_retry_at }}</span></header>
+        {% else if generation_status == "failed" || generation_status == "partial_failed" %}
+        <header>Summary not completed</header>
+        <p role="alert">{{ error_message }}</p>
+        {% if generation_status == "partial_failed" %}<p><em>The draft below is incomplete and was not published as a successful summary.</em></p>{% endif %}
+        <form hx-post="/generations/{{ identifier }}/retry" hx-target="#generation-{{ identifier }}" hx-swap="outerHTML"><button type="submit">Retry summary</button></form>
         {% else %}
         <header>Generating summary... <span aria-busy="true"></span></header>
         {% endif %}
         <div>{{ summary|safe }}</div>
-        {% if summary_done && !timestamps.is_empty() %}
+        {% if generation_status == "succeeded" && !timestamps.is_empty() %}
         <footer>{{ timestamps|safe }}</footer>
         {% endif %}
     </article>

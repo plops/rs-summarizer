@@ -7,6 +7,7 @@ use tracing;
 
 use crate::db;
 use crate::errors::{ProcessError, SummaryError, TranscriptError};
+use crate::generation::{GenerationStatus, MAX_RETRY_ATTEMPTS, PublicErrorCode, retry_delay};
 use crate::models::Summary;
 use crate::services::embedding::{EmbeddingService, embedding_to_bytes};
 use crate::services::summary::SummaryService;
@@ -18,6 +19,26 @@ use crate::utils::url_validator::split_urls;
 /// Core background task that orchestrates the full summarization pipeline.
 /// Spawned by tokio after a new summary row is inserted.
 pub async fn process_summary(db_pool: SqlitePool, identifier: i64, app: AppState) {
+    // Claim queued work atomically. A duplicate spawn or retry request cannot
+    // create a second live stream for the same row.
+    match db::transition_generation(
+        &db_pool,
+        identifier,
+        GenerationStatus::Queued,
+        GenerationStatus::Running,
+        None,
+        None,
+        true,
+    )
+    .await
+    {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(error) => {
+            tracing::error!(identifier, %error, "Failed to claim generation");
+            return;
+        }
+    }
     if let Err(e) = process_summary_inner(&db_pool, identifier, &app).await {
         tracing::error!(identifier = identifier, error = %e, "Processing failed");
         let formatted = format_process_error(&e);
@@ -469,26 +490,33 @@ pub async fn run_model_pipeline(
                 Err(e) => {
                     let err_str = e.to_string();
                     if (err_str.contains("experiencing high demand")
-                        || err_str.contains("high demand"))
-                        && attempts < 3
+                        || err_str.contains("high demand")
+                        || err_str.contains("503"))
+                        && attempts < MAX_RETRY_ATTEMPTS
                     {
-                        let sleep_dur = if attempts == 1 {
-                            if std::env::var("INTEGRATION_TEST").is_ok()
-                                || std::env::var("TEST_MODE").is_ok()
-                            {
-                                Duration::from_millis(10)
-                            } else {
-                                Duration::from_secs(600)
-                            }
+                        let sleep_dur = if std::env::var("INTEGRATION_TEST").is_ok()
+                            || std::env::var("TEST_MODE").is_ok()
+                        {
+                            Duration::from_millis(10)
                         } else {
-                            if std::env::var("INTEGRATION_TEST").is_ok()
-                                || std::env::var("TEST_MODE").is_ok()
-                            {
-                                Duration::from_millis(20)
-                            } else {
-                                Duration::from_secs(14400)
-                            }
+                            retry_delay(attempts)
                         };
+                        let retry_at = (Utc::now()
+                            + chrono::Duration::from_std(sleep_dur).unwrap_or_default())
+                        .to_rfc3339();
+                        let _ = db::transition_generation(
+                            db_pool,
+                            identifier,
+                            GenerationStatus::Running,
+                            GenerationStatus::RetryWait,
+                            Some((
+                                PublicErrorCode::Unavailable,
+                                PublicErrorCode::Unavailable.message(),
+                            )),
+                            Some(&retry_at),
+                            false,
+                        )
+                        .await;
                         tracing::warn!(
                             model = %model.name,
                             attempt = attempts,
@@ -496,6 +524,22 @@ pub async fn run_model_pipeline(
                             "Gemini high demand error, retrying later"
                         );
                         tokio::time::sleep(sleep_dur).await;
+                        if !db::transition_generation(
+                            db_pool,
+                            identifier,
+                            GenerationStatus::RetryWait,
+                            GenerationStatus::Running,
+                            None,
+                            None,
+                            true,
+                        )
+                        .await
+                        .unwrap_or(false)
+                        {
+                            return Err(ProcessError::Summary(SummaryError::ApiError(
+                                "retry ownership lost".into(),
+                            )));
+                        }
                         continue;
                     }
 
@@ -642,13 +686,11 @@ async fn process_summary_inner(
                 }
                 Err(err) => {
                     tracing::error!(url = %url, error = %err, "Failed to process item");
-                    let error_card = format!(
-                        "\n\n### Error for {}\nError: {}\n",
-                        url,
-                        format_process_error(&err)
-                    );
-                    let _ = db::update_summary_chunk(db_pool, identifier, &error_card).await;
-                    combined_output.summary_text.push_str(&error_card);
+                    // A parent with any failed item must not be published as a
+                    // complete aggregate. Chunks already persisted remain a
+                    // diagnostic partial draft and the supervisor marks it
+                    // partial_failed.
+                    return Err(err);
                 }
             }
         }
@@ -721,9 +763,7 @@ async fn process_summary_inner(
             }
             Err(err) => {
                 tracing::error!(url = %url, error = %err, "Failed to process video");
-                let error_card = format!("Error: {}", format_process_error(&err));
-                let _ = db::update_summary_full(db_pool, identifier, &error_card).await;
-                combined_output.summary_text.push_str(&error_card);
+                return Err(err);
             }
         }
     }
@@ -768,11 +808,36 @@ fn parse_model_option(
         })
 }
 
-/// Stores an error message in the summary field and marks summary_done=true.
-/// This ensures the frontend stops polling and displays the error.
 async fn mark_error(db_pool: &SqlitePool, identifier: i64, error_msg: &str) {
-    let _ = db::update_summary_full(db_pool, identifier, error_msg).await;
-    let _ = db::mark_summary_done(db_pool, identifier, 0, 0, 0, "", 0.0, "").await;
+    let code = if error_msg.contains("rate limited") || error_msg.contains("429") {
+        PublicErrorCode::RateLimited
+    } else if error_msg.contains("incomplete") {
+        PublicErrorCode::IncompleteOutput
+    } else if error_msg.contains("terminal") || error_msg.contains("ended without") {
+        PublicErrorCode::ProviderAborted
+    } else {
+        PublicErrorCode::Internal
+    };
+    let has_partial = db::fetch_summary(db_pool, identifier)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|s| !s.summary.trim().is_empty());
+    let status = if has_partial {
+        GenerationStatus::PartialFailed
+    } else {
+        GenerationStatus::Failed
+    };
+    let _ = db::transition_generation(
+        db_pool,
+        identifier,
+        GenerationStatus::Running,
+        status,
+        Some((code, code.message())),
+        None,
+        false,
+    )
+    .await;
 }
 
 #[cfg(test)]

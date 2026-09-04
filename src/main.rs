@@ -29,6 +29,14 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize database
     let db = db::init_db("sqlite:data/summaries.db").await?;
+    let stale_before = (chrono::Utc::now() - chrono::Duration::minutes(15)).to_rfc3339();
+    let recovered = rs_summarizer::db::recover_stale_generations(&db, &stale_before).await?;
+    if recovered > 0 {
+        tracing::warn!(
+            recovered,
+            "Recovered stale running generations into queued state"
+        );
+    }
 
     // Load visualization data and the optional NN mapper if COMPACT_DB_PATH is set.
     let viz_data = load_visualization_components().await;

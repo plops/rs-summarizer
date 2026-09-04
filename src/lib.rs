@@ -2,6 +2,7 @@ pub mod cache;
 pub mod commands;
 pub mod db;
 pub mod errors;
+pub mod generation;
 pub mod models;
 pub mod routes;
 pub mod services;
@@ -24,6 +25,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/", get(routes::index))
         .route("/process_transcript", post(routes::process_transcript))
         .route("/generations/{identifier}", post(routes::get_generation))
+        .route(
+            "/generations/{identifier}/retry",
+            post(routes::retry_generation),
+        )
         .route("/browse", get(routes::browse_summaries))
         .route("/summaries/{identifier}/rate", post(routes::submit_rating))
         .route("/search", post(routes::search_similar))
