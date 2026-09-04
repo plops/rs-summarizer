@@ -22,12 +22,12 @@ use crate::utils::timestamp_linker::replace_timestamps_in_html;
 
 /// Helper function to extract client IP address from request headers or socket address.
 pub fn extract_client_ip(headers: &HeaderMap, addr: &SocketAddr) -> String {
-    if let Some(forwarded) = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok()) {
-        if let Some(first_ip) = forwarded.split(',').next() {
-            let trimmed = first_ip.trim();
-            if !trimmed.is_empty() {
-                return trimmed.to_string();
-            }
+    if let Some(forwarded) = headers.get("x-forwarded-for").and_then(|h| h.to_str().ok())
+        && let Some(first_ip) = forwarded.split(',').next()
+    {
+        let trimmed = first_ip.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
         }
     }
     if let Some(real_ip) = headers.get("x-real-ip").and_then(|h| h.to_str().ok()) {
@@ -169,19 +169,19 @@ pub async fn process_transcript(
 
         if let Some(ref transcript_str) = single_input.transcript {
             let trimmed_transcript = transcript_str.trim();
-            if !trimmed_transcript.is_empty() {
-                if let Ok(Some(existing_id)) = app
+            if !trimmed_transcript.is_empty()
+                && let Ok(Some(existing_id)) = app
                     .dedup_service
                     .check_duplicate_by_transcript(&app.db, trimmed_transcript, &single_input.model)
                     .await
-                {
-                    duplicate_id = Some(existing_id);
-                }
+            {
+                duplicate_id = Some(existing_id);
             }
         }
 
-        if duplicate_id.is_none() && !single_input.original_source_link.trim().is_empty() {
-            if let Ok(Some(existing_id)) = app
+        if duplicate_id.is_none()
+            && !single_input.original_source_link.trim().is_empty()
+            && let Ok(Some(existing_id)) = app
                 .dedup_service
                 .check_duplicate(
                     &app.db,
@@ -189,9 +189,8 @@ pub async fn process_transcript(
                     &single_input.model,
                 )
                 .await
-            {
-                duplicate_id = Some(existing_id);
-            }
+        {
+            duplicate_id = Some(existing_id);
         }
 
         let item_id = if let Some(existing_id) = duplicate_id {

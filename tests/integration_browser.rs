@@ -10,6 +10,7 @@
 //! - GEMINI_API_KEY env var for tests that trigger summarization
 //!
 //! Run with: cargo test --test integration_browser -- --ignored
+#![allow(clippy::zombie_processes)] // Each test kills geckodriver during cleanup.
 //! (These tests are ignored by default since they require geckodriver + Firefox)
 
 use fantoccini::{Client, ClientBuilder, Locator};
@@ -193,7 +194,7 @@ async fn seed_summaries(db: &SqlitePool, count: usize) -> Vec<i64> {
 /// Seed a single summary with `timestamps_done=true` and timestamped content.
 /// The content includes timestamps that should become clickable YouTube links.
 async fn seed_summary_with_timestamps(db: &SqlitePool, url: &str) -> i64 {
-    let id = sqlx::query(
+    sqlx::query(
         "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, summary, summary_done, timestamps_done, timestamped_summary_in_youtube_format) \
          VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?)"
     )
@@ -207,8 +208,7 @@ async fn seed_summary_with_timestamps(db: &SqlitePool, url: &str) -> i64 {
     .execute(db)
     .await
     .unwrap()
-    .last_insert_rowid();
-    id
+    .last_insert_rowid()
 }
 
 /// Create a test AppState with a model that has rpd_limit=1 for rate limit testing.
@@ -733,11 +733,11 @@ async fn test_deduplication_returns_same_id() {
     // Extract the identifier from the #generation div's hx-post attribute
     let mut hx_post = None;
     for _ in 0..15 {
-        if let Ok(div) = client.find(Locator::Css("#generation")).await {
-            if let Ok(Some(val)) = div.attr("hx-post").await {
-                hx_post = Some(val);
-                break;
-            }
+        if let Ok(div) = client.find(Locator::Css("#generation")).await
+            && let Ok(Some(val)) = div.attr("hx-post").await
+        {
+            hx_post = Some(val);
+            break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
@@ -764,11 +764,11 @@ async fn test_deduplication_returns_same_id() {
     // Extract the identifier from the second submission
     let mut hx_post = None;
     for _ in 0..15 {
-        if let Ok(div) = client.find(Locator::Css("#generation")).await {
-            if let Ok(Some(val)) = div.attr("hx-post").await {
-                hx_post = Some(val);
-                break;
-            }
+        if let Ok(div) = client.find(Locator::Css("#generation")).await
+            && let Ok(Some(val)) = div.attr("hx-post").await
+        {
+            hx_post = Some(val);
+            break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
@@ -1555,11 +1555,11 @@ async fn test_server_restart_recovery() {
     // Verify polling started (generation div with hx-trigger)
     let mut hx_trigger = None;
     for _ in 0..15 {
-        if let Ok(div) = client.find(Locator::Css("#generation")).await {
-            if let Ok(Some(val)) = div.attr("hx-trigger").await {
-                hx_trigger = Some(val);
-                break;
-            }
+        if let Ok(div) = client.find(Locator::Css("#generation")).await
+            && let Ok(Some(val)) = div.attr("hx-trigger").await
+        {
+            hx_trigger = Some(val);
+            break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }

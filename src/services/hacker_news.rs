@@ -108,17 +108,17 @@ impl HackerNewsService {
         let mut article_fetch_failed = false;
         let mut article_fetch_error = None;
 
-        if let Some(ref ext_url) = article_url {
-            if !ext_url.contains("news.ycombinator.com") {
-                match self.fetch_external_article(ext_url).await {
-                    Ok(text) => {
-                        article_text = Some(text);
-                    }
-                    Err(e) => {
-                        tracing::warn!(url = %ext_url, error = %e, "Failed to download external article");
-                        article_fetch_failed = true;
-                        article_fetch_error = Some(e);
-                    }
+        if let Some(ref ext_url) = article_url
+            && !ext_url.contains("news.ycombinator.com")
+        {
+            match self.fetch_external_article(ext_url).await {
+                Ok(text) => {
+                    article_text = Some(text);
+                }
+                Err(e) => {
+                    tracing::warn!(url = %ext_url, error = %e, "Failed to download external article");
+                    article_fetch_failed = true;
+                    article_fetch_error = Some(e);
                 }
             }
         }
@@ -207,29 +207,26 @@ impl HackerNewsService {
                 "https://hacker-news.firebaseio.com/v0/item/{}.json",
                 comment_id
             );
-            if let Ok(res) = self.client.get(&comment_url).send().await {
-                if let Ok(comment) = res.json::<HnItem>().await {
-                    if let Some(ref text) = comment.text {
-                        let clean_text = clean_html_to_text(text);
-                        if !clean_text.is_empty() {
-                            let author = comment.by.as_deref().unwrap_or("anonymous");
-                            let indent = "  ".repeat(depth);
-                            result.push_str(&format!(
-                                "{}[{}] (by {}):\n",
-                                indent, comment_id, author
-                            ));
-                            for line in clean_text.lines() {
-                                result.push_str(&format!("{}  {}\n", indent, line));
-                            }
-                            result.push('\n');
-                            fetched_count += 1;
+            if let Ok(res) = self.client.get(&comment_url).send().await
+                && let Ok(comment) = res.json::<HnItem>().await
+            {
+                if let Some(ref text) = comment.text {
+                    let clean_text = clean_html_to_text(text);
+                    if !clean_text.is_empty() {
+                        let author = comment.by.as_deref().unwrap_or("anonymous");
+                        let indent = "  ".repeat(depth);
+                        result.push_str(&format!("{}[{}] (by {}):\n", indent, comment_id, author));
+                        for line in clean_text.lines() {
+                            result.push_str(&format!("{}  {}\n", indent, line));
                         }
+                        result.push('\n');
+                        fetched_count += 1;
                     }
+                }
 
-                    if let Some(ref comment_kids) = comment.kids {
-                        for &kid_id in comment_kids {
-                            queue.push_back((kid_id, depth + 1));
-                        }
+                if let Some(ref comment_kids) = comment.kids {
+                    for &kid_id in comment_kids {
+                        queue.push_back((kid_id, depth + 1));
                     }
                 }
             }

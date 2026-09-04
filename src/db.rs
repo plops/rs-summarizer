@@ -230,19 +230,19 @@ pub async fn upsert_rating(
     summary_rating: Option<i32>,
     content_rating: Option<i32>,
 ) -> Result<(), sqlx::Error> {
-    if let Some(r) = summary_rating {
-        if !(1..=5).contains(&r) {
-            return Err(sqlx::Error::Protocol(
-                "summary_rating must be between 1 and 5".into(),
-            ));
-        }
+    if let Some(r) = summary_rating
+        && !(1..=5).contains(&r)
+    {
+        return Err(sqlx::Error::Protocol(
+            "summary_rating must be between 1 and 5".into(),
+        ));
     }
-    if let Some(r) = content_rating {
-        if !(1..=5).contains(&r) {
-            return Err(sqlx::Error::Protocol(
-                "content_rating must be between 1 and 5".into(),
-            ));
-        }
+    if let Some(r) = content_rating
+        && !(1..=5).contains(&r)
+    {
+        return Err(sqlx::Error::Protocol(
+            "content_rating must be between 1 and 5".into(),
+        ));
     }
 
     sqlx::query(

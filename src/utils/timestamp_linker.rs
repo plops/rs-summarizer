@@ -72,15 +72,15 @@ fn replace_timestamps_for_video(html: &str, video_id: &str) -> String {
         // Extra check: Ensure no preceding/following dash, slash, colon, dot, or following letters (e.g. 16:09px)
         let start = mat.start();
         let end = mat.end();
-        if let Some(c) = html[..start].chars().last() {
-            if c == '-' || c == '/' || c == ':' || c == '.' {
-                return ts_text.to_string();
-            }
+        if let Some(c) = html[..start].chars().last()
+            && (c == '-' || c == '/' || c == ':' || c == '.')
+        {
+            return ts_text.to_string();
         }
-        if let Some(c) = html[end..].chars().next() {
-            if c == '-' || c == '/' || c == ':' || c == '.' || c.is_alphabetic() {
-                return ts_text.to_string();
-            }
+        if let Some(c) = html[end..].chars().next()
+            && (c == '-' || c == '/' || c == ':' || c == '.' || c.is_alphabetic())
+        {
+            return ts_text.to_string();
         }
 
         let parts: Vec<&str> = ts_text.split(':').collect();

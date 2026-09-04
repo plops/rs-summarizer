@@ -38,10 +38,10 @@ pub fn validate_youtube_url(url: &str) -> Option<String> {
 
     let trimmed = url.trim();
     for re in patterns {
-        if let Some(captures) = re.captures(trimmed) {
-            if let Some(id_match) = captures.get(1) {
-                return Some(id_match.as_str().to_string());
-            }
+        if let Some(captures) = re.captures(trimmed)
+            && let Some(id_match) = captures.get(1)
+        {
+            return Some(id_match.as_str().to_string());
         }
     }
 
@@ -77,12 +77,11 @@ pub fn validate_hn_url(url: &str) -> Option<u64> {
 
     let trimmed = url.trim();
     for re in patterns {
-        if let Some(captures) = re.captures(trimmed) {
-            if let Some(id_match) = captures.get(1) {
-                if let Ok(id) = id_match.as_str().parse::<u64>() {
-                    return Some(id);
-                }
-            }
+        if let Some(captures) = re.captures(trimmed)
+            && let Some(id_match) = captures.get(1)
+            && let Ok(id) = id_match.as_str().parse::<u64>()
+        {
+            return Some(id);
         }
     }
 
@@ -104,13 +103,13 @@ pub enum ParsedSource {
 /// Identifies whether a given URL or ID is a YouTube link/ID or a Hacker News link/ID.
 pub fn parse_source_url(url: &str) -> ParsedSource {
     let trimmed = url.trim();
-    if trimmed.contains("ycombinator.com") || trimmed.starts_with("item?id=") {
-        if let Some(hn_id) = validate_hn_url(url) {
-            return ParsedSource::HackerNews(
-                hn_id,
-                format!("https://news.ycombinator.com/item?id={}", hn_id),
-            );
-        }
+    if (trimmed.contains("ycombinator.com") || trimmed.starts_with("item?id="))
+        && let Some(hn_id) = validate_hn_url(url)
+    {
+        return ParsedSource::HackerNews(
+            hn_id,
+            format!("https://news.ycombinator.com/item?id={}", hn_id),
+        );
     }
 
     if let Some(yt_norm) = normalize_youtube_url(url) {

@@ -37,10 +37,10 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
     }
 
     // 3. Validate output directory exists
-    if let Some(parent) = args.output.parent() {
-        if !parent.exists() {
-            return Err(ExportError::OutputDirMissing(parent.to_path_buf()).into());
-        }
+    if let Some(parent) = args.output.parent()
+        && !parent.exists()
+    {
+        return Err(ExportError::OutputDirMissing(parent.to_path_buf()).into());
     }
 
     // 4. Open source database read-only

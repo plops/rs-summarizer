@@ -28,13 +28,13 @@ fn test_base_args() -> Vec<String> {
                 format!("youtubepot-bgutilhttp:base_url={}", trimmed),
             ]);
         }
-    } else if let Ok(mut addrs) = ("host.docker.internal", 4416).to_socket_addrs() {
-        if addrs.next().is_some() {
-            args.extend([
-                "--extractor-args".to_string(),
-                "youtubepot-bgutilhttp:base_url=http://host.docker.internal:4416".to_string(),
-            ]);
-        }
+    } else if let Ok(mut addrs) = ("host.docker.internal", 4416).to_socket_addrs()
+        && addrs.next().is_some()
+    {
+        args.extend([
+            "--extractor-args".to_string(),
+            "youtubepot-bgutilhttp:base_url=http://host.docker.internal:4416".to_string(),
+        ]);
     }
 
     // Cookie handling matching TranscriptService

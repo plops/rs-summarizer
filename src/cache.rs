@@ -113,15 +113,13 @@ impl MetadataCache {
         let mut groups: Vec<Vec<&SummaryMetadata>> = Vec::new();
 
         for entry in entries {
-            if let Some(last_group) = groups.last_mut() {
-                if let Some(last_entry) = last_group.last() {
-                    if last_entry.summary_preview == entry.summary_preview
-                        && !entry.summary_preview.is_empty()
-                    {
-                        last_group.push(entry);
-                        continue;
-                    }
-                }
+            if let Some(last_group) = groups.last_mut()
+                && let Some(last_entry) = last_group.last()
+                && last_entry.summary_preview == entry.summary_preview
+                && !entry.summary_preview.is_empty()
+            {
+                last_group.push(entry);
+                continue;
             }
             groups.push(vec![entry]);
         }

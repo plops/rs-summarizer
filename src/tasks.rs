@@ -221,18 +221,17 @@ async fn enforce_rpm_limit(model_name: &str, rpm_limit: u32, app: &AppState) {
     let lock = app.get_model_lock(model_name).await;
     let mut last_request_time = lock.lock().await;
     let now = std::time::Instant::now();
-    if let Some(last_time) = *last_request_time {
-        if let Some(elapsed) = now.checked_duration_since(last_time) {
-            if elapsed < delay_per_request {
-                let sleep_dur = delay_per_request - elapsed;
-                tracing::info!(
-                    model = model_name,
-                    sleep_ms = sleep_dur.as_millis(),
-                    "RPM limit delay active, sleeping"
-                );
-                tokio::time::sleep(sleep_dur).await;
-            }
-        }
+    if let Some(last_time) = *last_request_time
+        && let Some(elapsed) = now.checked_duration_since(last_time)
+        && elapsed < delay_per_request
+    {
+        let sleep_dur = delay_per_request - elapsed;
+        tracing::info!(
+            model = model_name,
+            sleep_ms = sleep_dur.as_millis(),
+            "RPM limit delay active, sleeping"
+        );
+        tokio::time::sleep(sleep_dur).await;
     }
     *last_request_time = Some(std::time::Instant::now());
 }

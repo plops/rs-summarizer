@@ -440,10 +440,10 @@ fn resolve_pot_provider_url() -> Option<String> {
     }
 
     // If no explicit env var is set, check if host.docker.internal resolves
-    if let Ok(mut addrs) = ("host.docker.internal", 4416).to_socket_addrs() {
-        if addrs.next().is_some() {
-            return Some("http://host.docker.internal:4416".to_string());
-        }
+    if let Ok(mut addrs) = ("host.docker.internal", 4416).to_socket_addrs()
+        && addrs.next().is_some()
+    {
+        return Some("http://host.docker.internal:4416".to_string());
     }
 
     None
@@ -491,26 +491,28 @@ fn extractor_args() -> Vec<String> {
 /// If browser cookies are requested via YTDLP_COOKIES_FROM_BROWSER or if Firefox profile paths exist,
 /// adds `--cookies-from-browser firefox`. Otherwise omits cookie flags (relying on PO Token provider).
 fn cookie_args() -> Vec<String> {
-    if let Ok(path) = std::env::var("YTDLP_COOKIES") {
-        if !path.trim().is_empty() && std::path::Path::new(path.trim()).exists() {
-            return vec!["--cookies".to_string(), path.trim().to_string()];
-        }
+    if let Ok(path) = std::env::var("YTDLP_COOKIES")
+        && !path.trim().is_empty()
+        && std::path::Path::new(path.trim()).exists()
+    {
+        return vec!["--cookies".to_string(), path.trim().to_string()];
     }
-    if let Ok(path) = std::env::var("COOKIES_FILE") {
-        if !path.trim().is_empty() && std::path::Path::new(path.trim()).exists() {
-            return vec!["--cookies".to_string(), path.trim().to_string()];
-        }
+    if let Ok(path) = std::env::var("COOKIES_FILE")
+        && !path.trim().is_empty()
+        && std::path::Path::new(path.trim()).exists()
+    {
+        return vec!["--cookies".to_string(), path.trim().to_string()];
     }
     if std::path::Path::new("cookies.txt").exists() {
         return vec!["--cookies".to_string(), "cookies.txt".to_string()];
     }
-    if let Ok(browser) = std::env::var("YTDLP_COOKIES_FROM_BROWSER") {
-        if !browser.trim().is_empty() {
-            return vec![
-                "--cookies-from-browser".to_string(),
-                browser.trim().to_string(),
-            ];
-        }
+    if let Ok(browser) = std::env::var("YTDLP_COOKIES_FROM_BROWSER")
+        && !browser.trim().is_empty()
+    {
+        return vec![
+            "--cookies-from-browser".to_string(),
+            browser.trim().to_string(),
+        ];
     }
     // Check if firefox profile path exists on host or container
     if let Ok(home) = std::env::var("HOME") {
@@ -538,10 +540,10 @@ struct TempFileGuard {
 impl Drop for TempFileGuard {
     fn drop(&mut self) {
         for path in &self.paths {
-            if path.exists() {
-                if let Err(e) = std::fs::remove_file(path) {
-                    tracing::warn!(path = %path.display(), error = %e, "Failed to clean up temp file");
-                }
+            if path.exists()
+                && let Err(e) = std::fs::remove_file(path)
+            {
+                tracing::warn!(path = %path.display(), error = %e, "Failed to clean up temp file");
             }
         }
     }

@@ -75,6 +75,7 @@ impl SummaryService {
     /// Persists chunks to DB progressively during streaming.
     ///
     /// Requirements: 6.1, 6.2, 6.5, 6.6, 6.7
+    #[allow(deprecated)] // gemini-rust's replacement has no streaming equivalent yet.
     #[allow(clippy::too_many_arguments)]
     pub async fn generate_summary(
         &self,
@@ -216,24 +217,21 @@ impl SummaryService {
                 Ok(response) => {
                     // Extract text parts, separating thoughts if it's a Gemini model with thoughts
                     if model.architecture == crate::state::ModelArchitecture::Gemini {
-                        if let Some(candidate) = response.candidates.first() {
-                            if let Some(parts) = &candidate.content.parts {
-                                for part in parts {
-                                    if let Part::Text { text, thought, .. } = part {
-                                        let is_thought = thought.unwrap_or(false);
-                                        if is_thought {
-                                            thinking_text.push_str(text);
-                                        } else if !text.is_empty() {
-                                            db::update_summary_chunk(db_pool, identifier, text)
-                                                .await
-                                                .map_err(|e| {
-                                                    SummaryError::ApiError(format!(
-                                                        "DB error: {}",
-                                                        e
-                                                    ))
-                                                })?;
-                                            summary_text.push_str(text);
-                                        }
+                        if let Some(candidate) = response.candidates.first()
+                            && let Some(parts) = &candidate.content.parts
+                        {
+                            for part in parts {
+                                if let Part::Text { text, thought, .. } = part {
+                                    let is_thought = thought.unwrap_or(false);
+                                    if is_thought {
+                                        thinking_text.push_str(text);
+                                    } else if !text.is_empty() {
+                                        db::update_summary_chunk(db_pool, identifier, text)
+                                            .await
+                                            .map_err(|e| {
+                                            SummaryError::ApiError(format!("DB error: {}", e))
+                                        })?;
+                                        summary_text.push_str(text);
                                     }
                                 }
                             }
@@ -540,15 +538,13 @@ Please provide a summary like they would: \n\
             match chunk_result {
                 Ok(response) => {
                     for choice in response.choices {
-                        if let Some(content) = choice.delta.content {
-                            if !content.is_empty() {
-                                db::update_summary_chunk(db_pool, identifier, &content)
-                                    .await
-                                    .map_err(|e| {
-                                        SummaryError::ApiError(format!("DB error: {}", e))
-                                    })?;
-                                summary_text.push_str(&content);
-                            }
+                        if let Some(content) = choice.delta.content
+                            && !content.is_empty()
+                        {
+                            db::update_summary_chunk(db_pool, identifier, &content)
+                                .await
+                                .map_err(|e| SummaryError::ApiError(format!("DB error: {}", e)))?;
+                            summary_text.push_str(&content);
                         }
                     }
                     if let Some(usage) = response.usage {
