@@ -91,6 +91,7 @@ async fn test_app_state() -> AppState {
     let gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
 
     AppState {
+        app_version: rs_summarizer::APP_VERSION,
         db,
         model_options: Arc::new(model_options),
         model_counts: Arc::new(RwLock::new(HashMap::new())),
@@ -245,6 +246,7 @@ async fn test_app_state_with_low_limit() -> AppState {
     let gemini_api_key = std::env::var("GEMINI_API_KEY").unwrap_or_default();
 
     AppState {
+        app_version: rs_summarizer::APP_VERSION,
         db,
         model_options: Arc::new(model_options),
         model_counts: Arc::new(RwLock::new(HashMap::new())),

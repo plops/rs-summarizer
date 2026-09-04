@@ -446,6 +446,7 @@ mod tests {
         };
 
         AppState {
+            app_version: crate::APP_VERSION,
             db: db_pool,
             model_options: Arc::new(vec![model]),
             model_counts: Arc::new(RwLock::new(HashMap::new())),

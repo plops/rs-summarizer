@@ -8,7 +8,7 @@ use tokio::sync::RwLock;
 
 use rs_summarizer::commands::export_db::{ExportDbArgs, run_export};
 use rs_summarizer::state::AppState;
-use rs_summarizer::{build_router, db};
+use rs_summarizer::{APP_VERSION, build_router, db};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -48,6 +48,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Build application state
     let state = AppState {
+        app_version: APP_VERSION,
         db: db.clone(),
         model_options: Arc::new(model_options),
         model_counts: Arc::new(RwLock::new(HashMap::new())),

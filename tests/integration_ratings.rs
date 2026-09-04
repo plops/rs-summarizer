@@ -16,6 +16,7 @@ async fn setup_test_app() -> (axum::Router, SqlitePool) {
 
     let model_options = Arc::new(rs_summarizer::state::get_default_models());
     let state = AppState {
+        app_version: rs_summarizer::APP_VERSION,
         db: pool.clone(),
         model_options,
         model_counts: Arc::new(RwLock::new(HashMap::new())),

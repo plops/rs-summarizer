@@ -39,6 +39,8 @@ pub type ModelLockMap =
 
 #[derive(Clone)]
 pub struct AppState {
+    /// Version of the running rs-summarizer binary.
+    pub app_version: &'static str,
     pub db: SqlitePool,
     pub model_options: Arc<Vec<ModelOption>>,
     pub model_counts: Arc<RwLock<HashMap<String, u32>>>,

@@ -390,6 +390,7 @@ async fn build_test_app_state() -> AppState {
     let last_reset_day = Arc::new(RwLock::new(None));
 
     AppState {
+        app_version: rs_summarizer::APP_VERSION,
         db: db_pool,
         model_options,
         model_counts,

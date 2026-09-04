@@ -11,6 +11,12 @@ pub mod tasks;
 pub mod templates;
 pub mod utils;
 
+/// Version of the binary as set by Cargo when it is compiled.
+///
+/// This deliberately has no runtime override: provenance recorded for a
+/// summary must identify the artifact that generated it.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 use axum::{
     Router,
     routing::{get, post},
