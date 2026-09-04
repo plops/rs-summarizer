@@ -143,7 +143,10 @@ pub async fn recover_stale_generations(
 }
 
 pub async fn fetch_queued_generations(db: &SqlitePool) -> Result<Vec<i64>, sqlx::Error> {
-    sqlx::query_scalar("SELECT identifier FROM summaries WHERE generation_status = 'queued'")
+    // New submissions spawn their own worker. At startup, only resume rows
+    // explicitly produced by stale/retry recovery; never replay an entire
+    // historical queued backlog after a schema rollout.
+    sqlx::query_scalar("SELECT identifier FROM summaries WHERE generation_status = 'queued' AND generation_error_code = 'network_interrupted'")
         .fetch_all(db)
         .await
 }
@@ -625,5 +628,32 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(backfilled, "succeeded");
+    }
+
+    #[tokio::test]
+    async fn legacy_queued_rows_are_not_replayed_on_startup() {
+        let pool = create_in_memory_db().await;
+        let legacy = sqlx::query("INSERT INTO summaries (model) VALUES ('legacy')")
+            .execute(&pool)
+            .await
+            .unwrap()
+            .last_insert_rowid();
+        sqlx::raw_sql(include_str!(
+            "../migrations/008_quarantine_legacy_queued_generations.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let row = fetch_summary(&pool, legacy).await.unwrap().unwrap();
+        assert_eq!(row.generation_status, "failed");
+        assert!(row.summary_done);
+        assert!(row.generation_error_message.contains("not resumed"));
+
+        let recovered = sqlx::query("INSERT INTO summaries (model, generation_status, generation_error_code) VALUES ('recovered', 'queued', 'network_interrupted')")
+            .execute(&pool).await.unwrap().last_insert_rowid();
+        assert_eq!(
+            fetch_queued_generations(&pool).await.unwrap(),
+            vec![recovered]
+        );
     }
 }

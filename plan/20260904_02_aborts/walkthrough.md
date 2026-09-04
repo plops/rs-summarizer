@@ -18,8 +18,10 @@
 - `src/tasks.rs` persists retry-wait before a bounded delay, restores `running`
   before retrying, and retains incomplete chunks as `partial_failed`. A failed
   child in a multi-source submission makes the aggregate non-successful.
-- Startup recovers stale `running` jobs to `queued` and claims queued work;
-  users can explicitly,
+- Startup recovers stale `running` jobs to `queued` and claims only rows
+  explicitly marked as interrupted. `008_quarantine_legacy_queued_generations`
+  prevents a historical queued backlog from being replayed at startup; users
+  can explicitly,
   idempotently retry terminal failures through
   `POST /generations/{identifier}/retry`.
 - `generation_partial.html` polls only queued/running/retry-wait generations.
@@ -57,7 +59,17 @@ SQLite fixtures by the database tests.
 
 ## Rollout and rollback
 
-Deploy migration 007 before application binaries. It is additive and retains
+### 1.7.1 corrective rollout
+
+The 1.7.0 startup path inadvertently spawned a worker for every historical
+unfinished row backfilled to `queued`. On an existing database, that can issue
+many concurrent Gemini calls, quickly exhaust quota, and contend for SQLite's
+small connection pool. Version 1.7.1 adds migration 008. It preserves partial
+drafts but marks untouched legacy queued rows as terminal `failed` with a safe
+retry message; it resumes only rows explicitly marked `network_interrupted` by
+crash/retry recovery.
+
+Deploy migration 008 before application binaries. It is additive and retains
 `summary_done` for browse/export compatibility. Monitor `partial_failed`,
 `retry_wait`, provider terminal status, and the public error code fields. On
 rollback, deploy the previous binary: it ignores the new columns. Do not drop

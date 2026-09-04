@@ -7,7 +7,7 @@ fast-umap = { path = "third_party/fast-umap" }
 
 [package]
 name = "rs-summarizer"
-version = "1.6.2"
+version = "1.7.1"
 edition = "2024"
 
 [dependencies]
