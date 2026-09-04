@@ -219,7 +219,7 @@ async fn seed_summary_with_timestamps(db: &SqlitePool, url: &str) -> i64 {
     .bind("127.0.0.1:0")
     .bind(chrono::Utc::now().to_rfc3339())
     .bind("## Timestamped Summary\n\nThis is the summary content.")
-    .bind("<p><strong>0:00 Introduction</strong></p>\n<p><strong>1:30 Main Topic</strong></p>\n<p><strong>5:45 Conclusion</strong></p>")
+    .bind("<p><strong>00:00 Introduction</strong></p>\n<p><strong>01:30 Main Topic</strong></p>\n<p><strong>05:45 Conclusion</strong></p>")
     .execute(db)
     .await
     .unwrap()
@@ -342,7 +342,7 @@ async fn test_index_page_loads() {
     // Verify the heading is present
     let heading = client.find(Locator::Css("h1")).await.unwrap();
     let heading_text = heading.text().await.unwrap();
-    assert_eq!(heading_text, "YouTube Transcript Summarizer");
+    assert_eq!(heading_text, "YouTube & Hacker News Summarizer");
 
     // Verify the URL input field exists
     let url_input = client.find(Locator::Css("#url")).await.unwrap();
@@ -446,7 +446,7 @@ async fn test_form_submission_shows_processing() {
     );
 
     // The generation div should have hx-post for polling
-    let generation_div = client.find(Locator::Css("#generation")).await;
+    let generation_div = client.find(Locator::Css("[id^='generation-']")).await;
     assert!(
         generation_div.is_ok(),
         "Expected #generation div to be present for HTMX polling"
@@ -705,7 +705,7 @@ async fn test_full_summarization_e2e() {
     if completed {
         // Verify the summary has actual content
         let article = client
-            .find(Locator::Css("#generation article"))
+            .find(Locator::Css("[id^='generation-'] article"))
             .await
             .unwrap();
         let article_text = article.text().await.unwrap();
@@ -716,7 +716,10 @@ async fn test_full_summarization_e2e() {
         );
 
         // Verify the polling has stopped (no more hx-trigger on the div)
-        let generation_div = client.find(Locator::Css("#generation")).await.unwrap();
+        let generation_div = client
+            .find(Locator::Css("[id^='generation-']"))
+            .await
+            .unwrap();
         let hx_trigger = generation_div.attr("hx-trigger").await.unwrap();
         assert!(
             hx_trigger.is_none(),
@@ -762,20 +765,20 @@ async fn test_deduplication_returns_same_id() {
     // Wait for HTMX to swap in the result
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
-    // Extract the identifier from the #generation div's hx-post attribute
-    let mut hx_post = None;
+    // Extract the identifier from the generation container. A completed duplicate no
+    // longer polls, so it has no hx-post attribute.
+    let mut generation_id = None;
     for _ in 0..15 {
-        if let Ok(div) = client.find(Locator::Css("#generation")).await
-            && let Ok(Some(val)) = div.attr("hx-post").await
+        if let Ok(div) = client.find(Locator::Css("[id^='generation-']")).await
+            && let Ok(Some(val)) = div.attr("id").await
         {
-            hx_post = Some(val);
+            generation_id = Some(val);
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
-    let hx_post = hx_post.expect("hx-post should be present");
-    // hx-post is like "/generations/1"
-    let first_id = hx_post.trim_start_matches("/generations/").to_string();
+    let generation_id = generation_id.expect("generation container should be present");
+    let first_id = generation_id.trim_start_matches("generation-").to_string();
 
     // Navigate back to index and submit the same URL again
     client.goto(&base_url).await.unwrap();
@@ -794,18 +797,19 @@ async fn test_deduplication_returns_same_id() {
     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
     // Extract the identifier from the second submission
-    let mut hx_post = None;
+    let mut generation_id = None;
     for _ in 0..15 {
-        if let Ok(div) = client.find(Locator::Css("#generation")).await
-            && let Ok(Some(val)) = div.attr("hx-post").await
+        if let Ok(div) = client.find(Locator::Css("[id^='generation-']")).await
+            && let Ok(Some(val)) = div.attr("id").await
         {
-            hx_post = Some(val);
+            generation_id = Some(val);
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
-    let hx_post = hx_post.expect("hx-post should be present on second submission");
-    let second_id = hx_post.trim_start_matches("/generations/").to_string();
+    let generation_id =
+        generation_id.expect("generation container should be present on second submission");
+    let second_id = generation_id.trim_start_matches("generation-").to_string();
 
     // Both submissions should return the same identifier (deduplication)
     assert_eq!(
@@ -819,12 +823,20 @@ async fn test_deduplication_returns_same_id() {
 }
 
 /// Test that exhausting a model's rate limit displays an appropriate error message.
-/// Uses a model with rpd_limit=1 so the first submission exhausts the limit,
-/// and the second submission triggers the rate limit error.
+/// Uses a model with rpd_limit=1 whose counter is pre-filled, so the browser
+/// request deterministically exercises the rate-limit response without waiting
+/// for background processing to increment it.
 #[tokio::test]
 #[ignore]
 async fn test_rate_limit_error_display() {
     let state = test_app_state_with_low_limit().await;
+    *state.last_reset_day.write().await =
+        Some(rs_summarizer::services::rate_limiter::RateLimiter::today_la());
+    rs_summarizer::services::rate_limiter::RateLimiter::increment_counter(
+        "test-limited-model",
+        &state.model_counts,
+    )
+    .await;
     let base_url = start_test_server_with_state(state).await;
     let geckodriver_port = 4453;
     let mut geckodriver = start_geckodriver(geckodriver_port);
@@ -833,10 +845,10 @@ async fn test_rate_limit_error_display() {
     // Navigate to the index page
     client.goto(&base_url).await.unwrap();
 
-    // First submission - should succeed (exhausts rpd_limit=1)
+    // Submit a valid URL. The pre-filled counter means it is rejected immediately.
     let url_input = client.find(Locator::Css("#url")).await.unwrap();
     url_input
-        .send_keys("https://www.youtube.com/watch?v=test_rate1")
+        .send_keys("https://www.youtube.com/watch?v=9bZkp7q19f0")
         .await
         .unwrap();
     let submit_btn = client
@@ -844,23 +856,7 @@ async fn test_rate_limit_error_display() {
         .await
         .unwrap();
     submit_btn.click().await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    // Navigate back for second submission
-    client.goto(&base_url).await.unwrap();
-
-    // Second submission - should hit rate limit
-    let url_input = client.find(Locator::Css("#url")).await.unwrap();
-    url_input
-        .send_keys("https://www.youtube.com/watch?v=test_rate2")
-        .await
-        .unwrap();
-    let submit_btn = client
-        .find(Locator::Css("button[type='submit']"))
-        .await
-        .unwrap();
-    submit_btn.click().await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Verify rate limit error is displayed
     let result_div = client.find(Locator::Css("#result")).await.unwrap();
@@ -940,7 +936,9 @@ async fn test_polling_stops_on_error() {
     );
 
     // Verify #generation element does NOT exist with hx-trigger (no polling)
-    let generation = client.find(Locator::Css("#generation[hx-trigger]")).await;
+    let generation = client
+        .find(Locator::Css("[id^='generation-'][hx-trigger]"))
+        .await;
     assert!(
         generation.is_err(),
         "Expected no #generation element with hx-trigger attribute after error"
@@ -1256,7 +1254,7 @@ async fn test_summary_markdown_rendering() {
 }
 
 /// Test that timestamps in a completed summary are rendered as clickable YouTube links.
-/// The `replace_timestamps_in_html()` function converts timestamps like "0:00", "1:30"
+/// The `replace_timestamps_in_html()` function converts timestamps like "00:00", "01:30"
 /// into `<a href="https://www.youtube.com/watch?v=VIDEO_ID&t=Xs">` links.
 #[tokio::test]
 #[ignore]
@@ -1301,12 +1299,12 @@ async fn test_timestamp_links_rendered() {
     );
 
     // Verify specific timestamps were converted:
-    // 0:00 -> t=0s, 1:30 -> t=90s, 5:45 -> t=345s
-    assert!(html.contains("t=0s"), "Expected t=0s for 0:00 timestamp");
-    assert!(html.contains("t=90s"), "Expected t=90s for 1:30 timestamp");
+    // 00:00 -> t=0s, 01:30 -> t=90s, 05:45 -> t=345s
+    assert!(html.contains("t=0s"), "Expected t=0s for 00:00 timestamp");
+    assert!(html.contains("t=90s"), "Expected t=90s for 01:30 timestamp");
     assert!(
         html.contains("t=345s"),
-        "Expected t=345s for 5:45 timestamp"
+        "Expected t=345s for 05:45 timestamp"
     );
 
     // Clean up
@@ -1496,7 +1494,7 @@ async fn test_concurrent_submissions() {
     // Client 1 submits URL A
     let url_input_1 = client_1.find(Locator::Css("#url")).await.unwrap();
     url_input_1
-        .send_keys("https://www.youtube.com/watch?v=concurrent_test_A")
+        .send_keys("https://www.youtube.com/watch?v=9bZkp7q19f0")
         .await
         .unwrap();
     let submit_1 = client_1
@@ -1508,7 +1506,7 @@ async fn test_concurrent_submissions() {
     // Client 2 submits URL B
     let url_input_2 = client_2.find(Locator::Css("#url")).await.unwrap();
     url_input_2
-        .send_keys("https://www.youtube.com/watch?v=concurrent_test_B")
+        .send_keys("https://www.youtube.com/watch?v=3JZ_D3ELwOQ")
         .await
         .unwrap();
     let submit_2 = client_2
@@ -1521,22 +1519,32 @@ async fn test_concurrent_submissions() {
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
 
     // Extract identifier from client 1's #generation div
-    let gen_1 = client_1.find(Locator::Css("#generation")).await.unwrap();
-    let hx_post_1 = gen_1
-        .attr("hx-post")
+    let gen_1 = client_1
+        .find(Locator::Css("[id^='generation-']"))
+        .await
+        .unwrap();
+    let generation_id_1 = gen_1
+        .attr("id")
         .await
         .unwrap()
-        .expect("Client 1 should have hx-post");
-    let id_1 = hx_post_1.trim_start_matches("/generations/").to_string();
+        .expect("Client 1 should have a generation ID");
+    let id_1 = generation_id_1
+        .trim_start_matches("generation-")
+        .to_string();
 
     // Extract identifier from client 2's #generation div
-    let gen_2 = client_2.find(Locator::Css("#generation")).await.unwrap();
-    let hx_post_2 = gen_2
-        .attr("hx-post")
+    let gen_2 = client_2
+        .find(Locator::Css("[id^='generation-']"))
+        .await
+        .unwrap();
+    let generation_id_2 = gen_2
+        .attr("id")
         .await
         .unwrap()
-        .expect("Client 2 should have hx-post");
-    let id_2 = hx_post_2.trim_start_matches("/generations/").to_string();
+        .expect("Client 2 should have a generation ID");
+    let id_2 = generation_id_2
+        .trim_start_matches("generation-")
+        .to_string();
 
     // Verify distinct identifiers
     assert_ne!(
@@ -1572,7 +1580,7 @@ async fn test_server_restart_recovery() {
     // Submit a URL to start generation
     let url_input = client.find(Locator::Css("#url")).await.unwrap();
     url_input
-        .send_keys("https://www.youtube.com/watch?v=restart_test")
+        .send_keys("https://www.youtube.com/watch?v=9bZkp7q19f0")
         .await
         .unwrap();
     let submit_btn = client
@@ -1587,7 +1595,7 @@ async fn test_server_restart_recovery() {
     // Verify polling started (generation div with hx-trigger)
     let mut hx_trigger = None;
     for _ in 0..15 {
-        if let Ok(div) = client.find(Locator::Css("#generation")).await
+        if let Ok(div) = client.find(Locator::Css("[id^='generation-']")).await
             && let Ok(Some(val)) = div.attr("hx-trigger").await
         {
             hx_trigger = Some(val);
@@ -1672,7 +1680,7 @@ async fn test_aria_busy_during_generation() {
     client.goto(&base_url).await.unwrap();
     let url_input = client.find(Locator::Css("#url")).await.unwrap();
     url_input
-        .send_keys("https://www.youtube.com/watch?v=aria_busy_test")
+        .send_keys("https://www.youtube.com/watch?v=9bZkp7q19f0")
         .await
         .unwrap();
     let submit_btn = client
@@ -1684,7 +1692,7 @@ async fn test_aria_busy_during_generation() {
 
     // Verify aria-busy="true" is present within #generation
     let busy_element = client
-        .find(Locator::Css("#generation [aria-busy='true']"))
+        .find(Locator::Css("[id^='generation-'] [aria-busy='true']"))
         .await;
     assert!(
         busy_element.is_ok(),
@@ -1771,7 +1779,8 @@ async fn test_form_input_labels() {
 }
 
 /// Test keyboard navigation through the form elements and Enter key submission.
-/// Verifies that Tab key moves focus through URL input → model select → submit button,
+/// Verifies that Tab key moves focus through URL input → model select → thinking effort
+/// → advanced-options summary → submit button,
 /// and that pressing Enter on the URL input with a value submits the form via HTMX.
 ///
 /// Validates: Requirements 14.1, 14.2
@@ -1811,6 +1820,16 @@ async fn test_keyboard_navigation() {
         "Expected model select to be focused after Tab"
     );
 
+    // Tab to thinking effort
+    active.send_keys("\u{E004}").await.unwrap(); // Tab key
+    let active = client.active_element().await.unwrap();
+    let active_id = active.attr("id").await.unwrap();
+    assert_eq!(
+        active_id.as_deref(),
+        Some("thinking_level"),
+        "Expected thinking effort select to be focused after second Tab"
+    );
+
     // Tab to details summary
     active.send_keys("\u{E004}").await.unwrap(); // Tab key
     let active = client.active_element().await.unwrap();
@@ -1818,17 +1837,17 @@ async fn test_keyboard_navigation() {
     assert_eq!(
         active_tag.to_lowercase(),
         "summary",
-        "Expected details summary to be focused after second Tab"
+        "Expected details summary to be focused after third Tab"
     );
 
-    // Tab to submit button (third Tab)
+    // Tab to submit button (fourth Tab)
     active.send_keys("\u{E004}").await.unwrap(); // Tab key
     let active = client.active_element().await.unwrap();
     let active_tag = active.tag_name().await.unwrap();
     assert_eq!(
         active_tag.to_lowercase(),
         "button",
-        "Expected submit button to be focused after third Tab"
+        "Expected submit button to be focused after fourth Tab"
     );
 
     // Now test Enter key submission
@@ -1839,7 +1858,7 @@ async fn test_keyboard_navigation() {
         .unwrap();
     let url_input = client.find(Locator::Css("#url")).await.unwrap();
     url_input
-        .send_keys("https://www.youtube.com/watch?v=keyboard_test")
+        .send_keys("https://www.youtube.com/watch?v=9bZkp7q19f0")
         .await
         .unwrap();
 

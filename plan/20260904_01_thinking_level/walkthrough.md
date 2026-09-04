@@ -90,3 +90,28 @@ committed.
 None were installed permanently. Rust/Cargo, SQLite, `tar`, and the supplied
 headless Chrome were sufficient; matching ChromeDriver was downloaded only to
 `/tmp` for the Chromium browser-test run.
+
+## Chromium integration-test repairs
+
+The initially recorded Chromium run exposed nine stale browser-test
+assertions/fixtures rather than an application or WebDriver failure. The
+browser suite now follows the current UI and response contracts:
+
+- It expects the YouTube & Hacker News heading, the identifier-scoped
+  `generation-<id>` containers, and the Thinking effort selector in keyboard
+  tab order.
+- It reads a generation identifier from its container, which remains available
+  after a completed duplicate correctly drops `hx-post` polling.
+- It uses syntactically valid YouTube IDs and zero-padded timestamp fixtures
+  accepted by the current validators/linker.
+- Its rate-limit case preloads the counter, making the browser assertion
+  deterministic rather than dependent on an asynchronous background task.
+
+Verification after these repairs:
+
+```text
+TEST_BROWSER=chromium CHROMEDRIVER=<matching-driver> CHROME_BINARY=<chrome> \
+  cargo test --test integration_browser -- --ignored --test-threads=4
+
+25 passed; 0 failed
+```
