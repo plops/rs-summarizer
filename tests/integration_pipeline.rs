@@ -111,9 +111,15 @@ async fn test_summary_generation() {
         output_language: "en".to_string(),
         thinking_level: Default::default(),
     };
-    let id = db::insert_new_summary(&db_pool, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
-        .await
-        .expect("Failed to insert test row");
+    let id = db::insert_new_summary(
+        &db_pool,
+        &form,
+        "127.0.0.1",
+        "2024-01-01T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .expect("Failed to insert test row");
 
     // Generate summary
     let result = svc
@@ -299,9 +305,15 @@ async fn test_full_pipeline_end_to_end() {
         output_language: "en".to_string(),
         thinking_level: Default::default(),
     };
-    let id = db::insert_new_summary(&db_pool, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
-        .await
-        .expect("Failed to insert");
+    let id = db::insert_new_summary(
+        &db_pool,
+        &form,
+        "127.0.0.1",
+        "2024-01-01T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .expect("Failed to insert");
 
     let summary_result = match summary_svc
         .generate_summary(
@@ -435,9 +447,15 @@ async fn test_summary_done_flag_transitions() {
         output_language: "en".to_string(),
         thinking_level: Default::default(),
     };
-    let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
-        .await
-        .expect("Failed to insert");
+    let id = db::insert_new_summary(
+        &app.db,
+        &form,
+        "127.0.0.1",
+        "2024-01-01T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .expect("Failed to insert");
 
     // Verify initial state: summary_done should be false
     let row = db::fetch_summary(&app.db, id).await.unwrap().unwrap();
@@ -503,9 +521,15 @@ async fn test_timestamps_done_after_pipeline() {
         output_language: "en".to_string(),
         thinking_level: Default::default(),
     };
-    let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
-        .await
-        .expect("Failed to insert");
+    let id = db::insert_new_summary(
+        &app.db,
+        &form,
+        "127.0.0.1",
+        "2024-01-01T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .expect("Failed to insert");
 
     // Run the full pipeline
     tasks::process_summary(app.db.clone(), id, app.clone()).await;
@@ -567,9 +591,15 @@ async fn test_error_sets_summary_done() {
         output_language: "en".to_string(),
         thinking_level: Default::default(),
     };
-    let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
-        .await
-        .expect("Failed to insert");
+    let id = db::insert_new_summary(
+        &app.db,
+        &form,
+        "127.0.0.1",
+        "2024-01-01T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .expect("Failed to insert");
 
     // Run the pipeline — should fail due to short transcript
     tasks::process_summary(app.db.clone(), id, app.clone()).await;
@@ -617,9 +647,15 @@ async fn test_invalid_model_sets_summary_done() {
         output_language: "en".to_string(),
         thinking_level: Default::default(),
     };
-    let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
-        .await
-        .expect("Failed to insert");
+    let id = db::insert_new_summary(
+        &app.db,
+        &form,
+        "127.0.0.1",
+        "2024-01-01T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .expect("Failed to insert");
 
     // Run the pipeline — should fail due to unknown model
     tasks::process_summary(app.db.clone(), id, app.clone()).await;
@@ -664,9 +700,15 @@ async fn test_polling_lifecycle_simulation() {
         output_language: "en".to_string(),
         thinking_level: Default::default(),
     };
-    let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2024-01-01T00:00:00Z")
-        .await
-        .expect("Failed to insert");
+    let id = db::insert_new_summary(
+        &app.db,
+        &form,
+        "127.0.0.1",
+        "2024-01-01T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .expect("Failed to insert");
 
     // Simulate what the frontend sees: spawn the task and poll
     let app_clone = app.clone();
@@ -764,10 +806,15 @@ async fn test_pasted_transcript_pipeline() {
         output_language: "en".to_string(),
         thinking_level: Default::default(),
     };
-    let id_no_url =
-        db::insert_new_summary(&app.db, &form_no_url, "127.0.0.1", "2024-01-01T00:00:00Z")
-            .await
-            .expect("Failed to insert");
+    let id_no_url = db::insert_new_summary(
+        &app.db,
+        &form_no_url,
+        "127.0.0.1",
+        "2024-01-01T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .expect("Failed to insert");
 
     // Run pipeline
     tasks::process_summary(app.db.clone(), id_no_url, app.clone()).await;
@@ -832,9 +879,15 @@ async fn test_hn_story_49551760_with_gemini_3_6_minimal_thinking() {
         output_language: "en".to_string(),
         thinking_level: rs_summarizer::models::ThinkingPreference::Minimal,
     };
-    let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2026-09-04T00:00:00Z")
-        .await
-        .expect("Failed to insert Hacker News summary");
+    let id = db::insert_new_summary(
+        &app.db,
+        &form,
+        "127.0.0.1",
+        "2026-09-04T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .expect("Failed to insert Hacker News summary");
 
     tasks::process_summary(app.db.clone(), id, app.clone()).await;
 
@@ -895,9 +948,15 @@ async fn test_hn_story_49550375_with_gemini_3_5_flash_lite() {
         output_language: "de".to_string(),
         thinking_level: rs_summarizer::models::ThinkingPreference::Auto,
     };
-    let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2026-09-04T00:00:00Z")
-        .await
-        .expect("Failed to insert Hacker News summary");
+    let id = db::insert_new_summary(
+        &app.db,
+        &form,
+        "127.0.0.1",
+        "2026-09-04T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .expect("Failed to insert Hacker News summary");
 
     tasks::process_summary(app.db.clone(), id, app.clone()).await;
 
@@ -953,9 +1012,15 @@ async fn test_hn_batch_processing() {
             thinking_level: Default::default(),
         };
 
-        let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2026-07-22T00:00:00Z")
-            .await
-            .expect("Failed to insert summary");
+        let id = db::insert_new_summary(
+            &app.db,
+            &form,
+            "127.0.0.1",
+            "2026-07-22T00:00:00Z",
+            "test-version",
+        )
+        .await
+        .expect("Failed to insert summary");
 
         // Run the background task for individual item
         tasks::process_summary(app.db.clone(), id, app.clone()).await;

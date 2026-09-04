@@ -203,6 +203,7 @@ pub async fn process_transcript(
                 &single_input,
                 &addr.to_string(),
                 &timestamp_start,
+                app.app_version,
             )
             .await
             {

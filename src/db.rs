@@ -28,6 +28,7 @@ pub async fn insert_new_summary(
     form: &SubmitForm,
     host: &str,
     timestamp_start: &str,
+    rs_summarizer_version: &str,
 ) -> Result<i64, sqlx::Error> {
     let transcript = form.transcript.as_deref().unwrap_or("");
     let lang = if form.output_language.is_empty() {
@@ -37,8 +38,8 @@ pub async fn insert_new_summary(
     };
 
     let result = sqlx::query(
-        "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, google_search_grounding, url_context, include_glossary, output_language, thinking_level) \
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, google_search_grounding, url_context, include_glossary, output_language, thinking_level, rs_summarizer_version) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
     )
     .bind(&form.model)
     .bind(&form.original_source_link)
@@ -50,6 +51,7 @@ pub async fn insert_new_summary(
     .bind(form.include_glossary)
     .bind(lang)
     .bind(form.thinking_level)
+    .bind(rs_summarizer_version)
     .execute(db)
     .await?;
 
@@ -389,9 +391,15 @@ mod tests {
             output_language: "en".to_string(),
             thinking_level: Default::default(),
         };
-        let summary_id = insert_new_summary(&pool, &form, "127.0.0.1", "2026-01-01T00:00:00Z")
-            .await
-            .unwrap();
+        let summary_id = insert_new_summary(
+            &pool,
+            &form,
+            "127.0.0.1",
+            "2026-01-01T00:00:00Z",
+            "test-version",
+        )
+        .await
+        .unwrap();
 
         // Initial stats should be empty
         let initial_stats = fetch_rating_stats(&pool, summary_id, Some("192.168.1.1"))
@@ -490,9 +498,10 @@ mod tests {
                 output_language: "en".to_string(),
                 thinking_level: preference,
             };
-            let identifier = insert_new_summary(&pool, &form, "test", "2026-01-01T00:00:00Z")
-                .await
-                .unwrap();
+            let identifier =
+                insert_new_summary(&pool, &form, "test", "2026-01-01T00:00:00Z", "test-version")
+                    .await
+                    .unwrap();
             assert_eq!(
                 fetch_summary(&pool, identifier)
                     .await
@@ -528,6 +537,80 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(level, "high");
+    }
+
+    #[tokio::test]
+    async fn summary_version_round_trips_and_retry_does_not_overwrite_it() {
+        let pool = create_in_memory_db().await;
+        let form = SubmitForm {
+            original_source_link: "https://example.com/version".into(),
+            transcript: None,
+            model: "gemini-3.8-flash".into(),
+            google_search_grounding: false,
+            url_context: false,
+            include_glossary: false,
+            output_language: "en".into(),
+            thinking_level: Default::default(),
+        };
+        let identifier = insert_new_summary(&pool, &form, "test", "2026-09-04T00:00:00Z", "1.7.6")
+            .await
+            .unwrap();
+        assert_eq!(
+            fetch_summary(&pool, identifier)
+                .await
+                .unwrap()
+                .unwrap()
+                .rs_summarizer_version,
+            "1.7.6"
+        );
+
+        sqlx::query("UPDATE summaries SET generation_status = 'failed' WHERE identifier = ?")
+            .bind(identifier)
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(retry_generation(&pool, identifier).await.unwrap());
+        assert_eq!(
+            fetch_summary(&pool, identifier)
+                .await
+                .unwrap()
+                .unwrap()
+                .rs_summarizer_version,
+            "1.7.6"
+        );
+    }
+
+    #[tokio::test]
+    async fn version_migration_leaves_real_legacy_rows_unknown() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        for migration in [
+            include_str!("../migrations/001_initial.sql"),
+            include_str!("../migrations/002_add_grounding_and_url_context.sql"),
+            include_str!("../migrations/003_add_dedup_time_index.sql"),
+            include_str!("../migrations/004_add_ratings.sql"),
+            include_str!("../migrations/005_add_glossary_and_language_options.sql"),
+            include_str!("../migrations/006_add_thinking_level.sql"),
+            include_str!("../migrations/007_add_generation_lifecycle.sql"),
+            include_str!("../migrations/008_quarantine_legacy_queued_generations.sql"),
+        ] {
+            sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+        }
+        sqlx::query("INSERT INTO summaries (model) VALUES ('legacy')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        sqlx::raw_sql(include_str!(
+            "../migrations/009_add_rs_summarizer_version.sql"
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        let version: String = sqlx::query_scalar("SELECT rs_summarizer_version FROM summaries")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(version.is_empty());
     }
 
     #[tokio::test]

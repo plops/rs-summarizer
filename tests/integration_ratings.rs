@@ -73,9 +73,15 @@ async fn test_rating_workflow_and_anonymity() {
         output_language: "en".to_string(),
         thinking_level: Default::default(),
     };
-    let id = db::insert_new_summary(&pool, &form, "127.0.0.1", "2026-01-01T00:00:00Z")
-        .await
-        .unwrap();
+    let id = db::insert_new_summary(
+        &pool,
+        &form,
+        "127.0.0.1",
+        "2026-01-01T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .unwrap();
 
     let client_ip = "203.0.113.195";
 
@@ -177,9 +183,15 @@ async fn test_invalid_rating_values() {
         output_language: "en".to_string(),
         thinking_level: Default::default(),
     };
-    let id = db::insert_new_summary(&pool, &form, "127.0.0.1", "2026-01-01T00:00:00Z")
-        .await
-        .unwrap();
+    let id = db::insert_new_summary(
+        &pool,
+        &form,
+        "127.0.0.1",
+        "2026-01-01T00:00:00Z",
+        "test-version",
+    )
+    .await
+    .unwrap();
 
     let mut req = Request::builder()
         .method("POST")

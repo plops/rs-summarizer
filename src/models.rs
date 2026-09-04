@@ -102,6 +102,8 @@ pub struct Summary {
     pub thinking: String,
     pub thinking_tokens: i64,
     pub thinking_level: ThinkingPreference,
+    /// Version of rs-summarizer that created this row; empty for legacy rows.
+    pub rs_summarizer_version: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
