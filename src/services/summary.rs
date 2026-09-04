@@ -34,6 +34,66 @@ pub struct SummaryResult {
     pub duration_secs: f64,
 }
 
+/// Pure event accumulator used by the adapter and deterministic fake streams in
+/// tests. Database ownership remains outside this type.
+#[derive(Default)]
+struct InteractionAccumulator {
+    summary_text: String,
+    thinking_text: String,
+    input_tokens: u64,
+    output_tokens: u64,
+    thinking_tokens: u64,
+    completed: bool,
+}
+
+impl InteractionAccumulator {
+    fn observe(&mut self, event: InteractionEvent) -> Result<Option<String>, SummaryError> {
+        match event {
+            InteractionEvent::StepDelta {
+                delta: StepDeltaData::Text { text },
+                ..
+            } if !text.is_empty() => {
+                self.summary_text.push_str(&text);
+                Ok(Some(text))
+            }
+            InteractionEvent::StepDelta {
+                delta:
+                    StepDeltaData::ThoughtSummary {
+                        content: Some(InteractionContent::Text { text, .. }),
+                    },
+                ..
+            } => {
+                self.thinking_text.push_str(&text);
+                Ok(None)
+            }
+            InteractionEvent::StepStop {
+                usage: Some(usage), ..
+            } => {
+                self.input_tokens = usage.total_input_tokens.unwrap_or(0).max(0) as u64;
+                self.output_tokens = usage.total_output_tokens.unwrap_or(0).max(0) as u64;
+                self.thinking_tokens = usage.total_thought_tokens.unwrap_or(0).max(0) as u64;
+                Ok(None)
+            }
+            InteractionEvent::InteractionCompleted { interaction, .. }
+                if interaction.status == InteractionStatus::Completed =>
+            {
+                self.completed = true;
+                Ok(None)
+            }
+            InteractionEvent::InteractionCompleted { interaction, .. } => {
+                Err(SummaryError::ApiError(format!(
+                    "provider terminal status: {}",
+                    interaction.status.as_ref()
+                )))
+            }
+            InteractionEvent::Error { .. } => {
+                Err(SummaryError::ApiError("provider stream error".into()))
+            }
+            _ => Ok(None),
+        }
+    }
+}
+
 pub struct SummaryService {
     api_key: String,
 }
@@ -207,106 +267,64 @@ impl SummaryService {
                 }
             })?;
 
-        let mut summary_text = String::new();
-        let mut thinking_text = String::new();
-        let mut input_tokens: u64 = 0;
-        let mut output_tokens: u64 = 0;
-        let mut thinking_tokens: u64 = 0;
-
-        let mut completed = false;
+        let mut accumulated = InteractionAccumulator::default();
         while let Some(event) = stream
             .try_next()
             .await
             .map_err(|e| SummaryError::ApiError(e.to_string()))?
         {
-            match event {
-                InteractionEvent::StepDelta {
-                    delta: StepDeltaData::Text { text },
-                    ..
-                } if !text.is_empty() => {
-                    if !db::append_summary_chunk_for_epoch(db_pool, identifier, epoch, &text)
-                        .await
-                        .map_err(|e| SummaryError::ApiError(format!("DB error: {e}")))?
-                    {
-                        return Err(SummaryError::ApiError("generation ownership lost".into()));
-                    }
-                    summary_text.push_str(&text);
-                }
-                InteractionEvent::StepDelta {
-                    delta:
-                        StepDeltaData::ThoughtSummary {
-                            content: Some(InteractionContent::Text { text, .. }),
-                        },
-                    ..
-                } => {
-                    thinking_text.push_str(&text);
-                }
-                InteractionEvent::StepStop {
-                    usage: Some(usage), ..
-                } => {
-                    input_tokens = usage.total_input_tokens.unwrap_or(0).max(0) as u64;
-                    output_tokens = usage.total_output_tokens.unwrap_or(0).max(0) as u64;
-                    thinking_tokens = usage.total_thought_tokens.unwrap_or(0).max(0) as u64;
-                }
-                InteractionEvent::InteractionCompleted { interaction, .. } => {
-                    completed = interaction.status == InteractionStatus::Completed;
-                    if !completed {
-                        return Err(SummaryError::ApiError(format!(
-                            "provider terminal status: {}",
-                            interaction.status.as_ref()
-                        )));
-                    }
-                }
-                InteractionEvent::Error { .. } => {
-                    return Err(SummaryError::ApiError("provider stream error".into()));
-                }
-                _ => {}
+            if let Some(text) = accumulated.observe(event)?
+                && !db::append_summary_chunk_for_epoch(db_pool, identifier, epoch, &text)
+                    .await
+                    .map_err(|e| SummaryError::ApiError(format!("DB error: {e}")))?
+            {
+                return Err(SummaryError::ApiError("generation ownership lost".into()));
             }
         }
 
-        if !completed {
+        if !accumulated.completed {
             return Err(SummaryError::ApiError(
                 "provider stream ended without successful terminal event".into(),
             ));
         }
 
-        if summary_text.is_empty() {
+        if accumulated.summary_text.is_empty() {
             return Err(SummaryError::ApiError(
                 "Gemini returned empty response".to_string(),
             ));
         }
-        generation::validate_complete_output(&summary_text, is_hn).map_err(|code| {
+        generation::validate_complete_output(&accumulated.summary_text, is_hn).map_err(|code| {
             SummaryError::ApiError(format!("{}: {}", code.as_str(), code.message()))
         })?;
 
         let duration_secs = start.elapsed().as_secs_f64();
 
         // If token counts weren't provided by the API, estimate them
-        if input_tokens == 0 {
-            input_tokens = (prompt.len() as u64) / 4;
+        if accumulated.input_tokens == 0 {
+            accumulated.input_tokens = (prompt.len() as u64) / 4;
         }
-        if output_tokens == 0 {
-            output_tokens = (summary_text.len() as u64) / 4;
+        if accumulated.output_tokens == 0 {
+            accumulated.output_tokens = (accumulated.summary_text.len() as u64) / 4;
         }
 
-        let cost = self.compute_cost(model, input_tokens, output_tokens);
+        let cost = self.compute_cost(model, accumulated.input_tokens, accumulated.output_tokens);
 
         tracing::info!(
             identifier = identifier,
-            input_tokens = input_tokens,
-            output_tokens = output_tokens,
-            thinking_tokens = thinking_tokens,
+            input_tokens = accumulated.input_tokens,
+            output_tokens = accumulated.output_tokens,
+            thinking_tokens = accumulated.thinking_tokens,
             cost = cost,
             duration_secs = duration_secs,
             "Summary generation complete"
         );
 
         Ok(SummaryResult {
-            summary_text,
-            input_tokens,
-            output_tokens,
-            thinking_text,
-            thinking_tokens,
+            summary_text: accumulated.summary_text,
+            input_tokens: accumulated.input_tokens,
+            output_tokens: accumulated.output_tokens,
+            thinking_text: accumulated.thinking_text,
+            thinking_tokens: accumulated.thinking_tokens,
             cost,
             duration_secs,
         })
@@ -622,6 +640,47 @@ mod tests {
     use super::*;
     use crate::models::ThinkingPreference;
     use crate::state::{ModelArchitecture, ModelOption};
+
+    fn fake_event(json: &str) -> InteractionEvent {
+        serde_json::from_str(json).expect("valid fake interaction event")
+    }
+
+    #[test]
+    fn interaction_event_accumulator_requires_successful_terminal_event() {
+        let mut stream = InteractionAccumulator::default();
+        assert_eq!(stream.observe(fake_event(r#"{"event_type":"step.delta","index":0,"delta":{"type":"text","text":"hello"}}"#)).unwrap(), Some("hello".into()));
+        stream.observe(fake_event(r#"{"event_type":"step.stop","index":0,"usage":{"total_input_tokens":12,"total_output_tokens":34,"total_thought_tokens":5}}"#)).unwrap();
+        assert!(
+            !stream.completed,
+            "EOF without terminal event is rejected by caller"
+        );
+        assert_eq!(stream.input_tokens, 12);
+        assert_eq!(stream.output_tokens, 34);
+        assert_eq!(stream.thinking_tokens, 5);
+        stream
+            .observe(fake_event(
+                r#"{"event_type":"interaction.completed","interaction":{"status":"completed"}}"#,
+            ))
+            .unwrap();
+        assert!(stream.completed);
+    }
+
+    #[test]
+    fn interaction_event_accumulator_rejects_failed_and_error_events() {
+        let mut stream = InteractionAccumulator::default();
+        assert!(
+            stream
+                .observe(fake_event(
+                    r#"{"event_type":"interaction.completed","interaction":{"status":"cancelled"}}"#
+                ))
+                .is_err()
+        );
+        assert!(
+            stream
+                .observe(fake_event(r#"{"event_type":"error","error":{}}"#))
+                .is_err()
+        );
+    }
 
     #[test]
     fn thinking_levels_map_only_for_gemini_3() {

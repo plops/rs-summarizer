@@ -64,9 +64,10 @@ the new columns until all deployed binaries no longer rely on them.
 ## Learnings and follow-ups
 
 Interactions supplies a meaningful lifecycle terminal event, unlike treating
-stream EOF as implicit success. The product still needs a provider-event fake
-seam and a WebDriver abort/retry scenario before calling the browser coverage
-complete. On restart, retry-wait work is recovered to queued work so that a
+stream EOF as implicit success. A deterministic provider-event accumulator
+seam now covers text/usage/completed, failed terminal, and error events. The
+WebDriver abort/retry scenario remains to complete browser coverage. On
+restart, retry-wait work is recovered to queued work so that a
 crash cannot strand a non-terminal row; this favors recovery over preserving a
 stale in-memory delay.
 Thinking summaries are captured when Interactions emits typed thought-summary
