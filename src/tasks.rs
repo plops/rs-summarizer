@@ -494,7 +494,8 @@ pub async fn run_model_pipeline(
                         || err_str.contains("503")
                         || err_str.contains("connection")
                         || err_str.contains("timed out")
-                        || err_str.contains("stream ended"))
+                        || err_str.contains("stream ended")
+                        || err_str.contains("provider stream error"))
                         && attempts < MAX_RETRY_ATTEMPTS
                     {
                         let sleep_dur = if std::env::var("INTEGRATION_TEST").is_ok()
@@ -524,7 +525,8 @@ pub async fn run_model_pipeline(
                             model = %model.name,
                             attempt = attempts,
                             sleep_secs = sleep_dur.as_secs(),
-                            "Gemini high demand error, retrying later"
+                            error = %e,
+                            "Retryable Gemini generation failure, retrying later"
                         );
                         tokio::time::sleep(sleep_dur).await;
                         if !db::transition_generation(

@@ -99,7 +99,8 @@ pub struct SummaryService {
 }
 
 /// Maps persisted preferences to Gemini 3 request values. `auto` deliberately
-/// returns no level so the provider chooses its own default.
+/// returns no level so the provider chooses its own default. Current Gemini
+/// Flash Interactions models reject `minimal`; use their lowest accepted level.
 pub(crate) fn gemini_3_thinking_level(
     model_name: &str,
     preference: ThinkingPreference,
@@ -110,7 +111,7 @@ pub(crate) fn gemini_3_thinking_level(
 
     match preference {
         ThinkingPreference::Auto => None,
-        ThinkingPreference::Minimal => Some(InteractionThinkingLevel::Minimal),
+        ThinkingPreference::Minimal => Some(InteractionThinkingLevel::Low),
         ThinkingPreference::Low => Some(InteractionThinkingLevel::Low),
         ThinkingPreference::Medium => Some(InteractionThinkingLevel::Medium),
         ThinkingPreference::High => Some(InteractionThinkingLevel::High),
@@ -686,7 +687,7 @@ mod tests {
     fn thinking_levels_map_only_for_gemini_3() {
         assert_eq!(
             gemini_3_thinking_level("gemini-3.8-flash", ThinkingPreference::Minimal),
-            Some(InteractionThinkingLevel::Minimal)
+            Some(InteractionThinkingLevel::Low)
         );
         assert_eq!(
             gemini_3_thinking_level("gemini-3.7-flash", ThinkingPreference::Low),
