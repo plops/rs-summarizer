@@ -66,6 +66,7 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
             identifier INTEGER PRIMARY KEY,
             original_source_link TEXT NOT NULL DEFAULT '',
             model TEXT NOT NULL DEFAULT '',
+            rs_summarizer_version TEXT NOT NULL DEFAULT '',
             embedding BLOB,
             embedding_model TEXT NOT NULL DEFAULT '',
             summary TEXT NOT NULL DEFAULT '',
@@ -86,6 +87,7 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
             identifier,
             original_source_link,
             model,
+            rs_summarizer_version,
             embedding,
             embedding_model,
             summary,
@@ -125,6 +127,7 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
                 identifier,
                 original_source_link,
                 model,
+                rs_summarizer_version,
                 embedding,
                 embedding_model,
                 summary,
@@ -132,12 +135,13 @@ pub async fn run_export(args: ExportDbArgs) -> Result<()> {
                 summary_timestamp_end,
                 cost,
                 timestamped_summary_in_youtube_format
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(row.get::<i64, _>("identifier"))
         .bind(row.get::<String, _>("original_source_link"))
         .bind(row.get::<String, _>("model"))
+        .bind(row.get::<String, _>("rs_summarizer_version"))
         .bind(embedding)
         .bind(embedding_model)
         .bind(row.get::<String, _>("summary"))
@@ -323,6 +327,7 @@ mod tests {
                 identifier INTEGER PRIMARY KEY,
                 original_source_link TEXT NOT NULL DEFAULT '',
                 model TEXT NOT NULL DEFAULT '',
+                rs_summarizer_version TEXT NOT NULL DEFAULT '',
                 embedding BLOB,
                 embedding_model TEXT NOT NULL DEFAULT '',
                 summary TEXT NOT NULL DEFAULT '',
@@ -341,15 +346,16 @@ mod tests {
         sqlx::query(
             r#"
             INSERT INTO summaries (
-                identifier, original_source_link, model, embedding, embedding_model,
+                identifier, original_source_link, model, rs_summarizer_version, embedding, embedding_model,
                 summary, summary_timestamp_start, summary_timestamp_end, cost,
                 timestamped_summary_in_youtube_format, summary_done
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(1)
         .bind("https://example.com")
         .bind("test-model")
+        .bind("1.7.6")
         .bind(vec![1, 2, 3, 4]) // 4 bytes = 1 f32
         .bind("embedding-model")
         .bind("test summary")
@@ -367,7 +373,7 @@ mod tests {
         let args = ExportDbArgs {
             source: source_path,
             output: output_path.clone(),
-            include_embeddings: true,
+            include_embeddings: false,
             compress: false,
         };
 
@@ -384,6 +390,14 @@ mod tests {
             .fetch_one(&output_pool)
             .await?;
         assert_eq!(count, 1);
+        let version: String = sqlx::query_scalar("SELECT rs_summarizer_version FROM summaries")
+            .fetch_one(&output_pool)
+            .await?;
+        assert_eq!(version, "1.7.6");
+        let embedding: Option<Vec<u8>> = sqlx::query_scalar("SELECT embedding FROM summaries")
+            .fetch_one(&output_pool)
+            .await?;
+        assert!(embedding.is_none());
         output_pool.close().await;
 
         Ok(())
