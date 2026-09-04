@@ -59,7 +59,7 @@ SQLite fixtures by the database tests.
 
 ## Rollout and rollback
 
-### 1.7.2 corrective rollout
+### 1.7.4 corrective rollout
 
 The 1.7.0 startup path inadvertently spawned a worker for every historical
 unfinished row backfilled to `queued`. On an existing database, that can issue
@@ -74,6 +74,11 @@ lowest currently accepted Interactions level, `low`. Gemini returned a 400 for
 `minimal` on Gemini 3.8 (`low`, `medium`, and `high` are accepted). Typed
 provider stream-error events now enter the same bounded retry policy as
 temporary connection interruption.
+
+1.7.4 treats Gemini's explicit successful terminal stream event as the
+authoritative completion signal. It performs no content or heading heuristic
+after that event, so localized, concise, or otherwise equivalent output cannot
+be turned into an error or prevent database finalization and embedding work.
 
 Deploy migration 008 before application binaries. It is additive and retains
 `summary_done` for browse/export compatibility. Monitor `partial_failed`,

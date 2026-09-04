@@ -6,10 +6,10 @@ use gemini_rust::prelude::{
 use sqlx::SqlitePool;
 use tracing;
 
+use crate::db;
 use crate::errors::SummaryError;
 use crate::models::ThinkingPreference;
 use crate::state::ModelOption;
-use crate::{db, generation};
 
 /// The "adaptive knowledge synthesis engine" persona prompt.
 const SYSTEM_INSTRUCTION: &str = include_str!("../../prompts/system_instruction.txt");
@@ -294,10 +294,6 @@ impl SummaryService {
                 "Gemini returned empty response".to_string(),
             ));
         }
-        generation::validate_complete_output(&accumulated.summary_text, is_hn).map_err(|code| {
-            SummaryError::ApiError(format!("{}: {}", code.as_str(), code.message()))
-        })?;
-
         let duration_secs = start.elapsed().as_secs_f64();
 
         // If token counts weren't provided by the API, estimate them

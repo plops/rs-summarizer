@@ -131,20 +131,6 @@ pub const MAX_RETRY_ATTEMPTS: i64 = 3;
 pub fn retry_delay(attempt: i64) -> Duration {
     Duration::from_secs((30_u64.saturating_mul(1_u64 << attempt.min(4) as u32)).min(600))
 }
-pub fn validate_complete_output(text: &str, is_hn: bool) -> Result<(), PublicErrorCode> {
-    let required: &[&str] = if is_hn {
-        &["abstract", "key points", "discussion highlights"]
-    } else {
-        &["abstract", "key highlights"]
-    };
-    let lower = text.to_ascii_lowercase();
-    if text.trim().len() < 80 || required.iter().any(|heading| !lower.contains(heading)) {
-        Err(PublicErrorCode::IncompleteOutput)
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -152,11 +138,6 @@ mod tests {
     fn transitions_and_completion_are_strict() {
         assert!(GenerationStatus::Queued.can_transition_to(GenerationStatus::Running));
         assert!(!GenerationStatus::Succeeded.can_transition_to(GenerationStatus::Running));
-        assert!(validate_complete_output("# Abstract\nEnough text to make this a meaningful response that continues beyond eighty characters.\n# Key Points\n- x\n# Discussion Highlights\n- y", true).is_ok());
-        assert_eq!(
-            validate_complete_output("# Abstract\ncut off", false),
-            Err(PublicErrorCode::IncompleteOutput)
-        );
     }
     #[test]
     fn retry_policy_is_finite() {

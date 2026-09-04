@@ -872,6 +872,62 @@ async fn test_hn_story_49551760_with_gemini_3_6_minimal_thinking() {
     );
 }
 
+/// Regression test for a completed Gemini 3.5 Flash Lite response on the HN
+/// story that was previously rejected by an English-heading-only heuristic.
+#[tokio::test]
+#[ignore]
+async fn test_hn_story_49550375_with_gemini_3_5_flash_lite() {
+    let mut app = build_test_app_state().await;
+    let model = ModelOption {
+        name: "gemini-3.5-flash-lite".to_string(),
+        ..test_model()
+    };
+    app.model_options = Arc::new(vec![model.clone()]);
+
+    let form = rs_summarizer::models::SubmitForm {
+        original_source_link: "https://news.ycombinator.com/item?id=49550375".to_string(),
+        transcript: None,
+        model: model.name,
+        google_search_grounding: false,
+        url_context: false,
+        include_glossary: false,
+        output_language: "de".to_string(),
+        thinking_level: rs_summarizer::models::ThinkingPreference::Auto,
+    };
+    let id = db::insert_new_summary(&app.db, &form, "127.0.0.1", "2026-09-04T00:00:00Z")
+        .await
+        .expect("Failed to insert Hacker News summary");
+
+    tasks::process_summary(app.db.clone(), id, app.clone()).await;
+
+    let row = db::fetch_summary(&app.db, id)
+        .await
+        .expect("Failed to fetch Hacker News summary")
+        .expect("Hacker News summary row disappeared");
+    assert!(
+        row.summary_done,
+        "Hacker News generation must reach a terminal state"
+    );
+    let summary_lower = row.summary.to_ascii_lowercase();
+    if summary_lower.contains("resource exhausted")
+        || summary_lower.contains("rate limited")
+        || summary_lower.contains("high demand")
+        || summary_lower.contains("503")
+    {
+        println!("SKIPPED: Gemini capacity unavailable: {}", row.summary);
+        return;
+    }
+    assert!(
+        !summary_lower.contains("incomplete_output"),
+        "a completed localized summary must not be rejected: {}",
+        row.summary
+    );
+    assert!(
+        !row.summary.is_empty(),
+        "Hacker News summary should not be empty"
+    );
+}
+
 /// Test batch processing of multiple Hacker News submissions as individual DB rows.
 #[tokio::test]
 #[ignore]
