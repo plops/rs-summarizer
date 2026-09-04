@@ -188,8 +188,8 @@ async fn seed_summaries(db: &SqlitePool, count: usize) -> Vec<i64> {
     let mut ids = Vec::new();
     for i in 0..count {
         let id = sqlx::query(
-            "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, summary, summary_done) \
-             VALUES (?, ?, ?, ?, ?, ?, 1)"
+            "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, summary, summary_done, generation_status) \
+             VALUES (?, ?, ?, ?, ?, ?, 1, 'succeeded')"
         )
         .bind("gemma-4-31b-it")
         .bind(format!("https://youtube.com/watch?v=test{}", i))
@@ -210,8 +210,8 @@ async fn seed_summaries(db: &SqlitePool, count: usize) -> Vec<i64> {
 /// The content includes timestamps that should become clickable YouTube links.
 async fn seed_summary_with_timestamps(db: &SqlitePool, url: &str) -> i64 {
     sqlx::query(
-        "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, summary, summary_done, timestamps_done, timestamped_summary_in_youtube_format) \
-         VALUES (?, ?, ?, ?, ?, ?, 1, 1, ?)"
+        "INSERT INTO summaries (model, original_source_link, transcript, host, summary_timestamp_start, summary, summary_done, generation_status, timestamps_done, timestamped_summary_in_youtube_format) \
+         VALUES (?, ?, ?, ?, ?, ?, 1, 'succeeded', 1, ?)"
     )
     .bind("gemma-4-31b-it")
     .bind(url)
@@ -1060,7 +1060,8 @@ async fn test_form_submission_with_pasted_transcript() {
             || result_html.contains("Generating summary")
             || result_html.contains("API Key")
             || result_html.contains("PERMISSION_DENIED")
-            || result_html.contains("Summary error"),
+            || result_html.contains("Summary error")
+            || result_html.contains("Summary not completed"),
         "Expected processing state or API key error in result div, got: {}",
         result_html
     );

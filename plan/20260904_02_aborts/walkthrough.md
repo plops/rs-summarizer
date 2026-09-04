@@ -76,4 +76,7 @@ thinking levels for Gemini 3.
 
 ## Container programs added
 
-None.
+ChromeDriver 152.0.7977.75 was installed under
+`/opt/archify-browser/chromedriver` to match the existing Chrome-for-Testing
+binary. Run browser checks with `TEST_BROWSER=chromium` and
+`CHROMEDRIVER=/opt/archify-browser/chromedriver/chromedriver-linux64/chromedriver`.
