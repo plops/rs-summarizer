@@ -68,8 +68,10 @@ pub fn validate_hn_url(url: &str) -> Option<u64> {
     static PATTERNS: OnceLock<Vec<Regex>> = OnceLock::new();
     let patterns = PATTERNS.get_or_init(|| {
         vec![
-            Regex::new(r"^(?:https?://)?(?:news\.)?ycombinator\.com/item\?id=([0-9]+).*").unwrap(),
-            Regex::new(r"^(?:https?://)?(?:news\.)?ycombinator\.com/item/([0-9]+).*").unwrap(),
+            // Browsers and copied links occasionally contain duplicate path
+            // separators. They identify the same HN item and are normalized.
+            Regex::new(r"^(?:https?://)?(?:news\.)?ycombinator\.com/+item\?id=([0-9]+).*").unwrap(),
+            Regex::new(r"^(?:https?://)?(?:news\.)?ycombinator\.com/+item/([0-9]+).*").unwrap(),
             Regex::new(r"^item\?id=([0-9]+).*").unwrap(),
             Regex::new(r"^([0-9]{6,10})$").unwrap(),
         ]
@@ -146,6 +148,10 @@ mod tests {
         );
         assert_eq!(validate_hn_url("item?id=999999"), Some(999999));
         assert_eq!(validate_hn_url("40000000"), Some(40000000));
+        assert_eq!(
+            validate_hn_url("https://news.ycombinator.com//item?id=49549676"),
+            Some(49549676)
+        );
         assert_eq!(validate_hn_url("https://example.com/not-hn"), None);
     }
 
@@ -164,6 +170,13 @@ mod tests {
             ParsedSource::HackerNews(
                 40000000,
                 "https://news.ycombinator.com/item?id=40000000".to_string()
+            )
+        );
+        assert_eq!(
+            parse_source_url("https://news.ycombinator.com//item?id=49549676"),
+            ParsedSource::HackerNews(
+                49549676,
+                "https://news.ycombinator.com/item?id=49549676".to_string()
             )
         );
         assert_eq!(
