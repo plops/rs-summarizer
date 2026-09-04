@@ -103,6 +103,10 @@ jobs:
             cp -r migrations staging/
           fi
 
+          # Guard the schema contract explicitly: a release without this
+          # migration would start but could not persist thinking preferences.
+          test -f staging/migrations/006_add_thinking_level.sql
+
           # Copy model definitions from config directory if present
           if [ -d config ]; then
             cp -r config staging/
@@ -153,7 +157,11 @@ jobs:
           esac
 
           echo "Creating archive $tar_name"
-          tar czf "$tar_name" -C staging .
+          (
+            cd staging
+            tar czf "../$tar_name" -- *
+          )
+          tar tzf "$tar_name" | grep -Fx 'migrations/006_add_thinking_level.sql'
 
           # Clean up staging directory
           rm -rf staging
