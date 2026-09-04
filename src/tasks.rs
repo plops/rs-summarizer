@@ -491,7 +491,10 @@ pub async fn run_model_pipeline(
                     let err_str = e.to_string();
                     if (err_str.contains("experiencing high demand")
                         || err_str.contains("high demand")
-                        || err_str.contains("503"))
+                        || err_str.contains("503")
+                        || err_str.contains("connection")
+                        || err_str.contains("timed out")
+                        || err_str.contains("stream ended"))
                         && attempts < MAX_RETRY_ATTEMPTS
                     {
                         let sleep_dur = if std::env::var("INTEGRATION_TEST").is_ok()
