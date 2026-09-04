@@ -142,6 +142,12 @@ pub async fn recover_stale_generations(
         .bind(chrono::Utc::now().to_rfc3339()).bind(stale_before).execute(db).await?.rows_affected())
 }
 
+pub async fn fetch_queued_generations(db: &SqlitePool) -> Result<Vec<i64>, sqlx::Error> {
+    sqlx::query_scalar("SELECT identifier FROM summaries WHERE generation_status = 'queued'")
+        .fetch_all(db)
+        .await
+}
+
 /// Overwrite the summary field completely (e.g. for errors).
 pub async fn update_summary_full(
     db: &SqlitePool,

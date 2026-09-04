@@ -65,6 +65,16 @@ async fn main() -> anyhow::Result<()> {
         ),
     };
 
+    // Resume work that was queued by a restart recovery. `process_summary`
+    // claims each row with CAS, so a concurrent user retry remains harmless.
+    for identifier in rs_summarizer::db::fetch_queued_generations(&db).await? {
+        let app_clone = state.clone();
+        let db_clone = db.clone();
+        tokio::spawn(async move {
+            rs_summarizer::tasks::process_summary(db_clone, identifier, app_clone).await;
+        });
+    }
+
     // Build router
     let app = build_router(state);
 
