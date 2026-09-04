@@ -5,6 +5,7 @@ use tracing;
 
 use crate::db;
 use crate::errors::SummaryError;
+use crate::models::ThinkingPreference;
 use crate::state::ModelOption;
 
 /// The "adaptive knowledge synthesis engine" persona prompt.
@@ -34,6 +35,37 @@ pub struct SummaryService {
     api_key: String,
 }
 
+/// Maps persisted preferences to Gemini 3 request values. `auto` deliberately
+/// returns no level so the provider chooses its own default.
+pub(crate) fn gemini_3_thinking_level(
+    model_name: &str,
+    preference: ThinkingPreference,
+) -> Option<ThinkingLevel> {
+    if !model_name.to_ascii_lowercase().starts_with("gemini-3.") {
+        return None;
+    }
+
+    match preference {
+        ThinkingPreference::Auto => None,
+        ThinkingPreference::Minimal => Some(ThinkingLevel::Minimal),
+        ThinkingPreference::Low => Some(ThinkingLevel::Low),
+        ThinkingPreference::Medium => Some(ThinkingLevel::Medium),
+        ThinkingPreference::High => Some(ThinkingLevel::High),
+    }
+}
+
+pub(crate) fn gemini_2_5_thinking_budget(model_name: &str) -> Option<i32> {
+    let name_lower = model_name.to_ascii_lowercase();
+    if !name_lower.starts_with("gemini-2.5") {
+        return None;
+    }
+    Some(if name_lower.contains("pro") {
+        32768
+    } else {
+        24576
+    })
+}
+
 impl SummaryService {
     pub fn new(api_key: String) -> Self {
         Self { api_key }
@@ -54,6 +86,7 @@ impl SummaryService {
         url_context: bool,
         include_glossary: bool,
         output_language: &str,
+        thinking_preference: ThinkingPreference,
     ) -> Result<SummaryResult, SummaryError> {
         // Validate transcript length (Req 6.5, 6.6)
         let word_count = transcript.split_whitespace().count();
@@ -108,19 +141,15 @@ impl SummaryService {
             builder = builder.with_tool(Tool::url_context());
         }
 
-        // Configure high thinking effort for thinking-supported Gemini models
+        // Gemini 3 uses named levels while Gemini 2.5 retains its separate,
+        // numeric budget API. The builder methods clear each other, so these
+        // branches must remain mutually exclusive.
         if model.architecture == crate::state::ModelArchitecture::Gemini {
-            let name_lower = model.name.to_lowercase();
-            if name_lower.contains("gemini-3") {
+            if let Some(level) = gemini_3_thinking_level(&model.name, thinking_preference) {
                 builder = builder
-                    .with_thinking_level(ThinkingLevel::High)
+                    .with_thinking_level(level)
                     .with_thoughts_included(true);
-            } else if name_lower.contains("gemini-2.5") {
-                let budget = if name_lower.contains("pro") {
-                    32768
-                } else {
-                    24576
-                };
+            } else if let Some(budget) = gemini_2_5_thinking_budget(&model.name) {
                 builder = builder
                     .with_thinking_budget(budget)
                     .with_thoughts_included(true);
@@ -599,7 +628,43 @@ fn is_rate_limit_error(err_str: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ThinkingPreference;
     use crate::state::{ModelArchitecture, ModelOption};
+
+    #[test]
+    fn thinking_levels_map_only_for_gemini_3() {
+        assert_eq!(
+            gemini_3_thinking_level("gemini-3.8-flash", ThinkingPreference::Minimal),
+            Some(ThinkingLevel::Minimal)
+        );
+        assert_eq!(
+            gemini_3_thinking_level("gemini-3.7-flash", ThinkingPreference::Low),
+            Some(ThinkingLevel::Low)
+        );
+        assert_eq!(
+            gemini_3_thinking_level("gemini-3.6-flash", ThinkingPreference::Medium),
+            Some(ThinkingLevel::Medium)
+        );
+        assert_eq!(
+            gemini_3_thinking_level("gemini-3.5-flash", ThinkingPreference::High),
+            Some(ThinkingLevel::High)
+        );
+        assert_eq!(
+            gemini_3_thinking_level("gemini-3.8-flash", ThinkingPreference::Auto),
+            None
+        );
+        assert_eq!(
+            gemini_3_thinking_level("gemini-2.5-flash", ThinkingPreference::High),
+            None
+        );
+        assert_eq!(
+            gemini_3_thinking_level("hetzner-qwen-3.8-27b", ThinkingPreference::High),
+            None
+        );
+        assert_eq!(gemini_2_5_thinking_budget("gemini-2.5-flash"), Some(24576));
+        assert_eq!(gemini_2_5_thinking_budget("gemini-2.5-pro"), Some(32768));
+        assert_eq!(gemini_2_5_thinking_budget("gemini-3.8-flash"), None);
+    }
 
     fn test_model() -> ModelOption {
         ModelOption {

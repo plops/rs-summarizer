@@ -117,7 +117,17 @@ async fn test_summary_generation() {
 
     // Generate summary
     let result = svc
-        .generate_summary(&db_pool, id, transcript, &model, false, false, false, "en")
+        .generate_summary(
+            &db_pool,
+            id,
+            transcript,
+            &model,
+            false,
+            false,
+            false,
+            "en",
+            Default::default(),
+        )
         .await;
 
     match result {
@@ -294,7 +304,17 @@ async fn test_full_pipeline_end_to_end() {
         .expect("Failed to insert");
 
     let summary_result = match summary_svc
-        .generate_summary(&db_pool, id, &transcript, &model, false, false, false, "en")
+        .generate_summary(
+            &db_pool,
+            id,
+            &transcript,
+            &model,
+            false,
+            false,
+            false,
+            "en",
+            Default::default(),
+        )
         .await
     {
         Ok(r) => r,

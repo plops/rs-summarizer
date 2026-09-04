@@ -338,6 +338,17 @@ fn is_summary_rate_limited(err: &SummaryError) -> bool {
     }
 }
 
+fn fallback_downgrades_thinking_level(
+    initial_model_name: &str,
+    fallback_model_name: &str,
+    preference: crate::models::ThinkingPreference,
+) -> bool {
+    initial_model_name != fallback_model_name
+        && preference != crate::models::ThinkingPreference::Auto
+        && crate::services::summary::gemini_3_thinking_level(fallback_model_name, preference)
+            .is_none()
+}
+
 /// Encapsulates model resolution, fallback chain execution, rate limiting, and streaming summary generation.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_model_pipeline(
@@ -351,6 +362,7 @@ pub async fn run_model_pipeline(
     url_context: bool,
     include_glossary: bool,
     output_language: &str,
+    thinking_preference: crate::models::ThinkingPreference,
 ) -> Result<SummaryOutput, ProcessError> {
     let summary_svc = SummaryService::new(app.gemini_api_key.clone());
 
@@ -381,6 +393,15 @@ pub async fn run_model_pipeline(
             Ok(m) => m,
             Err(_) => continue,
         };
+
+        if fallback_downgrades_thinking_level(&model_name, &model.name, thinking_preference) {
+            tracing::warn!(
+                identifier,
+                selected_thinking_level = %thinking_preference,
+                fallback_model = %model.name,
+                "Fallback model does not support the saved Gemini 3 thinking level; omitting it"
+            );
+        }
 
         // Check daily rate limit for candidate model
         let allowed = crate::services::rate_limiter::RateLimiter::check_rate_limit(
@@ -430,6 +451,7 @@ pub async fn run_model_pipeline(
                     url_context,
                     include_glossary,
                     output_language,
+                    thinking_preference,
                 )
                 .await
             {
@@ -593,6 +615,7 @@ async fn process_summary_inner(
                     summary.url_context,
                     summary.include_glossary,
                     &summary.output_language,
+                    summary.thinking_level,
                 )
                 .await?;
 
@@ -665,6 +688,7 @@ async fn process_summary_inner(
             summary.url_context,
             summary.include_glossary,
             &summary.output_language,
+            summary.thinking_level,
         )
         .await?;
     } else {
@@ -684,6 +708,7 @@ async fn process_summary_inner(
                 summary.url_context,
                 summary.include_glossary,
                 &summary.output_language,
+                summary.thinking_level,
             )
             .await?;
 
@@ -929,5 +954,26 @@ mod tests {
 
         assert_eq!(model_short, "gemini-3.5-flash-lite");
         assert_eq!(model_long, "gemini-3.6-flash");
+    }
+
+    #[test]
+    fn fallback_to_unsupported_model_downgrades_named_thinking_level() {
+        use crate::models::ThinkingPreference;
+
+        assert!(fallback_downgrades_thinking_level(
+            "gemini-3.8-flash",
+            "gemini-2.5-flash",
+            ThinkingPreference::High
+        ));
+        assert!(!fallback_downgrades_thinking_level(
+            "gemini-3.8-flash",
+            "gemini-3.7-flash",
+            ThinkingPreference::High
+        ));
+        assert!(!fallback_downgrades_thinking_level(
+            "gemini-3.8-flash",
+            "gemini-2.5-flash",
+            ThinkingPreference::Auto
+        ));
     }
 }
