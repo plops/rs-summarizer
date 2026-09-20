@@ -1,0 +1,61 @@
+du arbeitest im auftrag von wol pumba (wolpumba@gmail.com)
+
+ich moechte eine dokumentation der code experimente und software in diesem repo in plan/20260920_02_doc/doc.md abspeichern. erklaere die architektur der rust und c++ programme in iteration 1 und 2 (und die unterschiede). ich moechte dass das dokument auf github gut aussieht. bemerkung: GitHub Markdown kann sowohl mathematische Formeln als auch Flussdiagramme nativ anzeigen.
+GitHub verwendet dafür standardmäßig die Syntax von MathJax (für Mathematik) und Mermaid (für Diagramme). Sie müssen keine externen Plugins oder Bilder einfügen, sondern können den Code direkt in Ihre Markdown-Datei (.md) schreiben.
+Hier ist eine Übersicht, wie Sie beide Funktionen nutzen:
+1. Mathematische Formeln (MathJax)
+Sie können mathematische Symbole und Gleichungen entweder direkt im Text (Inline) oder als separaten Block anzeigen lassen. Nutzen Sie dafür das $-Zeichen.
+
+    Inline-Mathe: Setzen Sie die Formel zwischen zwei einzelne $-Zeichen.
+        Code: Die Formel lautet $E = mc^2$.
+    Block-Mathe: Setzen Sie die Formel in eine eigene Zeile zwischen jeweils zwei $$-Zeichen.
+        Code:
+        markdown
+
+        $$
+        \frac{a}{b} = c
+        $$
+
+
+2. Flussdiagramme (Mermaid)
+Um Diagramme zu erstellen, nutzen Sie einen normalen Code-Block (drei Backticks ```), schreiben aber das Wort mermaid als Sprachbezeichner direkt dahinter.
+Hier ist ein einfaches Beispiel für ein Flussdiagramm (Flowchart):
+markdown
+
+```mermaid
+graph TD
+    A[Start] --> B{Ist es GitHub?}
+    B -- Ja --> C[Mathe & Diagramme funktionieren!]
+    B -- Nein --> D[Anderen Editor nutzen]
+```
+
+Kurze Übersicht der Mermaid-Grundlagen:
+
+    graph TD: Definiert die Richtung von oben nach unten (Top-Down). Nutzen Sie graph LR für eine Darstellung von links nach rechts (Left-Right).
+    -->: Erstellt einen einfachen Pfeil zwischen zwei Knoten.
+    Formen der Knoten:
+        Eckige Klammern A[Text] = Rechteck
+        Geschweifte Klammern B{Text} = Raute (für Entscheidungen)
+        Runde Klammern C(Text) = Abgerundetes Rechteck. wichtig in der dokumentation ist das konzept (und unterschiede in den implementierungen) der datenerhebung aber auch das layout der treemap.  schreibe das technische dokument auf deutsch. fuer die wahl der parallelisierung wurden benchmarks durchgefuehrt (siehe die walkthrough dokumente und benchmark reports). falls noetig kannst du auch nocheinmal selbst benchmarks durchfuehren. haben sich die initialen annahmen aus den ersten benchmarks bestaetigt? sind die implementierungen performant fuer grosse dateisysteme oder sollte man die architektur nocheinmal ueberabeiten?  falls dir diagramme oder text themen auffallen die gut mit in die technische dokumentation passen schlage diese vor und setze sie um. schreibe das aktuelle prompt als prompt.txt in plan/20260920_02_doc und committe gelegentlich. am ende der dokumentationsarbei schreibe ein walkthrough.md dokument in plan/20260920_02_doc (dort sollen deine experimente, learnings, die quellen aufgelistet und dokumentiert werden)
+
+
+nutze tools um konsistenten und aufgeraeumten quellcode zu gewaehrleisten
+
+
+Schaue dir den Quellcode an und die Architektur dieser Software. Nutze deepwiki mcp fuer plops/rs-summarizer um dokumentation zu bekommen und fragen beantworten zu lassen. falls abhaengigkeiten eingefuehrt werden sind diese mitsamt ihrer github organisation in deps.md aufzuschreiben, so dass wir spaeter einfach die deepwiki abfragen konstruieren koennen. nutze rust tools um auf die neueste vorhandene version zu switchen (auch wenn vor kompatibilitaet gewarnt wird, wenn wir gerade eine dependency einfuehren ist es wichtig, die neueste version zu nehmen) und schon vorab usage examples in den plan aufzunehmen (mit deepwiki mcp zu erfragen)
+
+du befindest dich in einem docker container, basierend auf ubuntu 26. du darfst neue programme installieren, falls noetig. 
+
+Schlage vor, wie wir dieses Feature implementieren können. Habe ich alle Requirements aufgelistet, die wichtig sind, oder kannst du dir vorstellen, dass noch andere Dinge werden sollen? Liste mir diese auf Vorschlägen, was man am besten umsetzen könnte.
+
+Schreibe einen Implementierungsplan. Dieser Implementierungsplan soll einen unabhängigen AI-Agenten dazu befähigen, selbstständig einen Kontext aufzubauen, der die wesentlichen
+quellen beinhaltet. Das heißt, der Implementierungsplan hat eine Liste von Dateien, die sich der Agent sich anschauen sollte, mit einer kurzen Beschreibung für jede Datei.
+Weiterhin soll der Implementierungsplan eine Erklärung Commit Messages sendet werden sollen. Und zwar sollen diese mit einer umfassenden Beschreibung und als Conventional Commit format ausgeführt werden.
+
+Neue Unit-Tests und Integration-Tests sollen wie erforderlich eingeführt werden.
+Diese sollen auch ausgeführt werden.
+
+schreibe task.md wo du die implementierungs und test schritte aufeinander abfolgen laesst, so dass ein agent die tasks seriell abarbeiten kann und die arbeit in jedem schritt getested und validiert wird.
+
+Nach der vollständigen Implementierung, wenn alle Tests abgeschlossen sind und alles committed ist, soll auch ein Walkthrough-Dokument entgeschrieben werden und 
+in plan/2026.../walkthrough.md abgelegt werden. Dieses soll zusammenfassen, was wirklich implementiert wurde, welche Stellen aufgrund der Tests oder wie auch immer gemacht wurden, als im Untergrund auch Learnings und mögliche Erweiterungen. liste auch die neuen programme die mit in den docker container aufgenommen werden sollten 
