@@ -1,6 +1,6 @@
 du arbeitest im auftrag von wol pumba (wolpumba@gmail.com)
 
-ich moechte eine dokumentation der code experimente und software in diesem repo in plan/20260920_02_doc/doc.md abspeichern. erklaere die architektur der rust und c++ programme in iteration 1 und 2 (und die unterschiede). ich moechte dass das dokument auf github gut aussieht. bemerkung: GitHub Markdown kann sowohl mathematische Formeln als auch Flussdiagramme nativ anzeigen.
+ich moechte eine dokumentation der code experimente und software in diesem repo in plan/20260920_01_doc/doc.md abspeichern. erklaere die architektur der rust und c++ programme in iteration 1 und 2 (und die unterschiede). ich moechte dass das dokument auf github gut aussieht. bemerkung: GitHub Markdown kann sowohl mathematische Formeln als auch Flussdiagramme nativ anzeigen.
 GitHub verwendet dafür standardmäßig die Syntax von MathJax (für Mathematik) und Mermaid (für Diagramme). Sie müssen keine externen Plugins oder Bilder einfügen, sondern können den Code direkt in Ihre Markdown-Datei (.md) schreiben.
 Hier ist eine Übersicht, wie Sie beide Funktionen nutzen:
 1. Mathematische Formeln (MathJax)
