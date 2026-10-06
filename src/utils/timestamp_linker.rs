@@ -61,9 +61,10 @@ pub fn replace_timestamps_in_html(html: &str, youtube_url: &str) -> String {
 use std::sync::OnceLock;
 
 fn replace_timestamps_for_video(html: &str, video_id: &str) -> String {
-    // Match mm:ss or hh:mm:ss where mm and ss are 0-59 (2 digits for seconds).
+    // Match m:ss, mm:ss, h:mm:ss or hh:mm:ss where minutes and seconds are
+    // 0-59 (minutes may be a single digit, seconds always two digits).
     static PATTERN: OnceLock<Regex> = OnceLock::new();
-    let pattern = PATTERN.get_or_init(|| Regex::new(r"\b(?:\d{1,2}:)?[0-5]\d:[0-5]\d\b").unwrap());
+    let pattern = PATTERN.get_or_init(|| Regex::new(r"\b(?:\d{1,2}:)?[0-5]?\d:[0-5]\d\b").unwrap());
 
     let result = pattern.replace_all(html, |caps: &regex::Captures| {
         let mat = caps.get(0).unwrap();
@@ -176,6 +177,36 @@ mod tests {
     fn test_timestamp_regex_avoids_ratios_and_css() {
         let youtube = "https://www.youtube.com/watch?v=8S4a_LdHhsc";
         let html = "<div style=\"aspect-ratio: 16:9; width: 16:09px;\">Ratio text 16:9</div>";
+        let out = replace_timestamps_in_html(html, youtube);
+        assert_eq!(out, html);
+    }
+
+    #[test]
+    fn test_single_digit_minutes_replacement() {
+        let youtube = "https://www.youtube.com/watch?v=8S4a_LdHhsc";
+        let html = "<p><strong>1:23 Intro</strong> then <strong>4:05 Deep dive</strong> and <strong>9:50 Outro</strong></p>";
+        let out = replace_timestamps_in_html(html, youtube);
+        // 1*60 + 23 = 83; 4*60 + 5 = 245; 9*60 + 50 = 590
+        assert_eq!(out.matches("<a href=\"").count(), 3);
+        assert!(out.contains("t=83s"));
+        assert!(out.contains("t=245s"));
+        assert!(out.contains("t=590s"));
+    }
+
+    #[test]
+    fn test_single_digit_minutes_with_hours() {
+        let youtube = "https://www.youtube.com/watch?v=8S4a_LdHhsc";
+        let html = "<p><strong>2:3:04 Late segment</strong></p>";
+        let out = replace_timestamps_in_html(html, youtube);
+        // 2*3600 + 3*60 + 4 = 7384
+        assert!(out.contains("t=7384s"));
+        assert!(out.contains("2:3:04"));
+    }
+
+    #[test]
+    fn test_single_digit_seconds_are_not_linked() {
+        let youtube = "https://www.youtube.com/watch?v=8S4a_LdHhsc";
+        let html = "<p>Ratio 5:2 and time 1:2 are not timestamps</p>";
         let out = replace_timestamps_in_html(html, youtube);
         assert_eq!(out, html);
     }
