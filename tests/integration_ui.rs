@@ -117,6 +117,8 @@ async fn browse_renders_summary_once_with_copy_button() {
     let clipboard_pos = html.find("data-clipboard").unwrap();
     assert!(clipboard_pos < html.rfind("gemini-3.6-flash").unwrap());
     assert!(clipboard_pos < html.rfind("(cost: $0.04)").unwrap());
+    let version_line = format!("rocketrecap-dot-com v{}", rs_summarizer::APP_VERSION);
+    assert!(clipboard_pos < html.rfind(&version_line).unwrap());
 }
 
 #[tokio::test]
@@ -155,6 +157,8 @@ async fn generation_partial_succeeded_has_source_rating_and_copy_button() {
     let clipboard_pos = html.find("data-clipboard").unwrap();
     assert!(clipboard_pos < html.rfind("gemini-3.6-flash").unwrap());
     assert!(clipboard_pos < html.rfind("(cost: $0.04)").unwrap());
+    let version_line = format!("rocketrecap-dot-com v{}", rs_summarizer::APP_VERSION);
+    assert!(clipboard_pos < html.rfind(&version_line).unwrap());
 }
 
 #[tokio::test]

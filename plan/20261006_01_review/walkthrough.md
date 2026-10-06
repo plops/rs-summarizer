@@ -23,8 +23,9 @@ an die Stelle). Zusätzlich gibt es den Button **„📋 Für YouTube kopieren�
   den Kommentar nicht schluckt).
 - Der Kopiertext liegt unsichtbar im Button (`data-clipboard`-Attribut — ein
   HTML-Attribut, das Daten für JavaScript bereithält, ohne etwas anzuzeigen).
-  So wird nichts doppelt sichtbar übertragen. Am Ende des kopierten Texts stehen
-  Modell und Kosten als Fußzeile (z. B. `gemini-3.6-flash (cost: $0.04)`).
+  So wird nichts doppelt sichtbar übertragen. Am Ende des kopierten Texts steht
+  eine Fußzeile mit Modell, Kosten und laufender Version, z. B.
+  `gemini-3.6-flash (cost: $0.04)` plus `rocketrecap-dot-com v1.8.4`.
 - Nach dem Klick zeigt der Button kurz **„Kopiert! ✓“** als Bestätigung.
 
 ```html

@@ -52,23 +52,39 @@ fn render_template<T: Template>(template: &T) -> Html<String> {
 }
 
 /// Builds the "Für YouTube kopieren" clipboard payload: the YouTube-format
-/// summary plus a model/cost attribution footer at the bottom.
+/// summary plus a model/cost/version attribution footer at the bottom.
 ///
 /// Returns an empty string when there is no YouTube text to copy, in which
 /// case templates hide the copy button.
-fn youtube_clipboard_text(youtube_text: &str, model: &str, cost_display: &str) -> String {
+fn youtube_clipboard_text(
+    youtube_text: &str,
+    model: &str,
+    cost_display: &str,
+    app_version: &str,
+) -> String {
     let body = youtube_text.trim_end();
     if body.is_empty() {
         return String::new();
     }
-    if model.is_empty() && cost_display.is_empty() {
+    let mut footer = String::new();
+    if !model.is_empty() {
+        footer.push_str(model);
+        if !cost_display.is_empty() {
+            footer.push_str(&format!(" (cost: {cost_display})"));
+        }
+    } else if !cost_display.is_empty() {
+        footer.push_str(&format!("(cost: {cost_display})"));
+    }
+    if !app_version.is_empty() {
+        if !footer.is_empty() {
+            footer.push('\n');
+        }
+        footer.push_str(&format!("rocketrecap-dot-com v{app_version}"));
+    }
+    if footer.is_empty() {
         return body.to_string();
     }
-    let mut out = format!("{body}\n\n{model}");
-    if !cost_display.is_empty() {
-        out.push_str(&format!(" (cost: {cost_display})"));
-    }
-    out
+    format!("{body}\n\n{footer}")
 }
 
 fn supports_named_thinking_levels(model_name: &str) -> bool {
@@ -313,8 +329,12 @@ pub async fn browse_summaries(
             .await
             .unwrap_or_default();
         let cost = cost_display(s.cost);
-        let clipboard_text =
-            youtube_clipboard_text(&s.timestamped_summary_in_youtube_format, &s.model, &cost);
+        let clipboard_text = youtube_clipboard_text(
+            &s.timestamped_summary_in_youtube_format,
+            &s.model,
+            &cost,
+            app.app_version,
+        );
 
         items.push(BrowseSummaryItem {
             identifier: s.identifier,
@@ -447,8 +467,12 @@ async fn render_generation_partial(
                 .await
                 .unwrap_or_default();
             let cost = cost_display(s.cost);
-            let clipboard_text =
-                youtube_clipboard_text(&s.timestamped_summary_in_youtube_format, &s.model, &cost);
+            let clipboard_text = youtube_clipboard_text(
+                &s.timestamped_summary_in_youtube_format,
+                &s.model,
+                &cost,
+                app.app_version,
+            );
 
             let template = GenerationPartialTemplate {
                 identifier: s.identifier,
@@ -843,7 +867,10 @@ mod tests {
             model: "gemini-3.6-flash".into(),
             cost_display: "$0.04".into(),
             original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into(),
-            clipboard_text: "*Intro* 1:23\n\ngemini-3.6-flash (cost: $0.04)".into(),
+            clipboard_text: format!(
+                "*Intro* 1:23\n\ngemini-3.6-flash (cost: $0.04)\nrocketrecap-dot-com v{}",
+                crate::APP_VERSION
+            ),
             rating_stats: crate::models::RatingStats::default(),
         }
         .render()
@@ -865,32 +892,41 @@ mod tests {
         let clipboard_pos = html.find("data-clipboard").unwrap();
         assert!(clipboard_pos < html.rfind("gemini-3.6-flash").unwrap());
         assert!(clipboard_pos < html.rfind("(cost: $0.04)").unwrap());
+        assert!(clipboard_pos < html.rfind("rocketrecap-dot-com").unwrap());
     }
 
     #[test]
     fn youtube_clipboard_appends_model_cost_footer() {
         assert_eq!(
-            youtube_clipboard_text("*Intro* 1:23\nBody", "gemini-3.6-flash", "$0.04"),
-            "*Intro* 1:23\nBody\n\ngemini-3.6-flash (cost: $0.04)"
+            youtube_clipboard_text("*Intro* 1:23\nBody", "gemini-3.6-flash", "$0.04", "1.8.4"),
+            "*Intro* 1:23\nBody\n\ngemini-3.6-flash (cost: $0.04)\nrocketrecap-dot-com v1.8.4"
         );
         // Trailing newlines are normalized to a single blank line.
         assert_eq!(
-            youtube_clipboard_text("Body\n\n", "gemini-3.6-flash", "$0.04"),
-            "Body\n\ngemini-3.6-flash (cost: $0.04)"
+            youtube_clipboard_text("Body\n\n", "gemini-3.6-flash", "$0.04", "1.8.4"),
+            "Body\n\ngemini-3.6-flash (cost: $0.04)\nrocketrecap-dot-com v1.8.4"
         );
         // Free models: model only, no cost part.
         assert_eq!(
-            youtube_clipboard_text("Body", "hetzner-qwen-3.6-35b", ""),
-            "Body\n\nhetzner-qwen-3.6-35b"
+            youtube_clipboard_text("Body", "hetzner-qwen-3.6-35b", "", "1.8.4"),
+            "Body\n\nhetzner-qwen-3.6-35b\nrocketrecap-dot-com v1.8.4"
         );
         // No YouTube text: empty payload so templates hide the button.
-        assert_eq!(youtube_clipboard_text("", "gemini-3.6-flash", "$0.04"), "");
         assert_eq!(
-            youtube_clipboard_text("  \n ", "gemini-3.6-flash", "$0.04"),
+            youtube_clipboard_text("", "gemini-3.6-flash", "$0.04", "1.8.4"),
             ""
         );
-        // No attribution available: plain body.
-        assert_eq!(youtube_clipboard_text("Body", "", ""), "Body");
+        assert_eq!(
+            youtube_clipboard_text("  \n ", "gemini-3.6-flash", "$0.04", "1.8.4"),
+            ""
+        );
+        // No attribution available at all: plain body.
+        assert_eq!(youtube_clipboard_text("Body", "", "", ""), "Body");
+        // Version attribution survives a missing model.
+        assert_eq!(
+            youtube_clipboard_text("Body", "", "", "1.8.4"),
+            "Body\n\nrocketrecap-dot-com v1.8.4"
+        );
     }
 
     #[test]
@@ -907,7 +943,10 @@ mod tests {
                 cost_display: "$0.04".into(),
                 original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into(),
                 summary_html,
-                clipboard_text: "*Intro* 1:23\n\ngemini-3.6-flash (cost: $0.04)".into(),
+                clipboard_text: format!(
+                    "*Intro* 1:23\n\ngemini-3.6-flash (cost: $0.04)\nrocketrecap-dot-com v{}",
+                    crate::APP_VERSION
+                ),
                 rating_stats: crate::models::RatingStats::default(),
             }],
             app_version: crate::APP_VERSION,
@@ -933,5 +972,6 @@ mod tests {
         let clipboard_pos = html.find("data-clipboard").unwrap();
         assert!(clipboard_pos < html.rfind("gemini-3.6-flash").unwrap());
         assert!(clipboard_pos < html.rfind("(cost: $0.04)").unwrap());
+        assert!(clipboard_pos < html.rfind("rocketrecap-dot-com").unwrap());
     }
 }
