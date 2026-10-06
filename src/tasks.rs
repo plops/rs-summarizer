@@ -41,8 +41,7 @@ pub async fn process_summary(db_pool: SqlitePool, identifier: i64, app: AppState
     }
     if let Err(e) = process_summary_inner(&db_pool, identifier, &app).await {
         tracing::error!(identifier = identifier, error = %e, "Processing failed");
-        let formatted = format_process_error(&e);
-        mark_error(&db_pool, identifier, &formatted).await;
+        mark_error(&db_pool, identifier, &e).await;
     }
 }
 
@@ -88,6 +87,51 @@ fn format_process_error(e: &ProcessError) -> String {
         ProcessError::Summary(SummaryError::ApiError(msg)) => msg.clone(),
         ProcessError::Transcript(TranscriptError::YtDlpFailed(msg)) => msg.clone(),
         other => other.to_string(),
+    }
+}
+
+/// Maps a pipeline failure to an actionable German message for the end user.
+///
+/// Unknown errors fall back to a generic German message so technical API or
+/// yt-dlp internals never leak into the UI.
+pub fn user_facing_error_message(error: &ProcessError) -> String {
+    match error {
+        ProcessError::Transcript(TranscriptError::NoSubtitles) => {
+            "Für dieses Video sind keine Untertitel verfügbar. Du kannst das Transkript unter ‚Erweiterte Optionen‘ manuell einfügen."
+                .to_string()
+        }
+        ProcessError::Transcript(TranscriptError::YtDlpFailed(_))
+        | ProcessError::Transcript(TranscriptError::Timeout(_)) => {
+            "YouTube blockiert derzeit den automatischen Untertitel-Abruf. Bitte füge das Transkript unter ‚Erweiterte Optionen‘ manuell ein oder versuche es später noch einmal."
+                .to_string()
+        }
+        ProcessError::TranscriptTooShort
+        | ProcessError::Summary(SummaryError::TranscriptTooShort) => {
+            "Das Transkript ist zu kurz für eine Zusammenfassung (mindestens 30 Wörter erforderlich)."
+                .to_string()
+        }
+        ProcessError::Summary(summary_error) if is_model_overloaded(summary_error) => {
+            "Das ausgewählte KI-Modell ist momentan ausgelastet. Ein automatischer Neuversuch läuft, oder du kannst ein anderes Modell auswählen."
+                .to_string()
+        }
+        _ => "Die Zusammenfassung konnte nicht erstellt werden. Bitte versuche es später noch einmal oder wähle ein anderes Modell."
+            .to_string(),
+    }
+}
+
+/// Detects model-overload failures (HTTP 503 / 429 / quota exhaustion / high demand).
+fn is_model_overloaded(error: &SummaryError) -> bool {
+    if is_summary_rate_limited(error) {
+        return true;
+    }
+    match error {
+        SummaryError::ApiError(message) => {
+            message.contains("503")
+                || message.contains("high demand")
+                || message.contains("overloaded")
+                || message.contains("Overloaded")
+        }
+        _ => false,
     }
 }
 
@@ -813,16 +857,18 @@ fn parse_model_option(
         })
 }
 
-async fn mark_error(db_pool: &SqlitePool, identifier: i64, error_msg: &str) {
-    let code = if error_msg.contains("rate limited") || error_msg.contains("429") {
+async fn mark_error(db_pool: &SqlitePool, identifier: i64, error: &ProcessError) {
+    let raw = format_process_error(error);
+    let code = if raw.contains("rate limited") || raw.contains("429") {
         PublicErrorCode::RateLimited
-    } else if error_msg.contains("incomplete") {
+    } else if raw.contains("incomplete") {
         PublicErrorCode::IncompleteOutput
-    } else if error_msg.contains("terminal") || error_msg.contains("ended without") {
+    } else if raw.contains("terminal") || raw.contains("ended without") {
         PublicErrorCode::ProviderAborted
     } else {
         PublicErrorCode::Internal
     };
+    let message = user_facing_error_message(error);
     let has_partial = db::fetch_summary(db_pool, identifier)
         .await
         .ok()
@@ -838,7 +884,7 @@ async fn mark_error(db_pool: &SqlitePool, identifier: i64, error_msg: &str) {
         identifier,
         GenerationStatus::Running,
         status,
-        Some((code, code.message())),
+        Some((code, &message)),
         None,
         false,
     )
@@ -890,6 +936,75 @@ mod tests {
             formatted,
             "You exceeded your current quota, please check your plan and billing details."
         );
+    }
+
+    #[test]
+    fn test_user_facing_message_no_subtitles() {
+        let err = ProcessError::Transcript(TranscriptError::NoSubtitles);
+        assert_eq!(
+            user_facing_error_message(&err),
+            "Für dieses Video sind keine Untertitel verfügbar. Du kannst das Transkript unter ‚Erweiterte Optionen‘ manuell einfügen."
+        );
+    }
+
+    #[test]
+    fn test_user_facing_message_youtube_blocked() {
+        let download_err = ProcessError::Transcript(TranscriptError::YtDlpFailed(
+            "yt-dlp failed: Sign in to confirm you are not a bot (cmd: `uvx yt-dlp`)".to_string(),
+        ));
+        let expected = "YouTube blockiert derzeit den automatischen Untertitel-Abruf. Bitte füge das Transkript unter ‚Erweiterte Optionen‘ manuell ein oder versuche es später noch einmal.";
+        assert_eq!(user_facing_error_message(&download_err), expected);
+        // Technical command details must not leak into the user message.
+        assert!(!user_facing_error_message(&download_err).contains("uvx"));
+
+        let timeout_err = ProcessError::Transcript(TranscriptError::Timeout(120));
+        assert_eq!(user_facing_error_message(&timeout_err), expected);
+    }
+
+    #[test]
+    fn test_user_facing_message_model_overloaded() {
+        let expected = "Das ausgewählte KI-Modell ist momentan ausgelastet. Ein automatischer Neuversuch läuft, oder du kannst ein anderes Modell auswählen.";
+        assert_eq!(
+            user_facing_error_message(&ProcessError::Summary(SummaryError::RateLimited)),
+            expected
+        );
+        for raw in [
+            "503 Service Unavailable",
+            "ResourceExhausted: quota exceeded",
+            "RESOURCE_EXHAUSTED",
+            "code 429; description: Quota exceeded",
+            "The model is experiencing high demand",
+            "The model is overloaded",
+        ] {
+            let err = ProcessError::Summary(SummaryError::ApiError(raw.to_string()));
+            assert_eq!(user_facing_error_message(&err), expected, "raw: {raw}");
+        }
+    }
+
+    #[test]
+    fn test_user_facing_message_transcript_too_short() {
+        let expected = "Das Transkript ist zu kurz für eine Zusammenfassung (mindestens 30 Wörter erforderlich).";
+        assert_eq!(
+            user_facing_error_message(&ProcessError::TranscriptTooShort),
+            expected
+        );
+        assert_eq!(
+            user_facing_error_message(&ProcessError::Summary(SummaryError::TranscriptTooShort)),
+            expected
+        );
+    }
+
+    #[test]
+    fn test_user_facing_message_falls_back_to_generic_german() {
+        let err = ProcessError::Summary(SummaryError::ApiError(
+            "provider terminal status: cancelled".to_string(),
+        ));
+        let message = user_facing_error_message(&err);
+        assert!(message.contains("konnte nicht erstellt werden"));
+        assert!(!message.contains("cancelled"));
+
+        let err = ProcessError::RowNotFound;
+        assert!(user_facing_error_message(&err).contains("konnte nicht erstellt werden"));
     }
 
     #[test]
