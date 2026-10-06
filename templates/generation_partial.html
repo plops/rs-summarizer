@@ -3,6 +3,7 @@
     <article>
         {% if generation_status == "succeeded" %}
         <header>Summary Complete</header>
+        <p><small><strong>{{ model }}</strong>{% if !cost_display.is_empty() %} (cost: {{ cost_display }}){% endif %}</small></p>
         {% else if generation_status == "retry_wait" %}
         <header>{{ retry_display }}</header>
         {% else if generation_status == "failed" || generation_status == "partial_failed" %}
@@ -15,9 +16,8 @@
         {% endif %}
         <div>{{ summary|safe }}</div>
         {% if generation_status == "succeeded" %}
-        <p><small>{{ model }}{% if !cost_display.is_empty() %} (cost: {{ cost_display }}){% endif %}</small></p>
-        {% if !youtube_text.is_empty() %}
-        <p><button type="button" class="yt-copy-btn outline" data-clipboard="{{ youtube_text }}">📋 Für YouTube kopieren</button></p>
+        {% if !clipboard_text.is_empty() %}
+        <p><button type="button" class="yt-copy-btn outline" data-clipboard="{{ clipboard_text }}">📋 Für YouTube kopieren</button></p>
         {% endif %}
         {% include "rating_partial.html" %}
         {% if !original_source_link.is_empty() %}

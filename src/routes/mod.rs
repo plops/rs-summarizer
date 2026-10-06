@@ -51,6 +51,26 @@ fn render_template<T: Template>(template: &T) -> Html<String> {
     }
 }
 
+/// Builds the "Für YouTube kopieren" clipboard payload: the YouTube-format
+/// summary plus a model/cost attribution footer at the bottom.
+///
+/// Returns an empty string when there is no YouTube text to copy, in which
+/// case templates hide the copy button.
+fn youtube_clipboard_text(youtube_text: &str, model: &str, cost_display: &str) -> String {
+    let body = youtube_text.trim_end();
+    if body.is_empty() {
+        return String::new();
+    }
+    if model.is_empty() && cost_display.is_empty() {
+        return body.to_string();
+    }
+    let mut out = format!("{body}\n\n{model}");
+    if !cost_display.is_empty() {
+        out.push_str(&format!(" (cost: {cost_display})"));
+    }
+    out
+}
+
 fn supports_named_thinking_levels(model_name: &str) -> bool {
     model_name.to_ascii_lowercase().starts_with("gemini-3.")
 }
@@ -292,15 +312,18 @@ pub async fn browse_summaries(
         let rating_stats = db::fetch_rating_stats(&app.db, s.identifier, Some(&client_ip))
             .await
             .unwrap_or_default();
+        let cost = cost_display(s.cost);
+        let clipboard_text =
+            youtube_clipboard_text(&s.timestamped_summary_in_youtube_format, &s.model, &cost);
 
         items.push(BrowseSummaryItem {
             identifier: s.identifier,
             model: s.model,
             rs_summarizer_version: s.rs_summarizer_version,
-            cost_display: cost_display(s.cost),
+            cost_display: cost,
             original_source_link: s.original_source_link,
             summary_html,
-            youtube_text: s.timestamped_summary_in_youtube_format,
+            clipboard_text,
             rating_stats,
         });
     }
@@ -423,6 +446,9 @@ async fn render_generation_partial(
             let rating_stats = db::fetch_rating_stats(&app.db, s.identifier, client_ip)
                 .await
                 .unwrap_or_default();
+            let cost = cost_display(s.cost);
+            let clipboard_text =
+                youtube_clipboard_text(&s.timestamped_summary_in_youtube_format, &s.model, &cost);
 
             let template = GenerationPartialTemplate {
                 identifier: s.identifier,
@@ -432,9 +458,9 @@ async fn render_generation_partial(
                 error_message: s.generation_error_message,
                 retry_display: format_retry_display(&s.next_retry_at),
                 model: s.model,
-                cost_display: cost_display(s.cost),
+                cost_display: cost,
                 original_source_link: s.original_source_link,
-                youtube_text: s.timestamped_summary_in_youtube_format,
+                clipboard_text,
                 rating_stats,
             };
             render_template(&template)
@@ -776,7 +802,7 @@ mod tests {
             model: "gemini-3.6-flash".into(),
             cost_display: String::new(),
             original_source_link: String::new(),
-            youtube_text: String::new(),
+            clipboard_text: String::new(),
             rating_stats: crate::models::RatingStats::default(),
         }
         .render()
@@ -794,7 +820,7 @@ mod tests {
             model: "gemini-3.6-flash".into(),
             cost_display: String::new(),
             original_source_link: String::new(),
-            youtube_text: String::new(),
+            clipboard_text: String::new(),
             rating_stats: crate::models::RatingStats::default(),
         }
         .render()
@@ -817,7 +843,7 @@ mod tests {
             model: "gemini-3.6-flash".into(),
             cost_display: "$0.04".into(),
             original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into(),
-            youtube_text: "*Intro* 1:23".into(),
+            clipboard_text: "*Intro* 1:23\n\ngemini-3.6-flash (cost: $0.04)".into(),
             rating_stats: crate::models::RatingStats::default(),
         }
         .render()
@@ -831,10 +857,40 @@ mod tests {
         assert!(html.contains("Für YouTube kopieren"));
         assert!(html.contains("data-clipboard"));
         assert!(!html.contains("<footer>"));
-        // Model and cost come after the summary text.
+        // Model and cost stay at the top; the clipboard payload carries them
+        // as a footer at the bottom.
         let body_pos = html.find("Intro").unwrap();
-        assert!(body_pos < html.find("gemini-3.6-flash").unwrap());
-        assert!(body_pos < html.find("$0.04").unwrap());
+        assert!(html.find("gemini-3.6-flash").unwrap() < body_pos);
+        assert!(html.find("$0.04").unwrap() < body_pos);
+        let clipboard_pos = html.find("data-clipboard").unwrap();
+        assert!(clipboard_pos < html.rfind("gemini-3.6-flash").unwrap());
+        assert!(clipboard_pos < html.rfind("(cost: $0.04)").unwrap());
+    }
+
+    #[test]
+    fn youtube_clipboard_appends_model_cost_footer() {
+        assert_eq!(
+            youtube_clipboard_text("*Intro* 1:23\nBody", "gemini-3.6-flash", "$0.04"),
+            "*Intro* 1:23\nBody\n\ngemini-3.6-flash (cost: $0.04)"
+        );
+        // Trailing newlines are normalized to a single blank line.
+        assert_eq!(
+            youtube_clipboard_text("Body\n\n", "gemini-3.6-flash", "$0.04"),
+            "Body\n\ngemini-3.6-flash (cost: $0.04)"
+        );
+        // Free models: model only, no cost part.
+        assert_eq!(
+            youtube_clipboard_text("Body", "hetzner-qwen-3.6-35b", ""),
+            "Body\n\nhetzner-qwen-3.6-35b"
+        );
+        // No YouTube text: empty payload so templates hide the button.
+        assert_eq!(youtube_clipboard_text("", "gemini-3.6-flash", "$0.04"), "");
+        assert_eq!(
+            youtube_clipboard_text("  \n ", "gemini-3.6-flash", "$0.04"),
+            ""
+        );
+        // No attribution available: plain body.
+        assert_eq!(youtube_clipboard_text("Body", "", ""), "Body");
     }
 
     #[test]
@@ -851,7 +907,7 @@ mod tests {
                 cost_display: "$0.04".into(),
                 original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into(),
                 summary_html,
-                youtube_text: "*Intro* 1:23".into(),
+                clipboard_text: "*Intro* 1:23\n\ngemini-3.6-flash (cost: $0.04)".into(),
                 rating_stats: crate::models::RatingStats::default(),
             }],
             app_version: crate::APP_VERSION,
@@ -869,9 +925,13 @@ mod tests {
         assert!(html.contains("data-clipboard"));
         assert!(html.contains("$0.04"));
         assert!(!html.contains("<footer>"));
-        // Model and cost come after the summary text, not in the header.
+        // Model and cost stay in the header; the clipboard payload carries
+        // them as a footer at the bottom.
         let body_pos = html.find("Body text").unwrap();
-        assert!(body_pos < html.find("gemini-3.6-flash").unwrap());
-        assert!(body_pos < html.find("$0.04").unwrap());
+        assert!(html.find("gemini-3.6-flash").unwrap() < body_pos);
+        assert!(html.find("$0.04").unwrap() < body_pos);
+        let clipboard_pos = html.find("data-clipboard").unwrap();
+        assert!(clipboard_pos < html.rfind("gemini-3.6-flash").unwrap());
+        assert!(clipboard_pos < html.rfind("(cost: $0.04)").unwrap());
     }
 }

@@ -109,10 +109,14 @@ async fn browse_renders_summary_once_with_copy_button() {
     // Source link and rating component are present.
     assert!(html.contains(">Source</a>"));
     assert!(html.contains("rating-container-1"));
-    // Model and cost come after the summary text, not in the header.
+    // Model and cost stay in the header; the clipboard payload carries them
+    // as a footer at the bottom.
     let body_pos = html.find("Body text about the video.").unwrap();
-    assert!(body_pos < html.find("gemini-3.6-flash").unwrap());
-    assert!(body_pos < html.find("$0.04").unwrap());
+    assert!(html.find("gemini-3.6-flash").unwrap() < body_pos);
+    assert!(html.find("$0.04").unwrap() < body_pos);
+    let clipboard_pos = html.find("data-clipboard").unwrap();
+    assert!(clipboard_pos < html.rfind("gemini-3.6-flash").unwrap());
+    assert!(clipboard_pos < html.rfind("(cost: $0.04)").unwrap());
 }
 
 #[tokio::test]
@@ -143,10 +147,14 @@ async fn generation_partial_succeeded_has_source_rating_and_copy_button() {
     assert!(html.contains("t=83s"));
     assert!(!html.contains("<footer>"));
     assert!(!html.contains("hx-trigger=\"every 1s\""));
-    // Model and cost come after the summary text.
+    // Model and cost stay at the top; the clipboard payload carries them as
+    // a footer at the bottom.
     let body_pos = html.find("Body text about the video.").unwrap();
-    assert!(body_pos < html.find("gemini-3.6-flash").unwrap());
-    assert!(body_pos < html.find("$0.04").unwrap());
+    assert!(html.find("gemini-3.6-flash").unwrap() < body_pos);
+    assert!(html.find("$0.04").unwrap() < body_pos);
+    let clipboard_pos = html.find("data-clipboard").unwrap();
+    assert!(clipboard_pos < html.rfind("gemini-3.6-flash").unwrap());
+    assert!(clipboard_pos < html.rfind("(cost: $0.04)").unwrap());
 }
 
 #[tokio::test]

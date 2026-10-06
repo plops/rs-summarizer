@@ -21,7 +21,7 @@ pub struct GenerationPartialTemplate {
     pub model: String,
     pub cost_display: String,
     pub original_source_link: String,
-    pub youtube_text: String,
+    pub clipboard_text: String,
     pub rating_stats: RatingStats,
 }
 
@@ -35,7 +35,7 @@ pub struct BrowseSummaryItem {
     pub cost_display: String,
     pub original_source_link: String,
     pub summary_html: String,
-    pub youtube_text: String,
+    pub clipboard_text: String,
     pub rating_stats: RatingStats,
 }
 
