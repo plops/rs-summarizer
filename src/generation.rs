@@ -131,6 +131,34 @@ pub const MAX_RETRY_ATTEMPTS: i64 = 3;
 pub fn retry_delay(attempt: i64) -> Duration {
     Duration::from_secs((30_u64.saturating_mul(1_u64 << attempt.min(4) as u32)).min(600))
 }
+
+/// Formats a stored `next_retry_at` timestamp (RFC 3339) as a human-readable
+/// German retry notice, e.g. `Wiederholung in ca. 1 Minute (geplant um 05:15 Uhr)`.
+///
+/// The clock time is shown in UTC (the container timezone) so no extra
+/// timezone crate is needed. Unparseable or empty input falls back to a short
+/// notice without any raw timestamp.
+pub fn format_retry_display(next_retry_at: &str) -> String {
+    format_retry_display_at(next_retry_at, chrono::Utc::now())
+}
+
+fn format_retry_display_at(next_retry_at: &str, now: chrono::DateTime<chrono::Utc>) -> String {
+    match next_retry_at.parse::<chrono::DateTime<chrono::Utc>>() {
+        Ok(retry_at) => {
+            let clock = retry_at.format("%H:%M");
+            let remaining_secs = retry_at.signed_duration_since(now).num_seconds();
+            if remaining_secs <= 0 {
+                format!("Wiederholung geplant (geplant um {clock} Uhr)")
+            } else if remaining_secs < 90 {
+                format!("Wiederholung in ca. 1 Minute (geplant um {clock} Uhr)")
+            } else {
+                let minutes = (remaining_secs + 59) / 60;
+                format!("Wiederholung in ca. {minutes} Minuten (geplant um {clock} Uhr)")
+            }
+        }
+        Err(_) => "Wiederholung geplant".to_string(),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -144,5 +172,29 @@ mod tests {
         assert!(PublicErrorCode::Unavailable.retryable());
         assert!(!PublicErrorCode::RateLimited.retryable());
         assert!(retry_delay(2) > retry_delay(1));
+    }
+    #[test]
+    fn retry_display_shows_relative_minutes_and_clock_time() {
+        let now = "2026-10-06T05:14:30Z".parse().unwrap();
+        assert_eq!(
+            format_retry_display_at("2026-10-06T05:15:30Z", now),
+            "Wiederholung in ca. 1 Minute (geplant um 05:15 Uhr)"
+        );
+        assert_eq!(
+            format_retry_display_at("2026-10-06T05:19:30Z", now),
+            "Wiederholung in ca. 5 Minuten (geplant um 05:19 Uhr)"
+        );
+    }
+    #[test]
+    fn retry_display_never_leaks_raw_timestamps() {
+        let now = "2026-10-06T05:14:30Z".parse().unwrap();
+        let overdue = format_retry_display_at("2026-10-06T05:10:00Z", now);
+        assert!(overdue.contains("Wiederholung geplant"));
+        assert!(!overdue.contains("2026-10-06"));
+        assert_eq!(format_retry_display_at("", now), "Wiederholung geplant");
+        assert_eq!(
+            format_retry_display_at("not-a-time", now),
+            "Wiederholung geplant"
+        );
     }
 }
