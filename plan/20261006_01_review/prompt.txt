@@ -1,0 +1,111 @@
+# Spezifische Aufgabe: UI-Korrekturen, Metadaten-Anreicherung & Rating-Harmonisierung in rs-summarizer
+
+In der Webanwendung `rs-summarizer` (Produktivinstanz: https://rocketrecap.com) gibt es UI-Inkonsistenzen und Darstellungsfehler, die behoben werden müssen.
+
+### 1. Duplizierte Darstellung auf `/browse` beheben
+* **Problem:** Auf `/browse` wird der Inhalt jeder Zusammenfassung aktuell doppelt untereinander gerendert.
+* **Ursache:** `summary_html` enthält bereits den vollen Markdown-Text (inkl. Highlights & Timestamps). Zusätzlich rendert `templates/browse.html` im `<footer>` nochmals `timestamps_html` (welches den gleichen Text im YouTube-Kommentarformat enthält).
+* **Anforderung:**
+  - Die doppelte Ausgabe entfernen: Der Hauptinhalt soll nur einmal erscheinen.
+  - Zeitstempel im Haupttext (`summary_html`) müssen klickbar zu YouTube verlinkt sein (Funktion `replace_timestamps_in_html()` direkt auf `summary_html` anwenden).
+  - Falls das reine YouTube-Kommentarformat (`timestamped_summary_in_youtube_format`) für Nutzer noch bereitgestellt werden soll, darf dies nur als optional einklappbarer Block (z. B. `<details><summary>Als YouTube-Kommentar kopieren</summary><textarea readonly>...</textarea></details>`) geschehen, keinesfalls als doppelter Fließtext.
+
+### 2. Zusätzliche nützliche Metadaten auf `/browse` anzeigen
+* **Preis runden:** Den Preis auf 2 Nachkommastellen formatieren (z. B. `$0.02` statt `$0.015234`).
+* **Bearbeitungszeit / Dauer:** Berechne aus `summary_timestamp_start` und `summary_timestamp_end` die benötigte Generierungsdauer und stelle sie gut lesbar dar (z. B. `Dauer: 14s` oder `1m 23s`).
+* **Zusätzliche Metadaten:** Zeige nützliche Metainformationen an (z. B. Modellname, Token-Zahlen `In: X / Out: Y`, sofern vorhanden), aber **keine** internen oder sensiblen Daten wie Host- oder IP-Adressen.
+
+### 3. Konsistente Anzeige auf der Startseite (`/` bzw. `#result`)
+* **Problem:** Wenn eine Zusammenfassung direkt auf der Startseite via HTMX (`/generations/{identifier}`) angezeigt wird, fehlen der originale Link und die Möglichkeit, eine Bewertung abzugeben.
+* **Anforderung:**
+  - `render_generation_partial()` und `GenerationPartialTemplate` erweitern, sodass bei fertiggestellten Summaries (`generation_status == "succeeded"`):
+    1. Der Original-Link zur Quelle angezeigt wird (`<a href="...">Source</a>`).
+    2. Die Bewertungs-Komponente (`rating_partial.html`) gerendert wird und direkt interaktiv nutzbar ist (inkl. Übergabe der Client-IP zur Ermittlung des aktuellen Nutzer-Ratings).
+    3. Auch hier die Metadaten (Modell, Kosten auf 2 Stellen gerundet, Dauer) analog zu `/browse` angezeigt werden.
+  - Die umgekehrte Reihenfolge bei Multi-URL-Eingaben ist beizubehalten/akzeptabel.
+
+---
+
+## Daten
+
+In `/workspace/src/rs-summarizer/summaries.db` befindet sich eine Kopie des Zustands der SQLite-Produktivdatenbank.
+* Nutze diese Datenbank für lokale Tests und Verifikation.
+* Stelle sicher, dass Abfragen und Schema-Migrationen abwärtskompatibel zu diesem realen Datenbestand sind.
+
+---
+
+## Rolle & Umgebung
+
+Du läufst in einem Docker-Image mit Ubuntu auf einem Linux-Host.
+Falls dir Pakete oder CLI-Tools fehlen, installiere sie selbstständig. Du arbeitest im Auftrag von wol pumba (wolpumba@gmail.com).
+
+* Docker-Referenz: `/workspace/src/cl-cl-generator/example/05_dockerfile_meta/source01/examples/03_ai_env/Dockerfile`.
+
+Validiere alle Ergebnisse und führe falls nötig Benchmarkmessungen und Integrationstests durch.
+
+---
+
+## Code-Anforderungen & Architektur
+
+* **Sprache:** Idiomatisches, modernes Rust (Edition 2024).
+* **Qualitätsstandards:** Führe `cargo fmt` und `cargo clippy --all-targets --all-features` aus. Es dürfen keine Warnings verbleiben.
+* **Abhängigkeiten:** Keine unnötigen neuen Crates einführen. Vorhandene Crates (`chrono`, `sqlx`, `askama`, `axum`) wiederverwenden.
+* **Sicherheits-Finding beheben:** Entferne den hardcodierten Fallback-API-Key in `src/services/summary.rs` (Zeile ~530) für Hetzner und ersetze ihn durch sauberes Error-Handling.
+
+### Datei-Aufteilung & Refactoring
+* Behalte die bestehende Modulstruktur von `rs-summarizer` bei (`src/routes/`, `src/services/`, `src/db.rs`, `src/models.rs`, `src/tasks.rs`, `templates/`).
+* **Keine Umbenennung in nummerierte Dateien** (wie `01_...`, `02_...`). Dies ist ein bestehender Webdienst; die etablierten Dateinamen bleiben erhalten.
+* Falls einzelne Funktionen oder Dateien (z. B. `src/routes/mod.rs` oder `src/tasks.rs`) zu groß werden (> 500 Zeilen), lagere Hilfsfunktionen in thematisch passende Untermodule aus.
+
+---
+
+## Externe Dokumentation & DeepWiki MCP
+
+* Führe eine `deps.md`, in der alle Abhängigkeiten in der Notation `<organization>/<project>` erfasst sind.
+* Für das aktuelle Repository findest du Kontext und Architekturdetails im DeepWiki MCP unter `plops/rs-summarizer`.
+
+---
+
+## Tests
+
+1. **Unit-Tests:**
+   - Test für die Formatierung von Kosten und Generierungsdauer.
+   - Test für `replace_timestamps_in_html` auf direktem Markdown-HTML.
+2. **Route- / Integration-Tests:**
+   - Test, dass `GET /browse` keine doppelten Summary-Texte enthält und Dauer/Kosten korrekt gerendert werden.
+   - Test, dass `POST /generations/{id}` im Status `succeeded` das Rating-Markup und den Source-Link ausliefert.
+   - Test, dass Rating-Submissions von der Startseite aus funktionieren.
+3. **Regressionstests auf dem echten Datensatz:**
+   - Führe Tests gegen die bereitgestellte Kopie `summaries.db` aus, um sicherzustellen, dass historische Einträge (auch ältere Versionen ohne manche Felder) fehlerfrei geladen und gerendert werden.
+
+---
+
+## Plan
+
+Erstelle vor der Implementierung einen detaillierten Implementierungsplan unter `plan/2026-10-06-ui-and-ratings-fix/plan.md`.
+Dieser Plan soll:
+1. Eine präzise Liste aller beteiligten Dateien enthalten, inklusive einer kurzen Beschreibung der geplanten Änderungen pro Datei.
+2. Den schrittweisen Ablauf der Implementierung und Verifikation beschreiben.
+3. Die Git-Commit-Strategie definieren: Alle Commits müssen als **Conventional Commits** mit aussagekräftigem Body formatiert sein (z. B. `fix(ui): prevent duplicate summary rendering on browse page`).
+
+---
+
+## Walkthrough
+
+Nach erfolgreicher Implementierung und Bestehen aller Tests erstellst du ein Walkthrough-Dokument unter `plan/2026-10-06-ui-and-ratings-fix/walkthrough.md`.
+
+**Strikte Regeln für das Walkthrough:**
+* **Sprache & Stil:** Zwingend auf Deutsch verfasst, verständlich, didaktisch hochwertig und flüssig lesbar.
+* **Erklärungen:** Fachbegriffe kurz und prägnant erklären.
+* **Visualisierung:** Nutze reichlich Code-Beispiele und **Mermaid-Diagramme** (z. B. Sequenzdiagramm für den Datenfluss von `/process_transcript` -> Polling `/generations/{id}` mit Rating-Integration).
+* **Inhaltliche Struktur:**
+  1. Was exakt implementiert und behoben wurde.
+  2. Architektur- und Designentscheidungen (insbesondere Abweichungen vom ursprünglichen Plan).
+  3. Learnings und Vorschläge für zukünftige Erweiterungen.
+  4. Liste eventuell neu benötigter Programme/Pakete für das Dockerfile.
+
+---
+
+## Aufwand
+
+Halte den Token-Verbrauch und Aufwand der Session in `plan/2026-10-06-ui-and-ratings-fix/plan_effort.md` fest (Input/Output/Cached/Total Tokens, Turns, Subagents), um die Kosten für spätere Durchläufe transparent zu dokumentieren.
