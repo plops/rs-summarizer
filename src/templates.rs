@@ -17,8 +17,12 @@ pub struct GenerationPartialTemplate {
     pub summary_done: bool,
     pub generation_status: String,
     pub error_message: String,
-    pub next_retry_at: String,
-    pub timestamps: String,
+    pub retry_display: String,
+    pub model: String,
+    pub cost_display: String,
+    pub original_source_link: String,
+    pub youtube_text: String,
+    pub rating_stats: RatingStats,
 }
 
 use crate::models::RatingStats;
@@ -28,10 +32,10 @@ pub struct BrowseSummaryItem {
     pub identifier: i64,
     pub model: String,
     pub rs_summarizer_version: String,
-    pub cost: f64,
+    pub cost_display: String,
     pub original_source_link: String,
     pub summary_html: String,
-    pub timestamps_html: String,
+    pub youtube_text: String,
     pub rating_stats: RatingStats,
 }
 

@@ -5,7 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>rs-summarizer</title>
     <link rel="stylesheet" href="/static/pico.min.css">
+    <link rel="stylesheet" href="/static/ratings.css">
     <script src="/static/htmx.min.js"></script>
+    <script>
+        function ytFallbackCopy(value) {
+            var area = document.createElement("textarea");
+            area.value = value;
+            document.body.appendChild(area);
+            area.select();
+            try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+            document.body.removeChild(area);
+        }
+        // Delegated handler so it also covers generation partials that HTMX
+        // swaps into #result after page load.
+        document.addEventListener("click", function (event) {
+            var button = event.target.closest(".yt-copy-btn");
+            if (!button) return;
+            var text = button.getAttribute("data-clipboard") || "";
+            if (!text) return;
+            function done() {
+                var original = button.textContent;
+                button.textContent = "Kopiert! ✓";
+                setTimeout(function () { button.textContent = original; }, 2000);
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done, function () {
+                    ytFallbackCopy(text);
+                    done();
+                });
+            } else {
+                ytFallbackCopy(text);
+                done();
+            }
+        });
+    </script>
 </head>
 <body>
     <main class="container">

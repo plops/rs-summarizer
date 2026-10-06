@@ -8,6 +8,7 @@ use chrono::Utc;
 use std::net::SocketAddr;
 
 use crate::db;
+use crate::generation::format_retry_display;
 use crate::models::{BrowseParams, SearchForm, SubmitForm, SubmitRatingForm, ThinkingPreference};
 use crate::services::embedding::EmbeddingService;
 use crate::services::rate_limiter::RateLimiter;
@@ -17,6 +18,7 @@ use crate::templates::{
     BrowseSummaryItem, BrowseTemplate, GenerationPartialTemplate, IndexTemplate,
     RatingPartialTemplate, SearchResultItem, SearchResultsTemplate,
 };
+use crate::utils::cost_format::cost_display;
 use crate::utils::markdown_renderer::render_markdown_to_html;
 use crate::utils::timestamp_linker::replace_timestamps_in_html;
 
@@ -222,7 +224,7 @@ pub async fn process_transcript(
             new_id
         };
 
-        let partial_html = render_generation_partial(&app, item_id).await;
+        let partial_html = render_generation_partial(&app, item_id, None).await;
         html_results.push(partial_html.0);
     }
 
@@ -233,17 +235,23 @@ pub async fn process_transcript(
 /// partial summary or final result for a given generation.
 pub async fn get_generation(
     State(app): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Path(identifier): Path<i64>,
 ) -> impl IntoResponse {
-    render_generation_partial(&app, identifier).await
+    let client_ip = extract_client_ip(&headers, &addr);
+    render_generation_partial(&app, identifier, Some(&client_ip)).await
 }
 
 /// Explicitly retry a terminal generation. The compare-and-set is idempotent:
 /// repeated clicks or requests while a worker owns it do not start extra work.
 pub async fn retry_generation(
     State(app): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     Path(identifier): Path<i64>,
 ) -> impl IntoResponse {
+    let client_ip = extract_client_ip(&headers, &addr);
     match db::retry_generation(&app.db, identifier).await {
         Ok(true) => {
             let app_clone = app.clone();
@@ -251,9 +259,9 @@ pub async fn retry_generation(
             tokio::spawn(async move {
                 tasks::process_summary(db_clone, identifier, app_clone).await;
             });
-            render_generation_partial(&app, identifier).await
+            render_generation_partial(&app, identifier, Some(&client_ip)).await
         }
-        Ok(false) => render_generation_partial(&app, identifier).await,
+        Ok(false) => render_generation_partial(&app, identifier, Some(&client_ip)).await,
         Err(_) => Html("<p>Unable to schedule retry.</p>".into()),
     }
 }
@@ -276,13 +284,11 @@ pub async fn browse_summaries(
 
     let mut items = Vec::new();
     for s in summaries {
-        let summary_html = render_markdown_to_html(&s.summary);
-        let timestamps_html = if s.timestamps_done {
-            let html = render_markdown_to_html(&s.timestamped_summary_in_youtube_format);
-            replace_timestamps_in_html(&html, &s.original_source_link)
-        } else {
-            String::new()
-        };
+        // The summary is rendered exactly once; timestamps inside it link to YouTube.
+        let summary_html = replace_timestamps_in_html(
+            &render_markdown_to_html(&s.summary),
+            &s.original_source_link,
+        );
         let rating_stats = db::fetch_rating_stats(&app.db, s.identifier, Some(&client_ip))
             .await
             .unwrap_or_default();
@@ -291,10 +297,10 @@ pub async fn browse_summaries(
             identifier: s.identifier,
             model: s.model,
             rs_summarizer_version: s.rs_summarizer_version,
-            cost: s.cost,
+            cost_display: cost_display(s.cost),
             original_source_link: s.original_source_link,
             summary_html,
-            timestamps_html,
+            youtube_text: s.timestamped_summary_in_youtube_format,
             rating_stats,
         });
     }
@@ -397,20 +403,26 @@ pub async fn search_similar(
 }
 
 /// Helper to render the generation partial for a given identifier.
-async fn render_generation_partial(app: &AppState, identifier: i64) -> Html<String> {
+///
+/// `client_ip` personalizes the rating component; `None` renders anonymous
+/// aggregate stats (used for the initial submission response before polling).
+async fn render_generation_partial(
+    app: &AppState,
+    identifier: i64,
+    client_ip: Option<&str>,
+) -> Html<String> {
     let summary = db::fetch_summary(&app.db, identifier).await.ok().flatten();
 
     match summary {
         Some(s) => {
-            let timestamps_html = if s.timestamps_done {
-                let html = render_markdown_to_html(&s.timestamped_summary_in_youtube_format);
-                replace_timestamps_in_html(&html, &s.original_source_link)
-            } else {
-                String::new()
-            };
-
-            // Render markdown summary as HTML
-            let summary_html = render_markdown_to_html(&s.summary);
+            // Render markdown summary as HTML with clickable YouTube timestamps.
+            let summary_html = replace_timestamps_in_html(
+                &render_markdown_to_html(&s.summary),
+                &s.original_source_link,
+            );
+            let rating_stats = db::fetch_rating_stats(&app.db, s.identifier, client_ip)
+                .await
+                .unwrap_or_default();
 
             let template = GenerationPartialTemplate {
                 identifier: s.identifier,
@@ -418,8 +430,12 @@ async fn render_generation_partial(app: &AppState, identifier: i64) -> Html<Stri
                 summary_done: s.summary_done,
                 generation_status: s.generation_status,
                 error_message: s.generation_error_message,
-                next_retry_at: s.next_retry_at,
-                timestamps: timestamps_html,
+                retry_display: format_retry_display(&s.next_retry_at),
+                model: s.model,
+                cost_display: cost_display(s.cost),
+                original_source_link: s.original_source_link,
+                youtube_text: s.timestamped_summary_in_youtube_format,
+                rating_stats,
             };
             render_template(&template)
         }
@@ -756,13 +772,17 @@ mod tests {
             summary_done: false,
             generation_status: "retry_wait".into(),
             error_message: String::new(),
-            next_retry_at: "2026-09-04T12:00:00Z".into(),
-            timestamps: String::new(),
+            retry_display: "Wiederholung in ca. 1 Minute (geplant um 12:01 Uhr)".into(),
+            model: "gemini-3.6-flash".into(),
+            cost_display: String::new(),
+            original_source_link: String::new(),
+            youtube_text: String::new(),
+            rating_stats: crate::models::RatingStats::default(),
         }
         .render()
         .unwrap();
         assert!(active.contains("hx-trigger=\"every 1s\""));
-        assert!(active.contains("Retry scheduled"));
+        assert!(active.contains("Wiederholung in ca. 1 Minute"));
 
         let failed = GenerationPartialTemplate {
             identifier: 7,
@@ -770,8 +790,12 @@ mod tests {
             summary_done: true,
             generation_status: "partial_failed".into(),
             error_message: "The model stopped before completing the summary.".into(),
-            next_retry_at: String::new(),
-            timestamps: String::new(),
+            retry_display: String::new(),
+            model: "gemini-3.6-flash".into(),
+            cost_display: String::new(),
+            original_source_link: String::new(),
+            youtube_text: String::new(),
+            rating_stats: crate::models::RatingStats::default(),
         }
         .render()
         .unwrap();
@@ -779,5 +803,67 @@ mod tests {
         assert!(failed.contains("role=\"alert\""));
         assert!(failed.contains("Retry summary"));
         assert!(failed.contains("incomplete and was not published"));
+    }
+
+    #[test]
+    fn generation_partial_succeeded_shows_source_rating_and_copy_button() {
+        let html = GenerationPartialTemplate {
+            identifier: 7,
+            summary: "<p><strong>1:23 Intro</strong></p>".into(),
+            summary_done: true,
+            generation_status: "succeeded".into(),
+            error_message: String::new(),
+            retry_display: String::new(),
+            model: "gemini-3.6-flash".into(),
+            cost_display: "$0.04".into(),
+            original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into(),
+            youtube_text: "*Intro* 1:23".into(),
+            rating_stats: crate::models::RatingStats::default(),
+        }
+        .render()
+        .unwrap();
+        assert!(html.contains("Summary Complete"));
+        assert!(html.contains("gemini-3.6-flash"));
+        assert!(html.contains("$0.04"));
+        assert!(html.contains("https://www.youtube.com/watch?v=dQw4w9WgXcQ"));
+        assert!(html.contains(">Source</a>"));
+        assert!(html.contains("rating-container-7"));
+        assert!(html.contains("Für YouTube kopieren"));
+        assert!(html.contains("data-clipboard"));
+        assert!(!html.contains("<footer>"));
+    }
+
+    #[test]
+    fn browse_renders_summary_once_with_linked_timestamps_and_copy_button() {
+        let summary_html = replace_timestamps_in_html(
+            &render_markdown_to_html("**1:23 Intro**\n\nBody text"),
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        );
+        let html = BrowseTemplate {
+            summaries: vec![BrowseSummaryItem {
+                identifier: 1,
+                model: "gemini-3.6-flash".into(),
+                rs_summarizer_version: "1.8.0".into(),
+                cost_display: "$0.04".into(),
+                original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into(),
+                summary_html,
+                youtube_text: "*Intro* 1:23".into(),
+                rating_stats: crate::models::RatingStats::default(),
+            }],
+            app_version: crate::APP_VERSION,
+            page: 0,
+            has_next: false,
+        }
+        .render()
+        .unwrap();
+        // Body text is visible exactly once; "Intro" appears twice: once visibly
+        // in the summary and once in the hidden clipboard payload.
+        assert_eq!(html.matches("Body text").count(), 1);
+        assert_eq!(html.matches("Intro").count(), 2);
+        assert!(html.contains("t=83s"));
+        assert!(html.contains("Für YouTube kopieren"));
+        assert!(html.contains("data-clipboard"));
+        assert!(html.contains("$0.04"));
+        assert!(!html.contains("<footer>"));
     }
 }
