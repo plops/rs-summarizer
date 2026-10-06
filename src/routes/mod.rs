@@ -831,6 +831,10 @@ mod tests {
         assert!(html.contains("Für YouTube kopieren"));
         assert!(html.contains("data-clipboard"));
         assert!(!html.contains("<footer>"));
+        // Model and cost come after the summary text.
+        let body_pos = html.find("Intro").unwrap();
+        assert!(body_pos < html.find("gemini-3.6-flash").unwrap());
+        assert!(body_pos < html.find("$0.04").unwrap());
     }
 
     #[test]
@@ -865,5 +869,9 @@ mod tests {
         assert!(html.contains("data-clipboard"));
         assert!(html.contains("$0.04"));
         assert!(!html.contains("<footer>"));
+        // Model and cost come after the summary text, not in the header.
+        let body_pos = html.find("Body text").unwrap();
+        assert!(body_pos < html.find("gemini-3.6-flash").unwrap());
+        assert!(body_pos < html.find("$0.04").unwrap());
     }
 }
