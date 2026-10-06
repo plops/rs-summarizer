@@ -22,6 +22,43 @@ pub async fn init_db(database_url: &str) -> anyhow::Result<SqlitePool> {
 use crate::generation::{GenerationStatus, PublicErrorCode};
 use crate::models::{RatingStats, SubmitForm, Summary};
 
+/// Explicit read projection for `Summary` rows.
+///
+/// Legacy production rows predate several `NOT NULL` constraints and contain
+/// NULLs (missing summaries, costs, flags). `COALESCE` keeps those rows
+/// readable instead of failing the whole query with a decode error.
+const SUMMARY_COLUMNS: &str = "identifier, \
+    COALESCE(model, '') AS model, \
+    COALESCE(transcript, '') AS transcript, \
+    COALESCE(host, '') AS host, \
+    COALESCE(original_source_link, '') AS original_source_link, \
+    COALESCE(include_comments, 0) AS include_comments, \
+    COALESCE(include_timestamps, 0) AS include_timestamps, \
+    COALESCE(include_glossary, 0) AS include_glossary, \
+    COALESCE(output_language, '') AS output_language, \
+    COALESCE(summary, '') AS summary, \
+    COALESCE(summary_done, 0) AS summary_done, \
+    generation_status, generation_attempt, generation_epoch, \
+    generation_started_at, generation_updated_at, next_retry_at, \
+    generation_error_code, generation_error_message, provider_interaction_id, \
+    COALESCE(summary_input_tokens, 0) AS summary_input_tokens, \
+    COALESCE(summary_output_tokens, 0) AS summary_output_tokens, \
+    COALESCE(summary_timestamp_start, '') AS summary_timestamp_start, \
+    COALESCE(summary_timestamp_end, '') AS summary_timestamp_end, \
+    COALESCE(timestamps, '') AS timestamps, \
+    COALESCE(timestamps_done, 0) AS timestamps_done, \
+    COALESCE(timestamps_input_tokens, 0) AS timestamps_input_tokens, \
+    COALESCE(timestamps_output_tokens, 0) AS timestamps_output_tokens, \
+    COALESCE(timestamps_timestamp_start, '') AS timestamps_timestamp_start, \
+    COALESCE(timestamps_timestamp_end, '') AS timestamps_timestamp_end, \
+    COALESCE(timestamped_summary_in_youtube_format, '') AS timestamped_summary_in_youtube_format, \
+    COALESCE(cost, 0.0) AS cost, \
+    embedding, \
+    COALESCE(embedding_model, '') AS embedding_model, \
+    full_embedding, \
+    google_search_grounding, url_context, thinking, thinking_tokens, \
+    thinking_level, rs_summarizer_version";
+
 /// Insert a new summary row and return the new identifier.
 pub async fn insert_new_summary(
     db: &SqlitePool,
@@ -63,8 +100,12 @@ pub async fn fetch_summary(
     db: &SqlitePool,
     identifier: i64,
 ) -> Result<Option<Summary>, sqlx::Error> {
-    let row = sqlx::query_as::<_, Summary>("SELECT * FROM summaries WHERE identifier = ?")
-        .bind(identifier)
+    let mut builder = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT ");
+    builder.push(SUMMARY_COLUMNS);
+    builder.push(" FROM summaries WHERE identifier = ");
+    builder.push_bind(identifier);
+    let row = builder
+        .build_query_as::<Summary>()
         .fetch_optional(db)
         .await?;
 
@@ -266,13 +307,13 @@ pub async fn fetch_browse_page(
 ) -> Result<Vec<Summary>, sqlx::Error> {
     let offset = page * page_size;
 
-    let rows = sqlx::query_as::<_, Summary>(
-        "SELECT * FROM summaries ORDER BY identifier DESC LIMIT ? OFFSET ?",
-    )
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(db)
-    .await?;
+    let mut builder = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT ");
+    builder.push(SUMMARY_COLUMNS);
+    builder.push(" FROM summaries ORDER BY identifier DESC LIMIT ");
+    builder.push_bind(page_size);
+    builder.push(" OFFSET ");
+    builder.push_bind(offset);
+    let rows = builder.build_query_as::<Summary>().fetch_all(db).await?;
 
     Ok(rows)
 }
@@ -738,5 +779,59 @@ mod tests {
             fetch_queued_generations(&pool).await.unwrap(),
             vec![recovered]
         );
+    }
+
+    /// Legacy production rows predate several `NOT NULL` constraints: old
+    /// columns are nullable and contain NULL summaries, costs and flags.
+    /// Reads must decode those rows with defaults instead of failing.
+    #[tokio::test]
+    async fn legacy_nullable_rows_decode_with_defaults() {
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::raw_sql(
+            "CREATE TABLE summaries (\
+                identifier INTEGER PRIMARY KEY, model TEXT, transcript TEXT, host TEXT, \
+                original_source_link TEXT, include_comments INTEGER, include_timestamps INTEGER, \
+                include_glossary INTEGER, output_language TEXT, summary TEXT, summary_done INTEGER, \
+                generation_status TEXT, generation_attempt INTEGER, generation_epoch INTEGER, \
+                generation_started_at TEXT, generation_updated_at TEXT, next_retry_at TEXT, \
+                generation_error_code TEXT, generation_error_message TEXT, \
+                provider_interaction_id TEXT, summary_input_tokens INTEGER, \
+                summary_output_tokens INTEGER, summary_timestamp_start TEXT, \
+                summary_timestamp_end TEXT, timestamps TEXT, timestamps_done INTEGER, \
+                timestamps_input_tokens INTEGER, timestamps_output_tokens INTEGER, \
+                timestamps_timestamp_start TEXT, timestamps_timestamp_end TEXT, \
+                timestamped_summary_in_youtube_format TEXT, cost FLOAT, embedding BLOB, \
+                embedding_model TEXT, full_embedding BLOB, google_search_grounding BOOLEAN, \
+                url_context BOOLEAN, thinking TEXT, thinking_tokens INTEGER, thinking_level TEXT, \
+                rs_summarizer_version TEXT)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Failed legacy row: every pre-007 column is NULL, lifecycle columns set.
+        sqlx::query(
+            "INSERT INTO summaries (identifier, model, generation_status, generation_attempt, \
+                generation_epoch, generation_started_at, generation_updated_at, next_retry_at, \
+                generation_error_code, generation_error_message, provider_interaction_id, \
+                google_search_grounding, url_context, thinking, thinking_tokens, \
+                thinking_level, rs_summarizer_version) \
+             VALUES (1, 'legacy-model', 'failed', 0, 0, '', '', '', 'internal', 'old failure', '', \
+                0, 0, '', 0, 'high', '')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let row = fetch_summary(&pool, 1).await.unwrap().unwrap();
+        assert_eq!(row.summary, "");
+        assert_eq!(row.cost, 0.0);
+        assert!(!row.timestamps_done);
+        assert!(!row.summary_done);
+        assert_eq!(row.timestamped_summary_in_youtube_format, "");
+        assert_eq!(row.generation_error_message, "old failure");
+
+        let page = fetch_browse_page(&pool, 0, 20).await.unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].identifier, 1);
     }
 }
