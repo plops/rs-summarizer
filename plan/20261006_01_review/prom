@@ -1,0 +1,136 @@
+# Aufgabe: UI-Optimierungen, YouTube-Copy-Button, Timestamp-Fixes & verständliche Fehlerbehandlung in rs-summarizer
+
+In der Webanwendung `rs-summarizer` (Produktivinstanz: https://rocketrecap.com) sollen die Benutzeroberfläche bereinigt, Darstellungsfehler bei Zeitstempeln behoben und die Rückmeldungen an den Nutzer verbessert werden.
+
+---
+
+## Spezifische Aufgaben
+
+### 1. Duplizierte Zusammenfassung auf `/browse` entfernen & YouTube-Kopierbutton einführen
+* **Problem:** Auf `/browse` wird die Zusammenfassung aktuell doppelt ausgegeben (einmal als HTML-Markdown in `summary_html` und einmal als Fließtext im `<footer>` via `timestamps_html`).
+* **Anforderung:**
+  - Die doppelte Textausgabe im `<footer>` komplett entfernen. Der Inhalt darf auf der Seite nur **einmal** gerendert werden.
+  - Zeitstempel im gerenderten Markdown müssen direkt anklickbar zu YouTube verlinkt sein (`replace_timestamps_in_html()` auf `summary_html` anwenden).
+  - **YouTube-Kopierfunktion:** Biete einen Button **„📋 Für YouTube kopieren“** an. 
+    - Beim Klick soll der für YouTube-Kommentare optimierte Text (`timestamped_summary_in_youtube_format`: `*fett*` statt `**fett**`, reine Zeitstempel ohne HTML, `-dot-` in Links) in die Zwischenablage kopiert werden.
+    - Vermeide unnötig doppelte Datenübertragung: Der YouTube-Text darf nicht als sichtbares HTML gerendert werden (z. B. Ablage in einem `data-clipboard`-Attribut oder Rendering in einem ausgeblendeten Element).
+    - Kurzes visuelles Feedback nach dem Klick (z. B. „Kopiert! ✓“).
+
+### 2. Zeitstempel-Verlinkung reparieren (Einstellige Minuten)
+* **Problem:** Manche Zeitstempel werden im HTML nicht als Link erkannt.
+* **Ursache:** In `src/utils/timestamp_linker.rs` verlangt der Regex `(?:\d{1,2}:)?[0-5]\d:[0-5]\d` zwingend zwei Ziffern für die Minuten. Einstellige Minuten wie `1:23`, `4:05` oder `9:50` werden ignoriert.
+* **Anforderung:**
+  - Erweitere den Regex, sodass auch einstellige Minuten erkannt werden: `\b(?:\d{1,2}:)?(?:[0-5]?\d):[0-5]\d\b`.
+  
+
+### 3. Selektion nützlicher Metadaten & Preis-Formatierung
+* **Metadaten-Auswahl:** Auf `/browse` und bei fertigen Resultaten sollen **Modellname** und **Kosten** angezeigt werden. Auf die Anzeige von Inferenz-/Bearbeitungszeiten soll verzichtet werden.
+* **Preis-Formatierung:**
+  - Ab 1 Cent ($\ge \$0.01$): Auf 2 Stellen runden (z. B. `$0.03`, `$1.20`).
+  - Unter 1 Cent ($< \$0.01$, z. B. `$0.005578`): Auf 3 Stellen runden, sodass die signifikante Stelle sichtbar bleibt (z. B. `$0.006`).
+  - Bei Kosten von `$0.00` (z. B. kostenlose/experimentelle Modelle): Keine Kostenanzeige oder `$0.00`.
+
+### 4. Konsistente Darstellung auf der Startseite (`/` bzw. `#result`)
+* Wenn ein Resultat nach der Generierung per HTMX (`/generations/{identifier}`) angezeigt wird, müssen genau wie auf `/browse`:
+  1. Der Original-Link zur Quelle (`Source`) angezeigt werden.
+  2. Die interaktive Bewertungs-Komponente (`rating_partial.html`) gerendert werden (inkl. Übergabe der Client-IP).
+  3. Die Metadaten (Modell, formatierte Kosten) und der Button „Für YouTube kopieren“ vorhanden sein.
+* Die umgekehrte Reihenfolge bei Multi-URL-Eingaben ist beizubehalten.
+
+### 5. Verständliche und handlungsorientierte Fehlermeldungen
+* **Problem:** Bei Fehlern (z. B. wenn YouTube Untertitel blockiert oder keine existieren) erhält der Nutzer unklare Standardfehler wie `Summary generation failed unexpectedly`.
+* **Anforderung:** Fehlermeldungen in `src/tasks.rs` / `src/generation.rs` differenzieren und verständlich formulieren:
+  - **Keine Untertitel vorhanden:**  
+    *„Für dieses Video sind keine Untertitel verfügbar. Du kannst das Transkript unter ‚Erweiterte Optionen‘ manuell einfügen.“*
+  - **YouTube-Download fehlgeschlagen / Bot-Blockade:**  
+    *„YouTube blockiert derzeit den automatischen Untertitel-Abruf. Bitte füge das Transkript unter ‚Erweiterte Optionen‘ manuell ein oder versuche es später noch einmal.“*
+  - **Modell überlastet / Google High Demand (503 / ResourceExhausted):**  
+    *„Das ausgewählte KI-Modell ist momentan ausgelastet. Ein automatischer Neuversuch läuft, oder du kannst ein anderes Modell auswählen.“*
+  - **Transkript zu kurz (< 30 Wörter):**  
+    *„Das Transkript ist zu kurz für eine Zusammenfassung (mindestens 30 Wörter erforderlich).“*
+
+### 6. Lesbare Retry-Anzeige
+* **Problem:** Im Status `retry_wait` wird aktuell der rohe ISO-Zeitstempel gerendert (`Retry scheduled 2026-10-06T05:15:30Z`).
+* **Anforderung:**
+  - Zeige eine lesbare relative Zeitspanne an, z. B. *„Wiederholung in ca. 1 Minute (geplant um 07:15 Uhr)“*.
+
+---
+
+## Hinweise zu bestehendem Code
+
+* Der hardcodierte Hetzner-Key in `src/services/summary.rs` **bleibt unverändert stehen** (wird im Produktivbetrieb per Env-Variable überschrieben, soll aber im Code als Fallback verbleiben).
+* In `/workspace/src/rs-summarizer/summaries.db` liegt eine Kopie der Produktivdatenbank. Nutze sie zur Verifikation und stelle sicher, dass alle Änderungen abwärtskompatibel zu bestehenden Zeilen sind.
+
+---
+
+## Rolle & Umgebung
+
+Du läufst in einem Docker-Image mit Ubuntu auf einem Linux-Host.
+Falls dir Pakete oder CLI-Tools fehlen, installiere sie selbstständig. Du arbeitest im Auftrag von wol pumba (wolpumba@gmail.com).
+
+* Docker-Referenz: `/workspace/src/cl-cl-generator/example/05_dockerfile_meta/source01/examples/03_ai_env/Dockerfile`.
+
+Validiere alle Ergebnisse und führe falls nötig Benchmarkmessungen durch.
+
+---
+
+## Code-Anforderungen & Architektur
+
+* **Sprache:** Idiomatisches, modernes Rust (Edition 2024).
+* **Qualitätsstandards:** Führe `cargo fmt` und `cargo clippy --all-targets --all-features` aus. Es dürfen keine Warnings verbleiben.
+* **Dateistruktur:** Behalte die bestehende Modulstruktur von `rs-summarizer` bei (`src/routes/`, `src/services/`, `src/db.rs`, `src/models.rs`, `src/tasks.rs`, `templates/`). **Keine Umbenennung in nummerierte Dateien** (`01_...`).
+* **Abhängigkeiten:** Keine unnötigen neuen Crates einführen.
+
+---
+
+## Externe Dokumentation & DeepWiki MCP
+
+* Führe eine `deps.md`, in der alle Abhängigkeiten in der Notation `<organization>/<project>` erfasst sind.
+* Für das aktuelle Repository findest du Kontext und Architekturdetails im DeepWiki MCP unter `plops/rs-summarizer`.
+
+---
+
+## Tests
+
+1. **Unit-Tests:**
+   - Test für die Preisformatierung ($\ge 0.01 \rightarrow 2$ Stellen, $< 0.01 \rightarrow 3$ Stellen).
+   - Test für `replace_timestamps_in_html`: Verifikation, dass sowohl zweistellige (`01:23`) als auch einstellige (`1:23`) Minuten korrekt verlinkt werden.
+   - Test für verständliche Fehlermeldungs-Generierung.
+2. **Route- & Integration-Tests:**
+   - Test, dass `GET /browse` keine doppelten Summary-Texte rendert und der Copy-Button vorhanden ist.
+   - Test, dass `POST /generations/{id}` im Status `succeeded` den Source-Link, die Rating-Komponente und den Copy-Button ausliefert.
+   - Test, dass im Status `retry_wait` eine benutzerfreundliche relative Zeitangabe gerendert wird.
+3. **Regressionstests:**
+   - Tests gegen die bereitgestellte Kopie `summaries.db` ausführen, um sicherzustellen, dass alte Datensätze fehlerfrei gerendert werden.
+
+---
+
+## Plan
+
+Erstelle vor der Implementierung einen detaillierten Implementierungsplan unter `plan/2026-10-06-ui-and-ratings-fix/plan.md`.
+Dieser Plan soll:
+1. Eine präzise Liste aller beteiligten Dateien enthalten, inklusive einer kurzen Beschreibung der geplanten Änderungen pro Datei.
+2. Den schrittweisen Ablauf der Implementierung und Verifikation beschreiben.
+3. Die Git-Commit-Strategie definieren: Alle Commits müssen als **Conventional Commits** mit aussagekräftigem Body formatiert sein (z. B. `fix(ui): prevent duplicate summary rendering on browse page`).
+
+---
+
+## Walkthrough
+
+Nach erfolgreicher Implementierung und Bestehen aller Tests erstellst du ein Walkthrough-Dokument unter `plan/2026.../walkthrough.md` (im Ordner wo du diese prompt.txt gefunden hast).
+
+**Strikte Regeln für das Walkthrough:**
+* **Sprache & Stil:** Zwingend auf Deutsch verfasst, verständlich, didaktisch hochwertig und flüssig lesbar.
+* **Erklärungen:** Fachbegriffe kurz und prägnant erklären.
+* **Visualisierung:** Nutze Code-Beispiele und **Mermaid-Diagramme** (z. B. zur Veranschaulichung des Ablaufs von Fehlerbehandlung und Retries im Polling).
+* **Inhaltliche Struktur:**
+  1. Was exakt implementiert und behoben wurde.
+  2. Architektur- und Designentscheidungen (insbesondere Abweichungen vom ursprünglichen Plan).
+  3. Learnings und Vorschläge für zukünftige Erweiterungen.
+  4. Liste eventuell neu benötigter Programme/Pakete für das Dockerfile.
+
+---
+
+## Aufwand
+
+Halte den Token-Verbrauch und Aufwand der Session in `plan/2026-10-06-ui-and-ratings-fix/plan_effort.md` fest (Input/Output/Cached/Total Tokens, Turns, Subagents), um die Kosten für spätere Durchläufe transparent zu dokumentieren.
