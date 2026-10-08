@@ -7,6 +7,8 @@ use crate::state::ModelOption;
 pub struct IndexTemplate {
     pub models: Vec<ModelOption>,
     pub app_version: &'static str,
+    /// Concrete model behind the `auto` pseudo-model selection.
+    pub auto_model: &'static str,
 }
 
 #[derive(Template)]

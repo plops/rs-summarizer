@@ -45,40 +45,14 @@ pub async fn process_summary(db_pool: SqlitePool, identifier: i64, app: AppState
     }
 }
 
-/// Helper to estimate transcript duration in seconds.
-/// Falls back to word count approximation if no timestamps are present.
-fn get_transcript_duration_secs(transcript: &str) -> u32 {
-    let mut max_secs = 0;
-    for line in transcript.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if let Some(first) = parts.first() {
-            let ts_parts: Vec<&str> = first.split(':').collect();
-            if ts_parts.len() == 3 {
-                let h: u32 = ts_parts[0].parse().unwrap_or(0);
-                let m: u32 = ts_parts[1].parse().unwrap_or(0);
-                let s: u32 = ts_parts[2].parse().unwrap_or(0);
-                let secs = h * 3600 + m * 60 + s;
-                if secs > max_secs {
-                    max_secs = secs;
-                }
-            } else if ts_parts.len() == 2 {
-                let m: u32 = ts_parts[0].parse().unwrap_or(0);
-                let s: u32 = ts_parts[1].parse().unwrap_or(0);
-                let secs = m * 60 + s;
-                if secs > max_secs {
-                    max_secs = secs;
-                }
-            }
-        }
-    }
+/// Model backing the `auto` selection. `auto` deliberately performs no
+/// heuristic (no transcript-duration or word-count branching); it always
+/// resolves to this model and its regular fallback chain applies.
+pub const AUTO_MODEL: &str = "gemini-3.1-flash-lite";
 
-    if max_secs > 0 {
-        max_secs
-    } else {
-        // Fallback: estimate from word count assuming 150 words per minute (2.5 words per second)
-        let words = transcript.split_whitespace().count();
-        (words as u32 * 2) / 5
-    }
+/// Resolves the `auto` pseudo-model to the concrete model name.
+pub fn resolve_auto_model() -> &'static str {
+    AUTO_MODEL
 }
 
 /// Formats a ProcessError into a user-friendly raw error message.
@@ -421,7 +395,6 @@ pub async fn run_model_pipeline(
     app: &AppState,
     input_text: &str,
     initial_model_name: &str,
-    is_hn: bool,
     google_search_grounding: bool,
     url_context: bool,
     include_glossary: bool,
@@ -432,21 +405,7 @@ pub async fn run_model_pipeline(
 
     let mut model_name = initial_model_name.to_string();
     if model_name == "auto" {
-        if is_hn {
-            let word_count = input_text.split_whitespace().count();
-            model_name = if word_count < 15000 {
-                "gemini-3.5-flash-lite".to_string()
-            } else {
-                "gemini-3.6-flash".to_string()
-            };
-        } else {
-            let duration_secs = get_transcript_duration_secs(input_text);
-            model_name = if duration_secs < 1800 {
-                "gemini-3.5-flash-lite".to_string()
-            } else {
-                "gemini-3.6-flash".to_string()
-            };
-        }
+        model_name = resolve_auto_model().to_string();
     }
 
     let fallback_chain = get_fallback_chain(&model_name);
@@ -702,7 +661,6 @@ async fn process_summary_inner(
                     app,
                     &transcript,
                     &summary.model,
-                    is_hn,
                     summary.google_search_grounding,
                     summary.url_context,
                     summary.include_glossary,
@@ -773,7 +731,6 @@ async fn process_summary_inner(
             app,
             &transcript,
             &summary.model,
-            true,
             summary.google_search_grounding,
             summary.url_context,
             summary.include_glossary,
@@ -793,7 +750,6 @@ async fn process_summary_inner(
                 app,
                 &transcript,
                 &summary.model,
-                false,
                 summary.google_search_grounding,
                 summary.url_context,
                 summary.include_glossary,
@@ -896,26 +852,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_get_transcript_duration_secs_three_digits() {
-        let transcript = "00:00:00 start\n01:15:30 end\n";
-        assert_eq!(
-            get_transcript_duration_secs(transcript),
-            3600 + 15 * 60 + 30
+    fn auto_model_always_resolves_to_flash_lite() {
+        assert_eq!(resolve_auto_model(), "gemini-3.1-flash-lite");
+        assert_eq!(resolve_auto_model(), AUTO_MODEL);
+        // The resolved model must be a registered default with a fallback chain.
+        let chain = get_fallback_chain(resolve_auto_model());
+        assert_eq!(chain[0], "gemini-3.1-flash-lite");
+        assert!(
+            crate::state::get_default_models()
+                .iter()
+                .any(|m| m.name == AUTO_MODEL),
+            "AUTO_MODEL must be a registered default model"
         );
-    }
-
-    #[test]
-    fn test_get_transcript_duration_secs_two_digits() {
-        let transcript = "00:00 start\n15:45 end\n";
-        assert_eq!(get_transcript_duration_secs(transcript), 15 * 60 + 45);
-    }
-
-    #[test]
-    fn test_get_transcript_duration_secs_fallback() {
-        // Fallback assumes 150 words per minute -> 2.5 words per second
-        // For 300 words: 300 * 2 / 5 = 120 seconds (2 minutes)
-        let words = "word ".repeat(300);
-        assert_eq!(get_transcript_duration_secs(&words), 120);
     }
 
     #[test]
@@ -1095,49 +1043,6 @@ mod tests {
             "code 429; description: Quota exceeded".into()
         )));
         assert!(!is_summary_rate_limited(&SummaryError::TranscriptTooShort));
-    }
-
-    #[test]
-    fn test_hn_model_auto_selection_thresholds() {
-        let short_hn_text = "word ".repeat(500);
-        let long_hn_text = "word ".repeat(15300);
-
-        let short_words = short_hn_text.split_whitespace().count();
-        let long_words = long_hn_text.split_whitespace().count();
-
-        let model_short = if short_words < 15000 {
-            "gemini-3.5-flash-lite"
-        } else {
-            "gemini-3.6-flash"
-        };
-        let model_long = if long_words < 15000 {
-            "gemini-3.5-flash-lite"
-        } else {
-            "gemini-3.6-flash"
-        };
-
-        assert_eq!(model_short, "gemini-3.5-flash-lite");
-        assert_eq!(model_long, "gemini-3.6-flash");
-    }
-
-    #[test]
-    fn test_transcript_duration_auto_selection_thresholds() {
-        let short_duration = 1799;
-        let long_duration = 1800;
-
-        let model_short = if short_duration < 1800 {
-            "gemini-3.5-flash-lite"
-        } else {
-            "gemini-3.6-flash"
-        };
-        let model_long = if long_duration < 1800 {
-            "gemini-3.5-flash-lite"
-        } else {
-            "gemini-3.6-flash"
-        };
-
-        assert_eq!(model_short, "gemini-3.5-flash-lite");
-        assert_eq!(model_long, "gemini-3.6-flash");
     }
 
     #[test]

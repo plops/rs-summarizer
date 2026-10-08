@@ -106,6 +106,7 @@ pub async fn index(State(app): State<AppState>) -> impl IntoResponse {
     let template = IndexTemplate {
         models: app.model_options.as_ref().clone(),
         app_version: app.app_version,
+        auto_model: crate::tasks::AUTO_MODEL,
     };
     render_template(&template)
 }
@@ -760,6 +761,7 @@ mod tests {
         let html = IndexTemplate {
             models: crate::state::get_default_models(),
             app_version: crate::APP_VERSION,
+            auto_model: crate::tasks::AUTO_MODEL,
         }
         .render()
         .unwrap();
