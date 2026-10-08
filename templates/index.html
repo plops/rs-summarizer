@@ -51,7 +51,7 @@
             <select id="model" name="model">
                 {% for model in models %}
                 <option value="{{ model.name }}" data-architecture="{{ model.architecture.as_str() }}">
-                    {% if model.name == "auto" %}Auto (Heuristik){% else %}{{ model.name }}{% endif %}
+                    {% if model.name == "auto" %}Auto ({{ auto_model }}){% else %}{{ model.name }}{% endif %}
                 </option>
                 {% endfor %}
             </select>
@@ -112,6 +112,7 @@
             </details>
             
             <button type="submit" style="margin-top: 1.5rem;">Summarize</button>
+            <small style="display: block; margin-top: 0.5rem;">Deine Auswahl (Modell, Thinking-Effort, Sprache, Glossar & Suche) wird automatisch lokal in deinem Browser gespeichert.</small>
         </form>
 
         <script>
@@ -154,6 +155,55 @@
                 const urlContextContainer = document.getElementById('url-context-container');
                 const groundingCheckbox = document.getElementById('google_search_grounding');
                 const urlContextCheckbox = document.getElementById('url_context');
+                const glossaryCheckbox = document.getElementById('include_glossary');
+                const outputLanguageSelect = document.getElementById('output_language');
+
+                // Persist parameter choices in browser localStorage so returning
+                // visitors keep their settings without user accounts. Only
+                // settings are stored, never URLs or transcript content.
+                const SETTINGS_KEY = 'rs-summarizer:settings:v1';
+
+                function setSelectValue(select, value) {
+                    if (!select || typeof value !== 'string') return;
+                    for (const option of select.options) {
+                        if (option.value === value) {
+                            select.value = value;
+                            return;
+                        }
+                    }
+                }
+
+                function setChecked(box, value) {
+                    if (box && typeof value === 'boolean') box.checked = value;
+                }
+
+                function loadSettings() {
+                    let saved = null;
+                    try {
+                        saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+                    } catch (e) { saved = null; /* corrupted or unavailable: use defaults */ }
+                    if (!saved || typeof saved !== 'object') return;
+                    setSelectValue(modelSelect, saved.model);
+                    setSelectValue(thinkingLevelSelect, saved.thinking_level);
+                    setSelectValue(outputLanguageSelect, saved.output_language);
+                    setChecked(glossaryCheckbox, saved.include_glossary);
+                    setChecked(groundingCheckbox, saved.google_search_grounding);
+                    setChecked(urlContextCheckbox, saved.url_context);
+                }
+
+                function saveSettings() {
+                    if (!modelSelect) return;
+                    try {
+                        localStorage.setItem(SETTINGS_KEY, JSON.stringify({
+                            model: modelSelect.value,
+                            thinking_level: thinkingLevelSelect ? thinkingLevelSelect.value : 'auto',
+                            output_language: outputLanguageSelect ? outputLanguageSelect.value : 'en',
+                            include_glossary: !!(glossaryCheckbox && glossaryCheckbox.checked),
+                            google_search_grounding: !!(groundingCheckbox && groundingCheckbox.checked),
+                            url_context: !!(urlContextCheckbox && urlContextCheckbox.checked)
+                        }));
+                    } catch (e) { /* private mode etc.: ignore */ }
+                }
 
                 function updateOptionsVisibility() {
                     if (!modelSelect) return;
@@ -191,8 +241,19 @@
                 }
 
                 if (modelSelect) {
-                    modelSelect.addEventListener('change', updateOptionsVisibility);
+                    // Restore saved settings first so the visibility update
+                    // below normalizes thinking level and feature flags.
+                    loadSettings();
+                    modelSelect.addEventListener('change', function() {
+                        updateOptionsVisibility();
+                        saveSettings();
+                    });
+                    [thinkingLevelSelect, outputLanguageSelect, glossaryCheckbox,
+                     groundingCheckbox, urlContextCheckbox].forEach(function(el) {
+                        if (el) el.addEventListener('change', saveSettings);
+                    });
                     updateOptionsVisibility();
+                    saveSettings();
                 }
 
                 // Manage tabindex for elements inside collapsed details for keyboard accessibility

@@ -73,6 +73,45 @@ async fn insert_succeeded_summary(pool: &SqlitePool) -> i64 {
 }
 
 #[tokio::test]
+async fn index_persists_settings_in_local_storage() {
+    let pool = migrated_pool().await;
+    let app = build_router(test_state(pool));
+
+    let req = with_connect_info(
+        Request::builder()
+            .method("GET")
+            .uri("/")
+            .body(Body::empty())
+            .unwrap(),
+    );
+    let response = app.oneshot(req).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let html = body_text(response).await;
+
+    // Settings persistence markers: one namespaced key, JSON round-trip,
+    // and all persisted control ids wired to it.
+    assert!(html.contains("rs-summarizer:settings:v1"));
+    assert!(html.contains("localStorage.getItem"));
+    assert!(html.contains("localStorage.setItem"));
+    for field in [
+        "thinking_level",
+        "output_language",
+        "include_glossary",
+        "google_search_grounding",
+        "url_context",
+    ] {
+        assert!(html.contains(field), "missing persisted field {field}");
+    }
+    // User content must never be persisted: no listener writes url/transcript.
+    assert!(!html.contains("transcriptInput.value :"));
+    // Hint explains the local-only storage to the user.
+    assert!(html.contains("lokal in deinem Browser gespeichert"));
+    // `auto` is a fixed model now, not a heuristic.
+    assert!(html.contains("Auto (gemini-3.1-flash-lite)"));
+    assert!(!html.contains("Heuristik"));
+}
+
+#[tokio::test]
 async fn browse_renders_summary_once_with_copy_button() {
     let pool = migrated_pool().await;
     insert_succeeded_summary(&pool).await;
