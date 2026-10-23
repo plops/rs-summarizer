@@ -1,7 +1,7 @@
 use askama::Template;
 use axum::{
     extract::{ConnectInfo, Form, Path, Query, State},
-    http::HeaderMap,
+    http::{HeaderMap, StatusCode},
     response::{Html, IntoResponse},
 };
 use chrono::Utc;
@@ -15,8 +15,9 @@ use crate::services::rate_limiter::RateLimiter;
 use crate::state::AppState;
 use crate::tasks;
 use crate::templates::{
-    BrowseSummaryItem, BrowseTemplate, GenerationPartialTemplate, IndexTemplate,
-    RatingPartialTemplate, SearchResultItem, SearchResultsTemplate,
+    BrowseSummaryItem, BrowseTemplate, EntriesTemplate, EntryDetailTemplate, EntryItem,
+    GenerationPartialTemplate, IndexTemplate, RatingPartialTemplate, SearchResultItem,
+    SearchResultsTemplate,
 };
 use crate::utils::cost_format::cost_display;
 use crate::utils::markdown_renderer::render_markdown_to_html;
@@ -356,6 +357,110 @@ pub async fn browse_summaries(
         has_next,
     };
     render_template(&template)
+}
+
+/// Shorten a source link for the entries overview table.
+fn short_link(link: &str) -> String {
+    const MAX_CHARS: usize = 60;
+    let chars: Vec<char> = link.chars().collect();
+    if chars.len() <= MAX_CHARS {
+        link.to_string()
+    } else {
+        chars[..MAX_CHARS].iter().collect::<String>() + "…"
+    }
+}
+
+/// Page size of the all-entries browser. 50 metadata rows stay light because
+/// the overview query loads no transcripts, summaries, or embeddings.
+pub const ENTRIES_PAGE_SIZE: u32 = 50;
+
+/// GET /entries — paginated overview of ALL database entries.
+///
+/// Renders only metadata (link, request datetime, model, cost). Summaries
+/// are lazy-loaded per row via [`entry_detail`]; the transcript (Volltext)
+/// never leaves the server.
+pub async fn entries_page(
+    State(app): State<AppState>,
+    Query(params): Query<BrowseParams>,
+) -> impl IntoResponse {
+    let page = params.page.unwrap_or(0);
+    let rows = db::fetch_entries_page(&app.db, page, ENTRIES_PAGE_SIZE)
+        .await
+        .unwrap_or_default();
+    let has_next = rows.len() == ENTRIES_PAGE_SIZE as usize;
+
+    let entries = rows
+        .into_iter()
+        .map(|row| EntryItem {
+            identifier: row.identifier,
+            model: row.model,
+            short_link: short_link(&row.original_source_link),
+            original_source_link: row.original_source_link,
+            timestamp_start: row.summary_timestamp_start,
+            cost_display: cost_display(row.cost),
+        })
+        .collect();
+
+    let template = EntriesTemplate {
+        entries,
+        app_version: app.app_version,
+        page,
+        has_next,
+    };
+    render_template(&template)
+}
+
+/// GET /entries/{identifier}/detail — lazy-loaded detail fragment for one
+/// entry: rendered summary plus metadata, rating, and copy button.
+///
+/// The transcript (Volltext) is never selected from the database and can
+/// therefore not leak into the response. Unknown identifiers yield 404.
+pub async fn entry_detail(
+    State(app): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    Path(identifier): Path<i64>,
+) -> impl IntoResponse {
+    let client_ip = extract_client_ip(&headers, &addr);
+    let detail = db::fetch_entry_detail(&app.db, identifier)
+        .await
+        .ok()
+        .flatten();
+    let Some(d) = detail else {
+        return (
+            StatusCode::NOT_FOUND,
+            Html("<p>Eintrag nicht gefunden.</p>".to_string()),
+        )
+            .into_response();
+    };
+
+    let summary_html = replace_timestamps_in_html(
+        &render_markdown_to_html(&d.summary),
+        &d.original_source_link,
+    );
+    let rating_stats = db::fetch_rating_stats(&app.db, d.identifier, Some(&client_ip))
+        .await
+        .unwrap_or_default();
+    let cost = cost_display(d.cost);
+    let clipboard_text = youtube_clipboard_text(
+        &d.timestamped_summary_in_youtube_format,
+        &d.model,
+        &cost,
+        app.app_version,
+    );
+
+    let template = EntryDetailTemplate {
+        identifier: d.identifier,
+        model: d.model,
+        rs_summarizer_version: d.rs_summarizer_version,
+        cost_display: cost,
+        timestamp_start: d.summary_timestamp_start,
+        original_source_link: d.original_source_link,
+        summary_html,
+        clipboard_text,
+        rating_stats,
+    };
+    render_template(&template).into_response()
 }
 
 /// POST /summaries/{identifier}/rate — rate a summary or article content (1-5 stars).

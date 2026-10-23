@@ -57,6 +57,40 @@ pub struct BrowseTemplate {
     pub has_next: bool,
 }
 
+/// One metadata row of the all-entries browser. No summary, no transcript.
+pub struct EntryItem {
+    pub identifier: i64,
+    pub model: String,
+    pub original_source_link: String,
+    pub short_link: String,
+    pub timestamp_start: String,
+    pub cost_display: String,
+}
+
+#[derive(Template)]
+#[template(path = "entries.html")]
+pub struct EntriesTemplate {
+    pub entries: Vec<EntryItem>,
+    pub app_version: &'static str,
+    pub page: u32,
+    pub has_next: bool,
+}
+
+/// Lazy-loaded detail fragment for one entry. No transcript by construction.
+#[derive(Template)]
+#[template(path = "entry_detail.html")]
+pub struct EntryDetailTemplate {
+    pub identifier: i64,
+    pub model: String,
+    pub rs_summarizer_version: String,
+    pub cost_display: String,
+    pub timestamp_start: String,
+    pub original_source_link: String,
+    pub summary_html: String,
+    pub clipboard_text: String,
+    pub rating_stats: RatingStats,
+}
+
 /// A search result with pre-rendered HTML summary.
 pub struct SearchResultItem {
     pub identifier: i64,

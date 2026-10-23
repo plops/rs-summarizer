@@ -163,6 +163,35 @@ pub struct BrowseParams {
     pub page: Option<u32>,
 }
 
+/// Lightweight overview row for the all-entries browser (`GET /entries`).
+///
+/// Deliberately excludes `transcript`, `summary`, and embeddings so the
+/// overview query stays cheap even with ~20k rows.
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct EntryRow {
+    pub identifier: i64,
+    pub model: String,
+    pub original_source_link: String,
+    pub summary_timestamp_start: String,
+    pub cost: f64,
+}
+
+/// Detail payload for `GET /entries/{identifier}/detail`.
+///
+/// Contains the rendered `summary` but never the `transcript` (Volltext):
+/// the raw transcript must not reach the browser client.
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
+pub struct EntryDetail {
+    pub identifier: i64,
+    pub model: String,
+    pub original_source_link: String,
+    pub summary: String,
+    pub timestamped_summary_in_youtube_format: String,
+    pub cost: f64,
+    pub summary_timestamp_start: String,
+    pub rs_summarizer_version: String,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]
 pub struct SummaryRating {
     pub id: i64,

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Alle Einträge - rs-summarizer</title>
+    <link rel="stylesheet" href="/static/pico.min.css">
+    <link rel="stylesheet" href="/static/ratings.css">
+    <script src="/static/htmx.min.js"></script>
+</head>
+<body>
+    <main class="container">
+        <h1>Alle Einträge</h1>
+        <p><a href="/">← Zur Startseite</a> · <a href="/browse">Browse</a></p>
+        <p><small>Übersicht über alle Datenbankeinträge. Details (Zusammenfassung) werden erst auf Klick nachgeladen; der Volltext (Transkript) wird nie angezeigt.</small></p>
+
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Link</th>
+                    <th>Anfrage</th>
+                    <th>Modell</th>
+                    <th>Kosten</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for entry in entries %}
+                <tr>
+                    <td>{{ entry.identifier }}</td>
+                    <td>
+                        {% if !entry.original_source_link.is_empty() %}
+                        <a href="{{ entry.original_source_link }}">{{ entry.short_link }}</a>
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
+                    <td><small>{{ entry.timestamp_start }}</small></td>
+                    <td><small>{{ entry.model }}</small></td>
+                    <td><small>{% if !entry.cost_display.is_empty() %}{{ entry.cost_display }}{% else %}—{% endif %}</small></td>
+                </tr>
+                <tr>
+                    <td colspan="5">
+                        <details>
+                            <summary>Details zu #{{ entry.identifier }}</summary>
+                            <div hx-get="/entries/{{ entry.identifier }}/detail" hx-trigger="toggle once from:closest details" hx-swap="innerHTML">
+                                <p><em>Lädt Details …</em> <a href="/entries/{{ entry.identifier }}/detail">Direkt öffnen</a></p>
+                            </div>
+                        </details>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <nav>
+            {% if page > 0 %}
+            <a href="/entries?page={{ page - 1 }}">← Zurück</a>
+            {% endif %}
+            {% if has_next %}
+            <a href="/entries?page={{ page + 1 }}">Weiter →</a>
+            {% endif %}
+        </nav>
+    </main>
+    <footer class="container"><small>rs-summarizer v{{ app_version }}</small></footer>
+    <script>
+        function ytFallbackCopy(value) {
+            var area = document.createElement("textarea");
+            area.value = value;
+            document.body.appendChild(area);
+            area.select();
+            try { document.execCommand("copy"); } catch (e) { /* ignore */ }
+            document.body.removeChild(area);
+        }
+        document.addEventListener("click", function (event) {
+            var button = event.target.closest(".yt-copy-btn");
+            if (!button) return;
+            var text = button.getAttribute("data-clipboard") || "";
+            if (!text) return;
+            function done() {
+                var original = button.textContent;
+                button.textContent = "Kopiert! ✓";
+                setTimeout(function () { button.textContent = original; }, 2000);
+            }
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(done, function () {
+                    ytFallbackCopy(text);
+                    done();
+                });
+            } else {
+                ytFallbackCopy(text);
+                done();
+            }
+        });
+    </script>
+</body>
+</html>

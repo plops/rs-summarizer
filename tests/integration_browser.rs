@@ -1883,3 +1883,97 @@ async fn test_keyboard_navigation() {
     client.close().await.unwrap();
     geckodriver.kill().ok();
 }
+
+/// Test the all-entries browser (`/entries`): the overview lists link,
+/// request datetime, and cost for every entry; summaries load lazily on
+/// click; the transcript (Volltext) never appears in the page source.
+#[tokio::test]
+#[ignore]
+async fn test_entries_browser_overview_and_lazy_detail() {
+    let state = test_app_state().await;
+    sqlx::query(
+        "INSERT INTO summaries (model, original_source_link, transcript, summary, summary_done, \
+            generation_status, cost, timestamps_done, timestamped_summary_in_youtube_format, \
+            summary_timestamp_start, rs_summarizer_version) \
+         VALUES (?, ?, ?, ?, 1, 'succeeded', ?, 1, ?, ?, ?)",
+    )
+    .bind("gemini-3.6-flash")
+    .bind("https://www.youtube.com/watch?v=9bZkp7q19f0")
+    .bind("TRANSCRIPT_SENTINEL_BROWSER_9")
+    .bind("**1:23 BrowserIntro**\n\nSUMMARY_SENTINEL_BROWSER_9 about the video.")
+    .bind(0.038_797_5_f64)
+    .bind("*BrowserIntro* 1:23\n\nSUMMARY_SENTINEL_BROWSER_9 about the video.")
+    .bind("2026-10-23T05:00:00Z")
+    .bind("1.8.5")
+    .execute(&state.db)
+    .await
+    .unwrap();
+    let base_url = start_test_server_with_state(state).await;
+    let geckodriver_port = 4469;
+    let mut geckodriver = start_geckodriver(geckodriver_port);
+    let client = connect_browser(geckodriver_port).await;
+
+    // Navigate to the entries overview.
+    client.goto(&format!("{}/entries", base_url)).await.unwrap();
+
+    // Metadata is visible: link, request datetime, model, formatted cost.
+    let body_text = client
+        .find(Locator::Css("main"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        body_text.contains("9bZkp7q19f0"),
+        "overview must show the source link, got: {}",
+        &body_text[..body_text.len().min(500)]
+    );
+    assert!(body_text.contains("2026-10-23T05:00:00Z"));
+    assert!(body_text.contains("gemini-3.6-flash"));
+    assert!(body_text.contains("$0.04"));
+
+    // Summary and transcript are NOT in the initial page source (lazy load).
+    let source = client.source().await.unwrap();
+    assert!(
+        !source.contains("SUMMARY_SENTINEL_BROWSER_9"),
+        "overview must lazy-load summaries"
+    );
+    assert!(
+        !source.contains("TRANSCRIPT_SENTINEL_BROWSER_9"),
+        "overview must not leak the transcript"
+    );
+
+    // Expand the details row; HTMX lazy-loads the summary fragment.
+    client
+        .find(Locator::Css("details summary"))
+        .await
+        .unwrap()
+        .click()
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
+    let detail_html = client
+        .find(Locator::Css("details div"))
+        .await
+        .unwrap()
+        .html(true)
+        .await
+        .unwrap();
+    assert!(
+        detail_html.contains("SUMMARY_SENTINEL_BROWSER_9"),
+        "detail must show the summary after click, got: {}",
+        &detail_html[..detail_html.len().min(500)]
+    );
+    // The transcript stays hidden even after expanding.
+    let source_after = client.source().await.unwrap();
+    assert!(
+        !source_after.contains("TRANSCRIPT_SENTINEL_BROWSER_9"),
+        "detail must never leak the transcript"
+    );
+
+    // Clean up
+    client.close().await.unwrap();
+    geckodriver.kill().ok();
+}

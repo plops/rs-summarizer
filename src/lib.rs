@@ -36,6 +36,8 @@ pub fn build_router(state: AppState) -> Router {
             post(routes::retry_generation),
         )
         .route("/browse", get(routes::browse_summaries))
+        .route("/entries", get(routes::entries_page))
+        .route("/entries/{identifier}/detail", get(routes::entry_detail))
         .route("/summaries/{identifier}/rate", post(routes::submit_rating))
         .route("/search", post(routes::search_similar))
         .nest_service("/static", ServeDir::new("static"))

@@ -20,7 +20,7 @@ pub async fn init_db(database_url: &str) -> anyhow::Result<SqlitePool> {
 }
 
 use crate::generation::{GenerationStatus, PublicErrorCode};
-use crate::models::{RatingStats, SubmitForm, Summary};
+use crate::models::{EntryDetail, EntryRow, RatingStats, SubmitForm, Summary};
 
 /// Explicit read projection for `Summary` rows.
 ///
@@ -316,6 +316,53 @@ pub async fn fetch_browse_page(
     let rows = builder.build_query_as::<Summary>().fetch_all(db).await?;
 
     Ok(rows)
+}
+
+/// Fetch a page of lightweight overview rows for the all-entries browser.
+///
+/// The projection intentionally omits `transcript`, `summary`, and embedding
+/// blobs so paging through ~20k rows stays cheap. Ordered by id DESC like
+/// [`fetch_browse_page`].
+pub async fn fetch_entries_page(
+    db: &SqlitePool,
+    page: u32,
+    page_size: u32,
+) -> Result<Vec<EntryRow>, sqlx::Error> {
+    let offset = page.saturating_mul(page_size);
+    sqlx::query_as::<_, EntryRow>(
+        "SELECT identifier, \
+         COALESCE(model, '') AS model, \
+         COALESCE(original_source_link, '') AS original_source_link, \
+         COALESCE(summary_timestamp_start, '') AS summary_timestamp_start, \
+         COALESCE(cost, 0.0) AS cost \
+         FROM summaries ORDER BY identifier DESC LIMIT ? OFFSET ?",
+    )
+    .bind(page_size)
+    .bind(offset)
+    .fetch_all(db)
+    .await
+}
+
+/// Fetch the detail payload for one entry without ever loading `transcript`
+/// or embeddings, so the Volltext cannot leak to the browser client.
+pub async fn fetch_entry_detail(
+    db: &SqlitePool,
+    identifier: i64,
+) -> Result<Option<EntryDetail>, sqlx::Error> {
+    sqlx::query_as::<_, EntryDetail>(
+        "SELECT identifier, \
+         COALESCE(model, '') AS model, \
+         COALESCE(original_source_link, '') AS original_source_link, \
+         COALESCE(summary, '') AS summary, \
+         COALESCE(timestamped_summary_in_youtube_format, '') AS timestamped_summary_in_youtube_format, \
+         COALESCE(cost, 0.0) AS cost, \
+         COALESCE(summary_timestamp_start, '') AS summary_timestamp_start, \
+         COALESCE(rs_summarizer_version, '') AS rs_summarizer_version \
+         FROM summaries WHERE identifier = ?",
+    )
+    .bind(identifier)
+    .fetch_optional(db)
+    .await
 }
 
 /// Upsert a summary rating from a client IP address.
@@ -833,5 +880,88 @@ mod tests {
         let page = fetch_browse_page(&pool, 0, 20).await.unwrap();
         assert_eq!(page.len(), 1);
         assert_eq!(page[0].identifier, 1);
+    }
+
+    #[tokio::test]
+    async fn entries_page_returns_metadata_without_heavy_columns() {
+        let pool = create_in_memory_db().await;
+        // Distinctive sentinels: if the overview query loaded them, the
+        // serialized rows would contain them.
+        sqlx::query(
+            "INSERT INTO summaries (model, original_source_link, transcript, summary, cost, \
+             summary_timestamp_start, embedding) \
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind("gemini-3.5-flash")
+        .bind("https://www.youtube.com/watch?v=entriesoverview")
+        .bind("TRANSCRIPT_SENTINEL_OVERVIEW_42")
+        .bind("SUMMARY_SENTINEL_OVERVIEW_42")
+        .bind(0.038_797_5_f64)
+        .bind("2026-10-23T00:00:00Z")
+        .bind(vec![1_u8, 2, 3])
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let page = fetch_entries_page(&pool, 0, 50).await.unwrap();
+        assert_eq!(page.len(), 1);
+        let row = &page[0];
+        assert_eq!(row.model, "gemini-3.5-flash");
+        assert_eq!(
+            row.original_source_link,
+            "https://www.youtube.com/watch?v=entriesoverview"
+        );
+        assert_eq!(row.summary_timestamp_start, "2026-10-23T00:00:00Z");
+        assert!((row.cost - 0.038_797_5).abs() < 1e-9);
+
+        // EntryRow has no transcript/summary/embedding fields by
+        // construction; the serialized form must not contain them either.
+        let serialized = serde_json::to_string(&page).unwrap();
+        assert!(!serialized.contains("TRANSCRIPT_SENTINEL_OVERVIEW_42"));
+        assert!(!serialized.contains("SUMMARY_SENTINEL_OVERVIEW_42"));
+
+        // Paging beyond the data yields an empty page, newest first.
+        let empty = fetch_entries_page(&pool, 1, 50).await.unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[tokio::test]
+    async fn entry_detail_contains_summary_but_never_transcript() {
+        let pool = create_in_memory_db().await;
+        let id = sqlx::query(
+            "INSERT INTO summaries (model, original_source_link, transcript, summary, cost, \
+             summary_timestamp_start, timestamped_summary_in_youtube_format, \
+             rs_summarizer_version) \
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind("gemini-3.5-flash-lite")
+        .bind("https://www.youtube.com/watch?v=entrydetail")
+        .bind("TRANSCRIPT_SENTINEL_DETAIL_42")
+        .bind("Detail summary body.")
+        .bind(0.005_578_f64)
+        .bind("2026-10-23T01:00:00Z")
+        .bind("*Detail* 1:23")
+        .bind("9.9.9")
+        .execute(&pool)
+        .await
+        .unwrap()
+        .last_insert_rowid();
+
+        let detail = fetch_entry_detail(&pool, id).await.unwrap().unwrap();
+        assert_eq!(detail.summary, "Detail summary body.");
+        assert_eq!(
+            detail.timestamped_summary_in_youtube_format,
+            "*Detail* 1:23"
+        );
+        assert_eq!(detail.rs_summarizer_version, "9.9.9");
+        let serialized = serde_json::to_string(&detail).unwrap();
+        assert!(!serialized.contains("TRANSCRIPT_SENTINEL_DETAIL_42"));
+
+        assert!(
+            fetch_entry_detail(&pool, id + 1000)
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }
