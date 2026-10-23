@@ -1,0 +1,152 @@
+# Aufgabe: Datenbank-Browser für alle Einträge in rs-summarizer
+
+In der Webanwendung `rs-summarizer` (Produktivinstanz: https://rocketrecap.com)
+gibt es `/browse` mit seitenweiser Anzeige der letzten Einträge. Dabei wird
+jede Zusammenfassung sofort vollständig gerendert. Das ist bei fast 20.000
+Zeilen langsam und datenraten-hungrig.
+
+Ziel ist ein schlanker Browser über **alle** Einträge der Datenbank:
+
+---
+
+## Spezifische Aufgaben
+
+### 1. Übersichtsseite `GET /entries` für alle Einträge
+* **Problem:** `/browse` rendert pro Seite 20 komplette Summaries inline.
+  Bei `summaries.db` mit ca. 19.600 Zeilen ist das für eine Übersicht zu
+  schwerfällig.
+* **Anforderung:**
+  - Neue Route `GET /entries?page=N` mit paginierter Tabelle über **alle**
+    Zeilen, sortiert nach `identifier DESC`.
+  - Pro Zeile nur leichte Metadaten anzeigen: `identifier`, klickbarer
+    Original-Link (`original_source_link`, gekürzt dargestellt), Anfrage-
+    Zeitpunkt (`summary_timestamp_start`), Modell (`model`), Kosten
+    (`cost`, formatiert wie auf `/browse`).
+  - Die Übersichtsabfrage darf **keine** Schwergewichte laden: weder
+    `transcript` noch `summary` noch Embeddings. Nur die oben genannten
+    Spalten per expliziter `SELECT`-Projektion.
+  - Seitengröße 50, Vor-/Zurück-Navigation, keine JavaScript-/CSS-Extras
+    (geringe Datenrate beachten, Pico.css/htmx weiterverwenden).
+
+### 2. Details auf Klick, Volltext bleibt verborgen
+* **Anforderung:**
+  - Klick auf eine Zeile (z. B. `<details>`-Element oder HTMX-Lazy-Load per
+    `GET /entries/{identifier}/detail`) lädt und zeigt die Details:
+    gerendertes `summary`-HTML (mit anklickbaren YouTube-Zeitstempeln),
+    Modell, formatierte Kosten, Source-Link, Rating-Komponente und
+    YouTube-Kopierbutton — analog zu `/browse`.
+  - Der **Volltext** (`transcript`, Roh-Transkript) darf dabei **niemals**
+    an den Client gesendet oder gerendert werden.
+  - Auch der Detail-Endpunkt nutzt eine schlanke Projektion (kein
+    `transcript`, kein Embedding).
+
+### 3. Verdrahtung & Abwärtskompatibilität
+* `/browse` bleibt unverändert bestehen. Die Startseite (`/`) verlinkt
+  zusätzlich auf `/entries`.
+* Bestehende Zeilen (inkl. `NULL`-Kosten, fehlenden Zeitstempeln und
+  Legacy-Zeilen ohne `rs_summarizer_version`) müssen fehlerfrei rendern
+  (`COALESCE`-Lesart wie in `db.rs` beibehalten).
+* Der hardcodierte Hetzner-Key in `src/services/summary.rs` bleibt
+  unverändert (Fallback, wird produktiv per Env-Variable überschrieben).
+* In `/workspace/src/rs-summarizer/summaries.db` liegt eine Kopie der
+  Produktivdatenbank (ca. 19.600 Zeilen). Nutze sie zur Verifikation.
+
+---
+
+## Hinweise zu bestehendem Code
+
+* Modulstruktur beibehalten (`src/routes/`, `src/db.rs`, `src/models.rs`,
+  `src/templates.rs`, `templates/`). **Keine Umbenennung in nummerierte
+  Dateien** (`01_...`).
+* Kostenformatierung aus `src/utils/cost_format.rs` wiederverwenden
+  (`cost_display`).
+* Zeitstempel-Verlinkung aus `src/utils/timestamp_linker.rs`
+  wiederverwenden (`replace_timestamps_in_html`).
+* Markdown-Rendering aus `src/utils/markdown_renderer.rs`
+  wiederverwenden (`render_markdown_to_html`).
+
+---
+
+## Rolle & Umgebung
+
+Du läufst in einem Docker-Image mit Ubuntu auf einem Linux-Host.
+Falls dir Pakete oder CLI-Tools fehlen, installiere sie selbstständig. Du arbeitest im Auftrag von wol pumba (wolpumba@gmail.com).
+
+Validiere alle Ergebnisse und führe falls nötig Benchmarkmessungen durch.
+
+---
+
+## Code-Anforderungen & Architektur
+
+* **Sprache:** Idiomatisches, modernes Rust (Edition 2024).
+* **Qualitätsstandards:** Führe `cargo fmt` und `cargo clippy --all-targets --all-features` aus. Es dürfen keine Warnings verbleiben.
+* **Abhängigkeiten:** Keine unnötigen neuen Crates einführen (htmx/Pico
+  und vorhandene Crates genügen; `<details>` funktioniert ohne JS).
+
+---
+
+## Externe Dokumentation & DeepWiki MCP
+
+* Führe eine `deps.md`, falls du Abhängigkeiten einführst, in der Notation
+  `<organization>/<project>`.
+* Für das aktuelle Repository findest du Kontext und Architekturdetails im DeepWiki MCP unter `plops/rs-summarizer`.
+
+---
+
+## Tests
+
+1. **Unit-Tests:**
+   - Test, dass die Übersichts-Projektion ohne `transcript`/`summary`/
+     Embedding-Spalten auskommt.
+   - Test, dass der Detail-Endpunkt kein Transkript liefert.
+2. **Route- & Integration-Tests (ohne Browser):**
+   - Test, dass `GET /entries` nur Metadaten (Link, Datetime, Kosten),
+     aber keinen Summary-Text und kein Transkript rendert.
+   - Test, dass `GET /entries/{id}/detail` das Summary-HTML, aber kein
+     Transkript liefert.
+   - Test, dass ungültige `page`-Werte und unbekannte IDs sauber behandelt
+     werden (kein 500er).
+3. **Automatisierte Browser-Tests (Pflicht):**
+   - Erweitere `tests/integration_browser.rs` (fantoccini/WebDriver,
+     `cargo test --test integration_browser -- --ignored`): öffne
+     `/entries` im Headless-Browser, prüfe, dass Link, Datetime und Kosten
+     sichtbar sind, klappe eine Detailansicht auf und prüfe, dass das
+     Summary erscheint und kein Transkript im Seitenquelltext steht.
+4. **Regressionstests:**
+   - Tests gegen die bereitgestellte Kopie `summaries.db` ausführen, um
+     sicherzustellen, dass alte Datensätze fehlerfrei rendern.
+
+Gates: `cargo test`, `cargo clippy --all-targets -- -D warnings`,
+`cargo fmt --check`.
+
+---
+
+## Plan
+
+Erstelle vor der Implementierung einen detaillierten Implementierungsplan unter `plan/20261023_01_all_entries_browser/plan.md`.
+Dieser Plan soll:
+1. Eine präzise Liste aller beteiligten Dateien enthalten, inklusive einer kurzen Beschreibung der geplanten Änderungen pro Datei.
+2. Den schrittweisen Ablauf der Implementierung und Verifikation beschreiben.
+3. Die Git-Commit-Strategie definieren: Alle Commits müssen als **Conventional Commits** mit aussagekräftigem Body formatiert sein.
+
+---
+
+## Walkthrough
+
+Nach erfolgreicher Implementierung und Bestehen aller Tests erstellst du ein Walkthrough-Dokument unter `plan/20261023_01_all_entries_browser/walkthrough.md`.
+
+**Strikte Regeln für das Walkthrough:**
+* **Sprache & Stil:** Zwingend auf Deutsch verfasst, verständlich, didaktisch hochwertig und flüssig lesbar.
+* **Erklärungen:** Fachbegriffe kurz und prägnant erklären.
+* **Visualisierung:** Nutze Code-Beispiele und **Mermaid-Diagramme** (z. B. zur Veranschaulichung von Übersichts- und Detailabfragen).
+* **Inhaltliche Struktur:**
+  1. Was exakt implementiert und behoben wurde.
+  2. Architektur- und Designentscheidungen (insbesondere Abweichungen vom ursprünglichen Plan).
+  3. Learnings und Vorschläge für zukünftige Erweiterungen.
+  4. Liste eventuell neu benötigter Programme/Pakete für das Dockerfile.
+
+---
+
+## Aufwand
+
+Halte den Token-Verbrauch und Aufwand der Session in `plan/20261023_01_all_entries_browser/plan_effort.md` fest (Input/Output/Cached/Total Tokens, Turns, Subagents), um die Kosten für spätere Durchläufe transparent zu dokumentieren.
