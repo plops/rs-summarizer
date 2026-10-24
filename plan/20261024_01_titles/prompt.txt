@@ -1,0 +1,167 @@
+# Aufgabe: Titel für YouTube-Videos und Hacker-News-Posts speichern und anzeigen
+
+In der Webanwendung `rs-summarizer` (Produktivinstanz: https://rocketrecap.com)
+werden Einträge in `/browse` und `/entries` bisher ohne Titel angezeigt — nur
+Link, Datum, Modell und Kosten. Nutzer erkennen nicht auf einen Blick, worum
+es in einem Eintrag geht.
+
+Ziel ist, für jeden Eintrag den **Titel** zu speichern und anzuzeigen:
+
+---
+
+## Spezifische Aufgaben
+
+### 1. Titel-Spalte in der Datenbank
+* **Problem:** Es existiert noch keine Titel-Spalte in `summaries`.
+* **Anforderung:**
+  - Neue Migration (z. B. `010_add_title.sql`): `ALTER TABLE summaries ADD
+    COLUMN title TEXT NOT NULL DEFAULT ''`, damit alle existierenden ca.
+    19.600 Zeilen ohne Datenverlust weiterlesen (`COALESCE`-Lesart in
+    `src/db.rs` beibehalten).
+  - `Summary`-Struct sowie die leichten Projektionen (`EntryRow`,
+    `EntryDetail`, `SUMMARY_COLUMNS`) um `title` erweitern.
+
+### 2. Titel schon beim Herunterladen extrahieren und speichern
+* **YouTube:** Beim Transkript-Download mit yt-dlp zusätzlich den Videotitel
+  ermitteln (z. B. `yt-dlp --no-playlist --skip-download --print title <url>`,
+  mit denselben Cookie-/Extractor-Argumenten wie der bestehende Download).
+  Best-Effort: Schlägt die Titelabfrage fehl, darf die Zusammenfassung
+  trotzdem erzeugt werden; der Titel bleibt dann leer und wird später per
+  Backfill (Aufgabe 3) nachgeholt.
+* **Hacker News:** Der Titel des Posts steckt bereits in der Antwort der
+  HN-API (`HnFetchResult.title`) — kein zusätzlicher Request nötig. Diesen
+  Titel beim Verarbeiten in der Datenbank speichern.
+* Neue DB-Helfer: `update_title(db, identifier, title)` und
+  `update_title_for_url(db, url, title)` (setzt den Titel für **alle** Zeilen
+  mit derselben URL, siehe Duplikate unten).
+
+### 3. Existierende Einträge nach und nach auffüllen (Backfill mit Ratenlimit)
+* **Problem:** ~19.600 Altdaten haben keinen Titel. YouTube darf nicht mit
+  tausenden Requests auf einmal bombardiert werden.
+* **Anforderung:**
+  - Hintergrundprozess im Produktivsystem, der in begrenzter Rate Titel
+    nachlädt: **ca. 100 YouTube-Titel pro Tag** und **ca. 1000 HN-Titel pro
+    Tag** (beide Werte per Env-Variable überstimmbar, z. B.
+    `TITLE_YT_PER_DAY`, `TITLE_HN_PER_DAY`).
+  - Die Tagesbudgets müssen **neustartfest** gezählt werden (z. B. kleine
+    Budget-Tabelle `title_fetch_budget(day, source, count)` statt reinem
+    In-Memory-Zähler).
+  - **Duplikat-URLs:** Für mehrfach vorkommende URLs wird der Titel nur
+    **einmal** geladen (`SELECT DISTINCT original_source_link WHERE title =
+    ''`) und dann auf alle betroffenen Zeilen geschrieben.
+  - Zeilen ohne URL (reine Paste-Einträge) werden übersprungen.
+  - Fehler (gelöschte Videos, 404, Rate-Limits) dürfen den Loop nicht
+    abbrechen; sie werden geloggt und die Zeile wird vorerst übersprungen.
+  - Bestehende `DownloadLimiter`-Semaphoren für yt-dlp/HN-Downloads
+    mitbenutzen, damit der Backfill die laufende Generierung nicht überlastet.
+
+### 4. Titel in `/browse` und `/entries` anzeigen
+* In der Übersicht (`entries.html`: neue Spalte bzw. Zeile), im Detail-Fragment
+  (`entry_detail.html`) und auf `/browse` (`browse.html`) den Titel prominent
+  zeigen; ist kein Titel vorhanden, auf den (gekürzten) Link zurückfallen.
+* Geringe Datenrate beachten: kein zusätzliches JS/CSS, Pico/htmx-Stil
+  beibehalten.
+* In `/workspace/src/rs-summarizer/summaries.db` liegt eine Kopie der
+  Produktivdatenbank. Nutze sie zur Verifikation.
+
+---
+
+## Hinweise zu bestehendem Code
+
+* Modulstruktur beibehalten (`src/routes/`, `src/db.rs`, `src/models.rs`,
+  `src/tasks.rs`, `src/services/transcript.rs`,
+  `src/services/hacker_news.rs`, `templates/`). **Keine Umbenennung in
+  nummerierte Dateien** (`01_...`).
+* Der hardcodierte Hetzner-Key in `src/services/summary.rs` bleibt
+  unverändert (Fallback, wird produktiv per Env-Variable überschrieben).
+* Titel-Abfrage bei yt-dlp unbedingt mit denselben Cookie-/POT-Argumenten
+  (`base_uvx_args`, `cookie_args`, `extractor_args`) wie der bestehende
+  Download.
+
+---
+
+## Rolle & Umgebung
+
+Du läufst in einem Docker-Image mit Ubuntu auf einem Linux-Host.
+Falls dir Pakete oder CLI-Tools fehlen, installiere sie selbstständig. Du arbeitest im Auftrag von wol pumba (wolpumba@gmail.com).
+
+Validiere alle Ergebnisse und führe falls nötig Benchmarkmessungen durch.
+
+---
+
+## Code-Anforderungen & Architektur
+
+* **Sprache:** Idiomatisches, modernes Rust (Edition 2024).
+* **Qualitätsstandards:** Führe `cargo fmt` und `cargo clippy --all-targets --all-features` aus. Es dürfen keine Warnings verbleiben.
+* **Abhängigkeiten:** Keine unnötigen neuen Crates einführen.
+
+---
+
+## Externe Dokumentation & DeepWiki MCP
+
+* Führe eine `deps.md`, falls du Abhängigkeiten einführst, in der Notation
+  `<organization>/<project>`.
+* Für das aktuelle Repository findest du Kontext und Architekturdetails im DeepWiki MCP unter `plops/rs-summarizer`.
+
+---
+
+## Tests
+
+1. **Unit-Tests:**
+   - Migration: Neue Zeilen und Altdaten lesen sich mit leerem Default-Titel.
+   - `update_title` / `update_title_for_url`: Titel setzen, Duplikat-URLs
+     gemeinsam aktualisieren.
+   - Budget-Zählung: Tagesbudget wird verbraucht, erreicht und
+     zurückgesetzt (neuer Tag), getrennt nach Quelle (YT/HN).
+   - Auswahl: `fetch_untitled_urls` liefert jede Duplikat-URL nur einmal
+     und überspringt leere Links.
+2. **Route- & Integration-Tests (ohne Browser):**
+   - Test, dass `/entries`, `/entries/{id}/detail` und `/browse` den Titel
+     rendern und bei leerem Titel auf den Link zurückfallen.
+   - Test, dass der HN-Pfad den API-Titel in die DB schreibt (ohne echten
+     Netzwerkzugriff ist ein Stub/Record-Test der Veränderungsstelle
+     ausreichend; notfalls gegen die echte HN-API mit einer bekannten
+     Story-ID prüfen).
+3. **Automatisierte Browser-Tests (Pflicht):**
+   - Erweitere `tests/integration_browser.rs` (fantoccini/WebDriver,
+     `cargo test --test integration_browser -- --ignored`): öffne `/entries`
+     und `/browse` im Headless-Browser, prüfe sichtbare Titel, klappe ein
+     Detail auf und prüfe den Titel dort ebenfalls.
+4. **Regressionstests:**
+   - Tests gegen die bereitgestellte Kopie `summaries.db` ausführen (read-only),
+     um sicherzustellen, dass alte Datensätze ohne Titel fehlerfrei rendern.
+
+Gates: `cargo test`, `cargo clippy --all-targets -- -D warnings`,
+`cargo fmt --check`.
+
+---
+
+## Plan
+
+Erstelle vor der Implementierung einen detaillierten Implementierungsplan unter `plan/20261024_01_titles/plan.md`.
+Dieser Plan soll:
+1. Eine präzise Liste aller beteiligten Dateien enthalten, inklusive einer kurzen Beschreibung der geplanten Änderungen pro Datei.
+2. Den schrittweisen Ablauf der Implementierung und Verifikation beschreiben.
+3. Die Git-Commit-Strategie definieren: Alle Commits müssen als **Conventional Commits** mit aussagekräftigem Body formatiert sein.
+
+---
+
+## Walkthrough
+
+Nach erfolgreicher Implementierung und Bestehen aller Tests erstellst du ein Walkthrough-Dokument unter `plan/20261024_01_titles/walkthrough.md`.
+
+**Strikte Regeln für das Walkthrough:**
+* **Sprache & Stil:** Zwingend auf Deutsch verfasst, verständlich, didaktisch hochwertig und flüssig lesbar.
+* **Erklärungen:** Fachbegriffe kurz und prägnant erklären.
+* **Visualisierung:** Nutze Code-Beispiele und **Mermaid-Diagramme** (z. B. zur Veranschaulichung von Titel-Extraktion, Budget und Backfill-Loop).
+* **Inhaltliche Struktur:**
+  1. Was exakt implementiert und behoben wurde.
+  2. Architektur- und Designentscheidungen (insbesondere Abweichungen vom ursprünglichen Plan).
+  3. Learnings und Vorschläge für zukünftige Erweiterungen.
+  4. Liste eventuell neu benötigter Programme/Pakete für das Dockerfile.
+
+---
+
+## Aufwand
+
+Halte den Token-Verbrauch und Aufwand der Session in `plan/20261024_01_titles/plan_effort.md` fest (Input/Output/Cached/Total Tokens, Turns, Subagents), um die Kosten für spätere Durchläufe transparent zu dokumentieren.
