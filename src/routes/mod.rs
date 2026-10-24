@@ -344,6 +344,7 @@ pub async fn browse_summaries(
             rs_summarizer_version: s.rs_summarizer_version,
             cost_display: cost,
             original_source_link: s.original_source_link,
+            title: s.title,
             summary_html,
             clipboard_text,
             rating_stats,
@@ -396,6 +397,7 @@ pub async fn entries_page(
             model: row.model,
             short_link: short_link(&row.original_source_link),
             original_source_link: row.original_source_link,
+            title: row.title,
             timestamp_start: row.summary_timestamp_start,
             cost_display: cost_display(row.cost),
         })
@@ -456,6 +458,7 @@ pub async fn entry_detail(
         cost_display: cost,
         timestamp_start: d.summary_timestamp_start,
         original_source_link: d.original_source_link,
+        title: d.title,
         summary_html,
         clipboard_text,
         rating_stats,
@@ -1049,6 +1052,7 @@ mod tests {
                 rs_summarizer_version: "1.8.0".into(),
                 cost_display: "$0.04".into(),
                 original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".into(),
+                title: "Test Video Title".into(),
                 summary_html,
                 clipboard_text: format!(
                     "*Intro* 1:23\n\ngemini-3.6-flash (cost: $0.04)\nrocketrecap-dot-com v{}",

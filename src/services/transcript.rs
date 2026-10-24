@@ -185,6 +185,59 @@ impl TranscriptService {
         Ok(combined)
     }
 
+    /// Fetches only the video title via `yt-dlp --print title`.
+    ///
+    /// Lightweight metadata call (no media, no subtitles) used to title new
+    /// rows and by the backfill worker. Returns the trimmed first line;
+    /// empty or failed output is an error the caller may ignore.
+    pub async fn fetch_title(&self, url: &str) -> Result<String, TranscriptError> {
+        let mut args = base_uvx_args();
+        args.extend(cookie_args());
+        args.extend(extractor_args());
+        args.extend([
+            "--no-playlist".to_string(),
+            "--skip-download".to_string(),
+            "--print".to_string(),
+            "title".to_string(),
+            url.to_string(),
+        ]);
+
+        let cmd_str = format!("uvx {}", args.join(" "));
+        tracing::info!(cmd = %cmd_str, "Executing yt-dlp to fetch video title");
+
+        let output = Command::new("uvx")
+            .args(&args)
+            .output()
+            .await
+            .map_err(|e| {
+                TranscriptError::YtDlpFailed(format!(
+                    "Failed to execute yt-dlp title fetch (cmd: `{}`): {}",
+                    cmd_str, e
+                ))
+            })?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            return Err(TranscriptError::YtDlpFailed(format!(
+                "yt-dlp title fetch failed: {}",
+                stderr.trim()
+            )));
+        }
+
+        let title = String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        if title.is_empty() || title == "NA" {
+            return Err(TranscriptError::YtDlpFailed(
+                "yt-dlp returned an empty video title".to_string(),
+            ));
+        }
+        Ok(title)
+    }
+
     /// Downloads subtitles in VTT format for the specified language.
     async fn download_subtitles(
         &self,

@@ -104,6 +104,10 @@ pub struct Summary {
     pub thinking_level: ThinkingPreference,
     /// Version of rs-summarizer that created this row; empty for legacy rows.
     pub rs_summarizer_version: String,
+    /// Title of the YouTube video or HN post; empty until fetched.
+    /// Missing on pre-010 databases, where it decodes to the default.
+    #[sqlx(default)]
+    pub title: String,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -174,6 +178,9 @@ pub struct EntryRow {
     pub original_source_link: String,
     pub summary_timestamp_start: String,
     pub cost: f64,
+    /// Missing on pre-010 databases, where it decodes to the default.
+    #[sqlx(default)]
+    pub title: String,
 }
 
 /// Detail payload for `GET /entries/{identifier}/detail`.
@@ -190,6 +197,9 @@ pub struct EntryDetail {
     pub cost: f64,
     pub summary_timestamp_start: String,
     pub rs_summarizer_version: String,
+    /// Missing on pre-010 databases, where it decodes to the default.
+    #[sqlx(default)]
+    pub title: String,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize)]

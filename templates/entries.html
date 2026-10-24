@@ -18,6 +18,7 @@
             <thead>
                 <tr>
                     <th>#</th>
+                    <th>Titel</th>
                     <th>Link</th>
                     <th>Anfrage</th>
                     <th>Modell</th>
@@ -28,6 +29,13 @@
                 {% for entry in entries %}
                 <tr>
                     <td>{{ entry.identifier }}</td>
+                    <td>
+                        {% if !entry.title.is_empty() %}
+                        {{ entry.title }}
+                        {% else %}
+                        —
+                        {% endif %}
+                    </td>
                     <td>
                         {% if !entry.original_source_link.is_empty() %}
                         <a href="{{ entry.original_source_link }}">{{ entry.short_link }}</a>
@@ -40,10 +48,10 @@
                     <td><small>{% if !entry.cost_display.is_empty() %}{{ entry.cost_display }}{% else %}—{% endif %}</small></td>
                 </tr>
                 <tr>
-                    <td colspan="5">
+                    <td colspan="6">
                         <details>
                             <summary>Details zu #{{ entry.identifier }}</summary>
-                            <div hx-get="/entries/{{ entry.identifier }}/detail" hx-trigger="toggle once from:closest details" hx-swap="innerHTML">
+                            <div class="entry-detail-loader" hx-get="/entries/{{ entry.identifier }}/detail" hx-trigger="toggle once from:closest details" hx-swap="innerHTML">
                                 <p><em>Lädt Details …</em> <a href="/entries/{{ entry.identifier }}/detail">Direkt öffnen</a></p>
                             </div>
                         </details>

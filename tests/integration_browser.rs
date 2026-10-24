@@ -1977,3 +1977,97 @@ async fn test_entries_browser_overview_and_lazy_detail() {
     client.close().await.unwrap();
     geckodriver.kill().ok();
 }
+
+/// Test that titles render in the entries overview, the browse page, and the
+/// lazy-loaded entry detail; untitled rows fall back to the bare link.
+#[tokio::test]
+#[ignore]
+async fn test_titles_render_in_entries_and_browse() {
+    let state = test_app_state().await;
+    for (url, title) in [
+        (
+            "https://www.youtube.com/watch?v=9bZkp7q19f0",
+            "BROWSER_TITLE_SENTINEL",
+        ),
+        ("https://www.youtube.com/watch?v=dQw4w9WgXcQ", ""),
+    ] {
+        sqlx::query(
+            "INSERT INTO summaries (model, original_source_link, transcript, summary, summary_done, \
+                generation_status, cost, timestamps_done, timestamped_summary_in_youtube_format, \
+                summary_timestamp_start, rs_summarizer_version, title) \
+             VALUES (?, ?, ?, ?, 1, 'succeeded', ?, 1, ?, ?, ?, ?)",
+        )
+        .bind("gemini-3.6-flash")
+        .bind(url)
+        .bind("Some transcript text")
+        .bind("**1:23 Intro**\n\nSummary body text.")
+        .bind(0.038_797_5_f64)
+        .bind("*Intro* 1:23")
+        .bind("2026-10-24T05:00:00Z")
+        .bind("1.9.0")
+        .bind(title)
+        .execute(&state.db)
+        .await
+        .unwrap();
+    }
+    let base_url = start_test_server_with_state(state).await;
+    let geckodriver_port = 4470;
+    let mut geckodriver = start_geckodriver(geckodriver_port);
+    let client = connect_browser(geckodriver_port).await;
+
+    // Entries overview shows the title.
+    client.goto(&format!("{}/entries", base_url)).await.unwrap();
+    let overview = client
+        .find(Locator::Css("main"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(
+        overview.contains("BROWSER_TITLE_SENTINEL"),
+        "entries overview must show the title, got: {}",
+        &overview[..overview.len().min(400)]
+    );
+
+    // Expanding the titled row (second, table is newest-first) shows the
+    // title in the detail fragment.
+    let summaries = client
+        .find_all(Locator::Css("details summary"))
+        .await
+        .unwrap();
+    assert_eq!(summaries.len(), 2);
+    summaries[1].click().await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    let loaders = client
+        .find_all(Locator::Css("div.entry-detail-loader"))
+        .await
+        .unwrap();
+    assert_eq!(loaders.len(), 2);
+    let detail = loaders[1].html(true).await.unwrap();
+    assert!(
+        detail.contains("BROWSER_TITLE_SENTINEL"),
+        "detail must show the title, got: {}",
+        &detail[..detail.len().min(400)]
+    );
+
+    // Browse page shows the title as a heading.
+    client.goto(&format!("{}/browse", base_url)).await.unwrap();
+    let headings = client.find_all(Locator::Css("h3")).await.unwrap();
+    assert!(
+        !headings.is_empty(),
+        "browse must render at least one title heading"
+    );
+    let browse = client
+        .find(Locator::Css("main"))
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
+    assert!(browse.contains("BROWSER_TITLE_SENTINEL"));
+
+    // Clean up
+    client.close().await.unwrap();
+    geckodriver.kill().ok();
+}

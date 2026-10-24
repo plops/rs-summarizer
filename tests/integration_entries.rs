@@ -58,8 +58,8 @@ async fn insert_entries_row(pool: &SqlitePool) -> i64 {
     sqlx::query(
         "INSERT INTO summaries (model, original_source_link, transcript, summary, summary_done, \
             generation_status, cost, timestamps_done, timestamped_summary_in_youtube_format, \
-            summary_timestamp_start, rs_summarizer_version) \
-         VALUES (?, ?, ?, ?, 1, 'succeeded', ?, 1, ?, ?, ?)",
+            summary_timestamp_start, rs_summarizer_version, title) \
+         VALUES (?, ?, ?, ?, 1, 'succeeded', ?, 1, ?, ?, ?, ?)",
     )
     .bind("gemini-3.6-flash")
     .bind("https://www.youtube.com/watch?v=9bZkp7q19f0")
@@ -69,6 +69,7 @@ async fn insert_entries_row(pool: &SqlitePool) -> i64 {
     .bind("*EntriesIntro* 1:23\n\nSUMMARY_SENTINEL_ENTRIES_7 about the video.")
     .bind("2026-10-23T05:00:00Z")
     .bind("1.8.5")
+    .bind("TITLE_SENTINEL_ENTRIES_7")
     .execute(pool)
     .await
     .unwrap()
@@ -92,7 +93,8 @@ async fn entries_overview_shows_metadata_but_no_summary_or_transcript() {
     assert_eq!(response.status(), StatusCode::OK);
     let html = body_text(response).await;
 
-    // Metadata is visible: link, request datetime, model, formatted cost.
+    // Metadata is visible: title, link, request datetime, model, formatted cost.
+    assert!(html.contains("TITLE_SENTINEL_ENTRIES_7"));
     assert!(html.contains("https://www.youtube.com/watch?v=9bZkp7q19f0"));
     assert!(html.contains("2026-10-23T05:00:00Z"));
     assert!(html.contains("gemini-3.6-flash"));
@@ -128,6 +130,7 @@ async fn entry_detail_shows_summary_but_never_transcript() {
     let html = body_text(response).await;
 
     assert!(html.contains("SUMMARY_SENTINEL_ENTRIES_7"));
+    assert!(html.contains("<h3>TITLE_SENTINEL_ENTRIES_7</h3>"));
     assert!(html.contains("gemini-3.6-flash"));
     assert!(html.contains("$0.04"));
     assert!(html.contains(">Source</a>"));

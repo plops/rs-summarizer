@@ -187,6 +187,28 @@ impl HackerNewsService {
         })
     }
 
+    /// Fetch only a story's title (single cheap item request, no comments,
+    /// no external article). Used by the title backfill worker.
+    pub async fn fetch_story_title(&self, story_id: u64) -> Result<String, String> {
+        let story_url = format!(
+            "https://hacker-news.firebaseio.com/v0/item/{}.json",
+            story_id
+        );
+        let story: HnItem = self
+            .client
+            .get(&story_url)
+            .send()
+            .await
+            .map_err(|e| format!("Failed to fetch HN item {}: {}", story_id, e))?
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse HN item JSON: {}", e))?;
+        story
+            .title
+            .filter(|t| !t.trim().is_empty())
+            .ok_or_else(|| format!("HN item {} has no title", story_id))
+    }
+
     /// Fetch comments recursively (up to ~80 comments, max depth 4).
     async fn fetch_comments(&self, story: &HnItem) -> String {
         let mut result = String::new();

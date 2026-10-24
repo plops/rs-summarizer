@@ -66,6 +66,16 @@ async fn main() -> anyhow::Result<()> {
         ),
     };
 
+    // Backfill missing video/post titles day after day within daily
+    // budgets (TITLE_YT_PER_DAY=100, TITLE_HN_PER_DAY=1000). Idempotent.
+    {
+        let app_clone = state.clone();
+        let db_clone = db.clone();
+        tokio::spawn(async move {
+            rs_summarizer::tasks::title_backfill_loop(db_clone, app_clone).await;
+        });
+    }
+
     // Resume work that was queued by a restart recovery. `process_summary`
     // claims each row with CAS, so a concurrent user retry remains harmless.
     for identifier in rs_summarizer::db::fetch_queued_generations(&db).await? {

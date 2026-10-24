@@ -315,7 +315,26 @@ pub async fn fetch_youtube_content(
         "Downloaded transcript successfully"
     );
 
+    // Best-effort: title the row right away; failures leave the title empty
+    // for the backfill worker. Never fails the summarization itself.
+    match transcript_svc.fetch_title(url).await {
+        Ok(title) => {
+            if let Err(e) = db::update_title(&app.db, identifier, &title).await {
+                tracing::debug!(identifier = identifier, error = %e, "Could not store video title");
+            }
+        }
+        Err(e) => {
+            tracing::debug!(identifier = identifier, error = %e, "Could not fetch video title");
+        }
+    }
+
     Ok(text)
+}
+
+/// Fetched Hacker News content plus the post title (free from the HN API).
+pub struct HnContent {
+    pub text: String,
+    pub title: String,
 }
 
 /// Fetches Hacker News submission, comments, and linked article content.
@@ -324,7 +343,7 @@ pub async fn fetch_hn_content(
     user_pasted: Option<&str>,
     hn_svc: &HackerNewsService,
     app: &AppState,
-) -> Result<String, ProcessError> {
+) -> Result<HnContent, ProcessError> {
     let _permit = app.download_limiter.acquire_hn_permit().await;
     tracing::info!(story_id = hn_id, "Fetching Hacker News submission");
 
@@ -344,7 +363,160 @@ pub async fn fetch_hn_content(
         "Fetched Hacker News submission successfully"
     );
 
-    Ok(text)
+    Ok(HnContent {
+        text,
+        title: hn_res.title,
+    })
+}
+
+/// Budget source keys for the title backfill worker.
+pub const TITLE_SOURCE_YOUTUBE: &str = "youtube";
+pub const TITLE_SOURCE_HN: &str = "hackernews";
+
+/// Titles longer than this are truncated before storing (display safety).
+const MAX_TITLE_CHARS: usize = 500;
+
+fn title_backfill_allowance(source: &str) -> u32 {
+    let (var, default) = if source == TITLE_SOURCE_YOUTUBE {
+        ("TITLE_YT_PER_DAY", 100)
+    } else {
+        ("TITLE_HN_PER_DAY", 1000)
+    };
+    std::env::var(var)
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(default)
+}
+
+fn title_backfill_batch() -> u32 {
+    std::env::var("TITLE_BACKFILL_BATCH")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(10)
+}
+
+fn title_backfill_interval() -> Duration {
+    std::env::var("TITLE_BACKFILL_INTERVAL_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .map(Duration::from_secs)
+        .unwrap_or(Duration::from_secs(600))
+}
+
+fn truncate_title(title: &str) -> String {
+    let trimmed = title.trim();
+    let chars: Vec<char> = trimmed.chars().collect();
+    if chars.len() <= MAX_TITLE_CHARS {
+        trimmed.to_string()
+    } else {
+        chars[..MAX_TITLE_CHARS].iter().collect::<String>() + "…"
+    }
+}
+
+/// Classify an untitled URL for the backfill worker.
+fn classify_title_url(url: &str) -> Option<&'static str> {
+    if crate::utils::url_validator::validate_youtube_url(url).is_some() {
+        Some(TITLE_SOURCE_YOUTUBE)
+    } else if crate::utils::url_validator::validate_hn_url(url).is_some() {
+        Some(TITLE_SOURCE_HN)
+    } else {
+        None
+    }
+}
+
+/// One backfill step: title up to `batch` distinct URLs, honoring the daily
+/// per-source budgets. Returns `(youtube_titled, hn_titled)`.
+///
+/// Every attempt consumes budget (success or failure) so persistently failing
+/// URLs cannot hammer the remotes; they are simply retried another day.
+pub async fn title_backfill_once(db_pool: &SqlitePool, app: &AppState, batch: u32) -> (u32, u32) {
+    let urls = match db::fetch_untitled_urls(db_pool, batch).await {
+        Ok(urls) => urls,
+        Err(e) => {
+            tracing::warn!(error = %e, "Title backfill: cannot list untitled URLs");
+            return (0, 0);
+        }
+    };
+    let transcript_svc = TranscriptService::new("/dev/shm");
+    let hn_svc = HackerNewsService::new();
+    let (mut yt_done, mut hn_done) = (0, 0);
+    let mut yt_exhausted = false;
+    let mut hn_exhausted = false;
+    for url in &urls {
+        let Some(source) = classify_title_url(url) else {
+            tracing::debug!(url = %url, "Title backfill: skipping unclassifiable URL");
+            continue;
+        };
+        if (source == TITLE_SOURCE_YOUTUBE && yt_exhausted)
+            || (source == TITLE_SOURCE_HN && hn_exhausted)
+        {
+            continue;
+        }
+        let remaining =
+            db::title_budget_remaining(db_pool, source, title_backfill_allowance(source))
+                .await
+                .unwrap_or(0);
+        if remaining == 0 {
+            tracing::info!(source = source, "Title backfill: daily budget exhausted");
+            if source == TITLE_SOURCE_YOUTUBE {
+                yt_exhausted = true;
+            } else {
+                hn_exhausted = true;
+            }
+            continue;
+        }
+        if let Err(e) = db::title_budget_consume(db_pool, source).await {
+            tracing::warn!(error = %e, "Title backfill: cannot consume budget");
+            continue;
+        }
+        let fetched: Result<String, String> = if source == TITLE_SOURCE_YOUTUBE {
+            let _permit = app.download_limiter.acquire_yt_dlp_permit().await;
+            transcript_svc
+                .fetch_title(url)
+                .await
+                .map_err(|e| e.to_string())
+        } else {
+            let hn_id = crate::utils::url_validator::validate_hn_url(url).unwrap_or(0);
+            let _permit = app.download_limiter.acquire_hn_permit().await;
+            hn_svc.fetch_story_title(hn_id).await
+        };
+        match fetched {
+            Ok(title) => {
+                let title = truncate_title(&title);
+                match db::update_title_for_url(db_pool, url, &title).await {
+                    Ok(rows) => {
+                        tracing::info!(url = %url, rows = rows, title = %title, "Title backfill: titled");
+                        if source == TITLE_SOURCE_YOUTUBE {
+                            yt_done += 1;
+                        } else {
+                            hn_done += 1;
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(url = %url, error = %e, "Title backfill: cannot store title");
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(url = %url, error = %e, "Title backfill: fetch failed, retry another day");
+            }
+        }
+    }
+    (yt_done, hn_done)
+}
+
+/// Background loop filling in missing titles day after day. Idempotent and
+/// safe to abort at any point: untitled URLs are simply retried later.
+pub async fn title_backfill_loop(db_pool: SqlitePool, app: AppState) {
+    // Let startup (migrations, resume) settle before the first sweep.
+    sleep(Duration::from_secs(60)).await;
+    loop {
+        let (yt, hn) = title_backfill_once(&db_pool, &app, title_backfill_batch()).await;
+        if yt + hn > 0 {
+            tracing::info!(youtube = yt, hackernews = hn, "Title backfill step done");
+        }
+        sleep(title_backfill_interval()).await;
+    }
 }
 
 /// Validates transcript text length and returns it if within bounds (30 to 280,000 words).
@@ -643,7 +815,11 @@ async fn process_summary_inner(
             let process_result = async {
                 let raw_transcript = if is_hn {
                     let hn_id = crate::utils::url_validator::validate_hn_url(url).unwrap();
-                    fetch_hn_content(hn_id, None, &hn_svc, app).await?
+                    let hn = fetch_hn_content(hn_id, None, &hn_svc, app).await?;
+                    if let Err(e) = db::update_title(db_pool, identifier, &hn.title).await {
+                        tracing::debug!(identifier = identifier, error = %e, "Could not store HN title");
+                    }
+                    hn.text
                 } else {
                     fetch_youtube_content(url, identifier, app).await?
                 };
@@ -722,8 +898,12 @@ async fn process_summary_inner(
             Some(summary.transcript.as_str())
         };
 
-        let transcript = fetch_hn_content(hn_id, user_pasted, &hn_svc, app).await?;
-        db::update_transcript(db_pool, identifier, &transcript).await?;
+        let hn = fetch_hn_content(hn_id, user_pasted, &hn_svc, app).await?;
+        db::update_transcript(db_pool, identifier, &hn.text).await?;
+        if let Err(e) = db::update_title(db_pool, identifier, &hn.title).await {
+            tracing::debug!(identifier = identifier, error = %e, "Could not store HN title");
+        }
+        let transcript = hn.text;
 
         combined_output = run_model_pipeline(
             db_pool,

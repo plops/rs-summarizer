@@ -58,6 +58,26 @@ const SUMMARY_COLUMNS: &str = "identifier, \
     full_embedding, \
     google_search_grounding, url_context, thinking, thinking_tokens, \
     thinking_level, rs_summarizer_version";
+/// Appended to [`SUMMARY_COLUMNS`] when the connected database already has
+/// the `title` column (migration 010).
+const SUMMARY_COLUMNS_TITLE: &str = ", COALESCE(title, '') AS title";
+
+/// Whether the connected database already has the `title` column.
+///
+/// Read-only copies of older production databases (e.g. the 2 GB
+/// `summaries.db` fixture, which cannot be migrated in place for tests)
+/// lack it; those keep rendering with an empty title instead of failing
+/// the whole query with "no such column".
+async fn has_title_column(db: &SqlitePool) -> bool {
+    sqlx::query_scalar::<_, String>(
+        "SELECT name FROM pragma_table_info('summaries') WHERE name = 'title'",
+    )
+    .fetch_optional(db)
+    .await
+    .ok()
+    .flatten()
+    .is_some()
+}
 
 /// Insert a new summary row and return the new identifier.
 pub async fn insert_new_summary(
@@ -102,6 +122,9 @@ pub async fn fetch_summary(
 ) -> Result<Option<Summary>, sqlx::Error> {
     let mut builder = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT ");
     builder.push(SUMMARY_COLUMNS);
+    if has_title_column(db).await {
+        builder.push(SUMMARY_COLUMNS_TITLE);
+    }
     builder.push(" FROM summaries WHERE identifier = ");
     builder.push_bind(identifier);
     let row = builder
@@ -309,6 +332,9 @@ pub async fn fetch_browse_page(
 
     let mut builder = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT ");
     builder.push(SUMMARY_COLUMNS);
+    if has_title_column(db).await {
+        builder.push(SUMMARY_COLUMNS_TITLE);
+    }
     builder.push(" FROM summaries ORDER BY identifier DESC LIMIT ");
     builder.push_bind(page_size);
     builder.push(" OFFSET ");
@@ -316,6 +342,87 @@ pub async fn fetch_browse_page(
     let rows = builder.build_query_as::<Summary>().fetch_all(db).await?;
 
     Ok(rows)
+}
+
+/// Set the title of a single summary row.
+pub async fn update_title(
+    db: &SqlitePool,
+    identifier: i64,
+    title: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("UPDATE summaries SET title = ? WHERE identifier = ?")
+        .bind(title)
+        .bind(identifier)
+        .execute(db)
+        .await?;
+    Ok(())
+}
+
+/// Set the title for every row sharing the same source URL.
+///
+/// Duplicate URLs are titled once and fanned out here, so the backfill
+/// worker only ever fetches one title per distinct URL.
+pub async fn update_title_for_url(
+    db: &SqlitePool,
+    url: &str,
+    title: &str,
+) -> Result<u64, sqlx::Error> {
+    Ok(
+        sqlx::query("UPDATE summaries SET title = ? WHERE original_source_link = ? AND title = ''")
+            .bind(title)
+            .bind(url)
+            .execute(db)
+            .await?
+            .rows_affected(),
+    )
+}
+
+/// Distinct source URLs that still lack a title, oldest rows first.
+///
+/// Each duplicate URL appears only once; rows without a URL (pasted
+/// transcripts) are skipped.
+pub async fn fetch_untitled_urls(db: &SqlitePool, limit: u32) -> Result<Vec<String>, sqlx::Error> {
+    sqlx::query_scalar(
+        "SELECT original_source_link FROM summaries \
+         WHERE title = '' AND original_source_link != '' \
+         GROUP BY original_source_link ORDER BY MIN(identifier) LIMIT ?",
+    )
+    .bind(limit)
+    .fetch_all(db)
+    .await
+}
+
+/// How many title fetches remain for `source` ("youtube"/"hackernews") today.
+///
+/// Budgets live in `title_fetch_budget` keyed by UTC day, so a restart does
+/// not reset (and cannot double-spend) the daily allowance.
+pub async fn title_budget_remaining(
+    db: &SqlitePool,
+    source: &str,
+    daily_allowance: u32,
+) -> Result<u32, sqlx::Error> {
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    let used: Option<i64> =
+        sqlx::query_scalar("SELECT count FROM title_fetch_budget WHERE day = ? AND source = ?")
+            .bind(&today)
+            .bind(source)
+            .fetch_optional(db)
+            .await?;
+    Ok(daily_allowance.saturating_sub(used.unwrap_or(0) as u32))
+}
+
+/// Record one spent title fetch for `source` today.
+pub async fn title_budget_consume(db: &SqlitePool, source: &str) -> Result<(), sqlx::Error> {
+    let today = chrono::Utc::now().format("%Y-%m-%d").to_string();
+    sqlx::query(
+        "INSERT INTO title_fetch_budget (day, source, count) VALUES (?, ?, 1) \
+         ON CONFLICT(day, source) DO UPDATE SET count = count + 1",
+    )
+    .bind(&today)
+    .bind(source)
+    .execute(db)
+    .await?;
+    Ok(())
 }
 
 /// Fetch a page of lightweight overview rows for the all-entries browser.
@@ -329,18 +436,21 @@ pub async fn fetch_entries_page(
     page_size: u32,
 ) -> Result<Vec<EntryRow>, sqlx::Error> {
     let offset = page.saturating_mul(page_size);
-    sqlx::query_as::<_, EntryRow>(
+    let mut builder = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
         "SELECT identifier, \
          COALESCE(model, '') AS model, \
          COALESCE(original_source_link, '') AS original_source_link, \
          COALESCE(summary_timestamp_start, '') AS summary_timestamp_start, \
-         COALESCE(cost, 0.0) AS cost \
-         FROM summaries ORDER BY identifier DESC LIMIT ? OFFSET ?",
-    )
-    .bind(page_size)
-    .bind(offset)
-    .fetch_all(db)
-    .await
+         COALESCE(cost, 0.0) AS cost",
+    );
+    if has_title_column(db).await {
+        builder.push(", COALESCE(title, '') AS title");
+    }
+    builder.push(" FROM summaries ORDER BY identifier DESC LIMIT ");
+    builder.push_bind(page_size);
+    builder.push(" OFFSET ");
+    builder.push_bind(offset);
+    builder.build_query_as::<EntryRow>().fetch_all(db).await
 }
 
 /// Fetch the detail payload for one entry without ever loading `transcript`
@@ -349,7 +459,7 @@ pub async fn fetch_entry_detail(
     db: &SqlitePool,
     identifier: i64,
 ) -> Result<Option<EntryDetail>, sqlx::Error> {
-    sqlx::query_as::<_, EntryDetail>(
+    let mut builder = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
         "SELECT identifier, \
          COALESCE(model, '') AS model, \
          COALESCE(original_source_link, '') AS original_source_link, \
@@ -357,12 +467,17 @@ pub async fn fetch_entry_detail(
          COALESCE(timestamped_summary_in_youtube_format, '') AS timestamped_summary_in_youtube_format, \
          COALESCE(cost, 0.0) AS cost, \
          COALESCE(summary_timestamp_start, '') AS summary_timestamp_start, \
-         COALESCE(rs_summarizer_version, '') AS rs_summarizer_version \
-         FROM summaries WHERE identifier = ?",
-    )
-    .bind(identifier)
-    .fetch_optional(db)
-    .await
+         COALESCE(rs_summarizer_version, '') AS rs_summarizer_version",
+    );
+    if has_title_column(db).await {
+        builder.push(", COALESCE(title, '') AS title");
+    }
+    builder.push(" FROM summaries WHERE identifier = ");
+    builder.push_bind(identifier);
+    builder
+        .build_query_as::<EntryDetail>()
+        .fetch_optional(db)
+        .await
 }
 
 /// Upsert a summary rating from a client IP address.
@@ -963,5 +1078,173 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn title_defaults_to_empty_and_updates_fan_out_to_duplicates() {
+        let pool = create_in_memory_db().await;
+        let url = "https://www.youtube.com/watch?v=titledup123";
+        let mut ids = Vec::new();
+        for _ in 0..2 {
+            ids.push(
+                sqlx::query("INSERT INTO summaries (model, original_source_link) VALUES (?, ?)")
+                    .bind("m")
+                    .bind(url)
+                    .execute(&pool)
+                    .await
+                    .unwrap()
+                    .last_insert_rowid(),
+            );
+        }
+        let other =
+            sqlx::query("INSERT INTO summaries (model, original_source_link) VALUES (?, ?)")
+                .bind("m")
+                .bind("https://www.youtube.com/watch?v=other456789")
+                .execute(&pool)
+                .await
+                .unwrap()
+                .last_insert_rowid();
+
+        // Fresh rows start untitled.
+        assert_eq!(
+            fetch_summary(&pool, ids[0]).await.unwrap().unwrap().title,
+            ""
+        );
+
+        // One fetch fans out to every row sharing the URL.
+        assert_eq!(
+            update_title_for_url(&pool, url, "Dup Video Title")
+                .await
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            fetch_summary(&pool, ids[0]).await.unwrap().unwrap().title,
+            "Dup Video Title"
+        );
+        assert_eq!(
+            fetch_summary(&pool, ids[1]).await.unwrap().unwrap().title,
+            "Dup Video Title"
+        );
+        assert_eq!(
+            fetch_summary(&pool, other).await.unwrap().unwrap().title,
+            ""
+        );
+
+        // Single-row update only touches its own row.
+        update_title(&pool, other, "Other Title").await.unwrap();
+        assert_eq!(
+            fetch_summary(&pool, other).await.unwrap().unwrap().title,
+            "Other Title"
+        );
+    }
+
+    #[tokio::test]
+    async fn untitled_urls_are_distinct_and_skip_empty_links() {
+        let pool = create_in_memory_db().await;
+        for url in [
+            "https://www.youtube.com/watch?v=dupdupdup01",
+            "https://www.youtube.com/watch?v=dupdupdup01",
+            "https://news.ycombinator.com/item?id=40000000",
+            "",
+        ] {
+            sqlx::query("INSERT INTO summaries (model, original_source_link) VALUES ('m', ?)")
+                .bind(url)
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+
+        let mut urls = fetch_untitled_urls(&pool, 50).await.unwrap();
+        urls.sort();
+        assert_eq!(
+            urls,
+            vec![
+                "https://news.ycombinator.com/item?id=40000000".to_string(),
+                "https://www.youtube.com/watch?v=dupdupdup01".to_string(),
+            ]
+        );
+
+        update_title_for_url(&pool, "https://www.youtube.com/watch?v=dupdupdup01", "T")
+            .await
+            .unwrap();
+        assert_eq!(
+            fetch_untitled_urls(&pool, 50).await.unwrap(),
+            vec!["https://news.ycombinator.com/item?id=40000000".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn title_budget_is_tracked_per_day_and_source() {
+        let pool = create_in_memory_db().await;
+        assert_eq!(
+            title_budget_remaining(&pool, "youtube", 100).await.unwrap(),
+            100
+        );
+        for _ in 0..100 {
+            title_budget_consume(&pool, "youtube").await.unwrap();
+        }
+        assert_eq!(
+            title_budget_remaining(&pool, "youtube", 100).await.unwrap(),
+            0
+        );
+        // Other sources are independent.
+        assert_eq!(
+            title_budget_remaining(&pool, "hackernews", 1000)
+                .await
+                .unwrap(),
+            1000
+        );
+        // Overspend saturates at zero instead of underflowing.
+        title_budget_consume(&pool, "youtube").await.unwrap();
+        assert_eq!(
+            title_budget_remaining(&pool, "youtube", 100).await.unwrap(),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn pre_010_database_reads_with_empty_title() {
+        // Synthetic pre-title schema: reads must degrade to "" instead of
+        // failing with "no such column".
+        let pool = SqlitePool::connect("sqlite::memory:").await.unwrap();
+        sqlx::query(
+            "CREATE TABLE summaries (identifier INTEGER PRIMARY KEY, model TEXT, \
+             transcript TEXT, host TEXT, original_source_link TEXT, include_comments INTEGER, \
+             include_timestamps INTEGER, include_glossary INTEGER, output_language TEXT, \
+             summary TEXT, summary_done INTEGER, generation_status TEXT, \
+             generation_attempt INTEGER, generation_epoch INTEGER, generation_started_at TEXT, \
+             generation_updated_at TEXT, next_retry_at TEXT, generation_error_code TEXT, \
+             generation_error_message TEXT, provider_interaction_id TEXT, \
+             summary_input_tokens INTEGER, summary_output_tokens INTEGER, \
+             summary_timestamp_start TEXT, summary_timestamp_end TEXT, timestamps TEXT, \
+             timestamps_done INTEGER, timestamps_input_tokens INTEGER, \
+             timestamps_output_tokens INTEGER, timestamps_timestamp_start TEXT, \
+             timestamps_timestamp_end TEXT, timestamped_summary_in_youtube_format TEXT, \
+             cost FLOAT, embedding BLOB, embedding_model TEXT, full_embedding BLOB, \
+             google_search_grounding BOOLEAN, url_context BOOLEAN, thinking TEXT, \
+             thinking_tokens INTEGER, thinking_level TEXT, rs_summarizer_version TEXT)",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO summaries (model, original_source_link, summary, thinking_level) \
+             VALUES ('m', 'https://www.youtube.com/watch?v=oldoldold01', 's', 'high')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let row = fetch_summary(&pool, 1).await.unwrap().unwrap();
+        assert_eq!(row.title, "");
+        assert_eq!(fetch_entries_page(&pool, 0, 50).await.unwrap()[0].title, "");
+        assert_eq!(
+            fetch_entry_detail(&pool, 1).await.unwrap().unwrap().title,
+            ""
+        );
+        let page = fetch_browse_page(&pool, 0, 20).await.unwrap();
+        assert_eq!(page.len(), 1);
+        assert_eq!(page[0].title, "");
     }
 }

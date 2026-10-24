@@ -36,6 +36,7 @@ pub struct BrowseSummaryItem {
     pub rs_summarizer_version: String,
     pub cost_display: String,
     pub original_source_link: String,
+    pub title: String,
     pub summary_html: String,
     pub clipboard_text: String,
     pub rating_stats: RatingStats,
@@ -63,6 +64,7 @@ pub struct EntryItem {
     pub model: String,
     pub original_source_link: String,
     pub short_link: String,
+    pub title: String,
     pub timestamp_start: String,
     pub cost_display: String,
 }
@@ -86,6 +88,7 @@ pub struct EntryDetailTemplate {
     pub cost_display: String,
     pub timestamp_start: String,
     pub original_source_link: String,
+    pub title: String,
     pub summary_html: String,
     pub clipboard_text: String,
     pub rating_stats: RatingStats,

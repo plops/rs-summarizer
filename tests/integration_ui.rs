@@ -56,8 +56,8 @@ async fn insert_succeeded_summary(pool: &SqlitePool) -> i64 {
     sqlx::query(
         "INSERT INTO summaries (model, original_source_link, summary, summary_done, \
             generation_status, cost, timestamps_done, timestamped_summary_in_youtube_format, \
-            summary_timestamp_start, rs_summarizer_version) \
-         VALUES (?, ?, ?, 1, 'succeeded', ?, 1, ?, ?, ?)",
+            summary_timestamp_start, rs_summarizer_version, title) \
+         VALUES (?, ?, ?, 1, 'succeeded', ?, 1, ?, ?, ?, ?)",
     )
     .bind("gemini-3.6-flash")
     .bind("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
@@ -66,6 +66,7 @@ async fn insert_succeeded_summary(pool: &SqlitePool) -> i64 {
     .bind("*Intro* 1:23\n\nBody text about the video.")
     .bind("2026-10-06T05:00:00Z")
     .bind("1.8.0")
+    .bind("Never Gonna Give You Up")
     .execute(pool)
     .await
     .unwrap()
@@ -145,6 +146,8 @@ async fn browse_renders_summary_once_with_copy_button() {
     assert!(html.contains("gemini-3.6-flash"));
     assert!(html.contains("$0.04"));
     assert!(!html.contains("0.038798"));
+    // Title renders prominently.
+    assert!(html.contains("<h3>Never Gonna Give You Up</h3>"));
     // Source link and rating component are present.
     assert!(html.contains(">Source</a>"));
     assert!(html.contains("rating-container-1"));
