@@ -31,10 +31,13 @@ jobs:
       - name: Ensure third_party/fast-umap exists
         run: |
           set -euo pipefail
+          # third_party/fast-umap is vendored in this repo (pinned, patched
+          # state). Never clone upstream here: neither eugenehp/fast-umap
+          # master nor any other remote carries our local commits, so a fresh
+          # clone cannot satisfy patches/fast-umap-mod.patch.
           if [ ! -f third_party/fast-umap/Cargo.toml ]; then
-            echo "third_party/fast-umap/Cargo.toml not found — cloning upstream fast-umap into third_party/fast-umap"
-            mkdir -p third_party
-            git clone --depth 1 https://github.com/eugenehp/fast-map.git third_party/fast-umap
+            echo "ERROR: third_party/fast-umap/Cargo.toml missing from checkout" >&2
+            exit 1
           else
             echo "third_party/fast-umap present"
           fi
