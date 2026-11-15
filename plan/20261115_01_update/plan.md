@@ -1,31 +1,3 @@
-Danke für die klaren Antworten! Auf dieser Basis habe ich alle offenen Punkte aufgelöst und die verbliebenen Details direkt gegengeprüft:
-
-### Kurz-Check der verifizierten Fakten & Design-Entscheidungen
-* **Bereinigte Modell-Liste („nur unterstützte Modelle“):**
-  * **Entfernt (deprecated):** `gemini-3.7-flash` (ersetzt durch `gemini-3.8-flash`), `gemini-3.5-flash` (deprecated, routet automatisch auf `3.6-flash`) `` und **`gemini-2.5-flash`** (in AI Studio nicht mehr auswählbar; wird ab 01.12.2026 abgeschaltet/umgeleitet) ``.
-  * **Beibehalten (nicht deprecated):** `gemini-2.5-flash-lite` bleibt laut Google aktiv ``; dazu `gemini-3.5-flash-lite` (neuestes 500-RPD-Modell $\rightarrow$ **neues Default/`AUTO_MODEL`**), `gemini-3.1-flash-lite` (500 RPD), `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3-flash-preview` (Anzeigename in AI Studio „Gemini 3 Flash“, API-ID `gemini-3-flash-preview` ``, Output `$3.00` ``), `gemma-4-31b-it`, `gemma-4-26b-a4b-it`, `hetzner-qwen-3.8-27b` und `hetzner-qwen-3.6-35b`.
-  * **Neu:** `gemini-4-hydrogen` (`$1.50` Input / `$7.50` Output inkl. Thinking-Tokens, `1_048_576` unified Context, 5 RPM / 250K TPM / 20 RPD) ``.
-* **Fallback-Regel („teure Modelle müssen explizit ausgewählt werden“):**
-  * Günstige/kostenlose Modelle (`auto` / `3.5-flash-lite`, `3.1-flash-lite`, `2.5-flash-lite`, `hetzner-qwen-*`) eskalieren **niemals** automatisch auf teure Modelle (`gemini-4-hydrogen`, `3.8-flash`, `3.6-flash`, `3-flash-preview`).
-  * Teure Modelle fallen nur abwärts/seitwärts (nie auf ein noch teureres Modell wie `3.8-flash` $\rightarrow$ `4-hydrogen`).
-  * `gemma-4-*` bleibt wegen des engen **16K-TPM-Limits** aus den automatischen Fallback-Ketten draußen und bekommt eine saubere TPM-Prüfung vor dem Call.
-* **Thinking-Levels & DB-Migration (`011`):**
-  * Immer das **höchste** unterstützte Level als Default: `xhigh` bei `gemini-4-hydrogen` ``, `high` bei `auto` & Gemini 3.x, `auto` (keinen Parameter senden) bei `gemini-2.5-flash-lite` ``, `gemma-4-*` und `hetzner-*`.
-  * `gemini-4-hydrogen` und `gemini-3.8-flash` lehnen `minimal` ab ``; `3.6-flash`, `3.5-flash-lite`, `3.1-flash-lite`, `3-flash-preview` unterstützen `minimal` bis `high` ``.
-  * Da `sqlx 0.9` in SQLite-Migrationen `-- no-transaction` unterstützt ``, führt Migration `011` den SQLite-Table-Rebuild sicher mit `PRAGMA foreign_keys = OFF` + `COALESCE` (für Legacy-NULLs) durch, erweitert das `CHECK`-Constraint auf `'xhigh'` und legt `model_daily_usage` für persistente RPD-Zähler an.
-* **Grounding & Embeddings:**
-  * `gemini-4-hydrogen`, alle Gemini-3-Modelle und `gemma-4-*` unterstützen Google Search Grounding (`url_context` nur bei `Gemini`, nicht bei `Gemma`) ``. Embeddings bleiben bei `gemini-embedding-001`.
-* **Sicherheit & Architektur-Fixes (Block 2 gemäß deinen Vorgaben):**
-  * Kein XSS-Sanitizer (wie gewünscht als Prototyp belassen); alter Hetzner-Fallback-Key bleibt stehen.
-  * Gefixt werden: Hetzner-Epoch-Schutz & `<think>`-Trennung, persistentes RPD + TPM-Schutz + `today_la()`-DST-Fix, RPD-Prüfung über Fallback-Kette in `routes/mod.rs`, SSRF + 5-MB-Limit bei HN-Artikeln, serielles `yt-dlp` (`MAX_CONCURRENT_YTDLP = 1` + Timeout), Entfernen von totem `src/cache.rs` sowie Aktualisierung von `doc/rate_limiting_error_handling_architecture.md`.
-* **Release-Workflow & `CHANGELOG.md`:**
-  * `CHANGELOG.md` auf Englisch (Keep a Changelog inkl. Rückschau aus `git log`), automatische Extraktion per `scripts/extract-changelog.sh` und Übergabe via `body_path: RELEASE_NOTES.md` an `softprops/action-gh-release@v2` in `.github/workflows/release.yml` `` — damit erscheinen die Release-Notes auf GitHub direkt über den Artefakten.
-
----
-
-Hier ist der vollständige, direkt verwendbare Plan für **`plan/20261115_01_update/plan.md`**:
-
-```markdown
 # Implementierungsplan: Modell-Update, Architektur-Fixes, Titel-Backfill-Analyse, CHANGELOG & Release-Workflow
 
 ## 1. Ziel & Überblick
@@ -47,8 +19,8 @@ Dieses Dokument instruiert einen Implementierungs-Agenten, `rs-summarizer` (Prod
 * **Kontext:** DeepWiki MCP `plops/rs-summarizer` falls verfügbar nutzen.
 * **Geheimnisse & Backups (STRIKT!):**
   * `/workspace/src/rs-summarizer/summaries_20261115.db.zst` niemals verändern oder committen. Temporäre Dateien nach `/tmp/` entpacken und am Ende aufräumen.
-  * `/workspaces/src/rs-summarizer/hetzner_token` (ggf. auch `/workspace/src/rs-summarizer/hetzner_token` prüfen) enthält einen produktiven Hetzner-API-Key. Du darfst ihn **niemals** ausgeben, in Logs/Dateien/Plan/Walkthrough schreiben oder einchecken! Falls du ihn für einen Live-Smoke-Test gegen Hetzner nutzt, übergib ihn ausschließlich blind per Shell-Substitution:
-    `HETZNER_API_KEY="$(cat /workspaces/src/rs-summarizer/hetzner_token)" ...`
+  * `/workspace/src/rs-summarizer/hetzner_token` (ggf. auch `/workspace/src/rs-summarizer/hetzner_token` prüfen) enthält einen produktiven Hetzner-API-Key. Du darfst ihn **niemals** ausgeben, in Logs/Dateien/Plan/Walkthrough schreiben oder einchecken! Falls du ihn für einen Live-Smoke-Test gegen Hetzner nutzt, übergib ihn ausschließlich blind per Shell-Substitution:
+    `HETZNER_API_KEY="$(cat /workspace/src/rs-summarizer/hetzner_token)" ...`
   * Den alten, ungültigen Fallback-Key in `src/services/summary.rs` stehen lassen (keine Git-History-Bereinigung).
 * **Bewusst NICHT ändern:**
   * Keinen HTML-Sanitizer (`ammonia` o. ä.) für `|safe` einführen (Prototyp-Entscheidung).
@@ -407,7 +379,7 @@ Folgende Modelle müssen **genau** konfiguriert werden (veraltete `gemini-3.7-fl
      * `scripts/extract-changelog.sh 1.11.0` liefert gültige Release-Notes; Fehlerfall bei unbekannter Version liefert Exit != 0
 3. **Optionale Live-Smoke-Tests (falls Keys vorhanden, Ergebnis im Walkthrough vermerken):**
    * Hetzner-Test (ohne den Key je auszulesen oder zu loggen!):
-     `HETZNER_API_KEY="$(cat /workspaces/src/rs-summarizer/hetzner_token)" ...` prüfen, ob `Qwen/Qwen3.6-35B-A3B-FP8` und `Qwen/Qwen3.8-27B` sauber streamen und `<think>` korrekt getrennt wird.
+     `HETZNER_API_KEY="$(cat /workspace/src/rs-summarizer/hetzner_token)" ...` prüfen, ob `Qwen/Qwen3.6-35B-A3B-FP8` und `Qwen/Qwen3.8-27B` sauber streamen und `<think>` korrekt getrennt wird.
    * Gemini-API-Test (falls `GEMINI_API_KEY` gesetzt): Verifizierung mit `gemini-4-hydrogen` (`xhigh`) und `gemini-3.5-flash-lite`.
 4. **Aufräumen:**
    * `/tmp/summaries_20261115.db` und `/tmp/summaries_mig_test.db` nach Abschluss löschen.
@@ -451,11 +423,3 @@ Strikte Regeln:
 
 ### 10.2 Aufwandsdokumentation unter `plan/20261115_01_update/plan_effort.md`
 Halte den Token-Verbrauch und Aufwand der Session transparent fest (Input/Output/Cached/Total Tokens, Turns, Subagents, Laufzeit).
-```
-
----
-
-### Checkliste vor der Ausführung durch deinen Agenten
-1. Speichere den Block oben als `plan/20261115_01_update/plan.md`.
-2. Prüfe kurz, ob `/workspaces/src/rs-summarizer/hetzner_token` (Plural `workspaces`) im Container exakt so gemountet ist (falls es `/workspace/...` heißt, erkennt der Agent laut Plan beide Pfade).
-3. Sobald dein Agent das abgearbeitet hat, sollten auf GitHub sowohl der neue Release `v1.11.0` mit den `CHANGELOG.md`-Notes **über** den `tar.gz`/`zip`-Artefakten als auch die Titel-Backfill-Zahlen aus `summaries_20261115.db.zst` im `walkthrough.md` vorliegen.
