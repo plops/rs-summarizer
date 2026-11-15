@@ -18,6 +18,15 @@ schreibe plan/20261115_01_update/plan.md um eine (duemmere) AI zu
 instruieren, den quellcode von rs-summarizer upzudaten. im folgenden
 sind einige informationen, die du dem ai agenten mitteilen sollst.
 
+nach der aenderung und tests soll ein walkthrough dokument geschrieben
+werden und die commits sollen mittels des dokumentierten release
+protokolls auf github veroeffentlicht werden.
+
+ich moechte auch dass von nun an ein CHANGELOG.md gefuehrt wird und
+ueber den artefakten die jeweiligen neuerungen in jeder release
+aufgelistet werden. der release workflow soll dementsprechend
+angepasst und dokumentiert werden.
+
 ich habe die folgende tabelle von hier bezogen: 
 https://aistudio.google.com/rate-limit?timeRange=last-1-day&project=noted-processor-418406
 
