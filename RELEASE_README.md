@@ -57,7 +57,9 @@ Configure these in your `.env` file as needed:
 | `YTDLP_PLAYER_CLIENT` | `mweb` | YouTube player client used by yt-dlp (`mweb`, `web`, `android`, etc.). `mweb` is recommended for PO token compatibility. |
 | `YTDLP_EXTRACTOR_ARGS` | *(empty)* | Optional extra extractor arguments passed directly to `yt-dlp`. |
 | `DISABLE_POT_PROVIDER` | `false` | Set to `1` or `true` as an emergency fallback to omit the `bgutil-ytdlp-pot-provider` plugin. |
-| `MAX_CONCURRENT_YTDLP` | `3` | Maximum number of simultaneous `yt-dlp` download processes. |
+| `MAX_CONCURRENT_YTDLP` | `1` | Maximum number of simultaneous `yt-dlp` download processes (strictly serial: parallel `uvx yt-dlp` runs reliably freeze the server). |
+| `YTDLP_DELAY_MS` | `2000` | Minimum delay between consecutive `yt-dlp` runs (rate-limit protection). |
+| `YTDLP_TIMEOUT_SECS` | `90` | Timeout per `yt-dlp` subprocess call (`list-subs`, download, title fetch); aborts with a timeout error and leaves no zombie process (`kill_on_drop`). |
 | `YTDLP_COOKIES` / `COOKIES_FILE` | *(auto)* | Path to a Netscape format `cookies.txt` file. |
 | `YTDLP_COOKIES_FROM_BROWSER` | *(auto)* | Browser name for cookies (e.g. `firefox`). Automatically detected if Firefox profile directories exist in `$HOME`. |
 

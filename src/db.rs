@@ -1,5 +1,6 @@
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
+use std::collections::HashMap;
 use std::str::FromStr;
 
 /// Initialize the SQLite connection pool with WAL mode and run migrations.
@@ -423,6 +424,34 @@ pub async fn title_budget_consume(db: &SqlitePool, source: &str) -> Result<(), s
     .execute(db)
     .await?;
     Ok(())
+}
+
+/// Today's per-model request counts from the persistent RPD table
+/// (`model_daily_usage`, created by migration 011). Missing table or rows
+/// (e.g. a database that predates the migration) yield empty counts.
+pub async fn load_model_daily_usage(db: &SqlitePool, day: &str) -> HashMap<String, u32> {
+    sqlx::query_as::<_, (String, i64)>("SELECT model, count FROM model_daily_usage WHERE day = ?")
+        .bind(day)
+        .fetch_all(db)
+        .await
+        .unwrap_or_default()
+        .into_iter()
+        .map(|(model, count)| (model, count.max(0) as u32))
+        .collect()
+}
+
+/// Write-through one spent request for `model` today. Failures are
+/// swallowed: the in-memory counter stays authoritative and persistence is
+/// best-effort (e.g. when the table is missing on a legacy database).
+pub async fn record_model_daily_usage(db: &SqlitePool, day: &str, model: &str) {
+    let _ = sqlx::query(
+        "INSERT INTO model_daily_usage (day, model, count) VALUES (?, ?, 1) \
+         ON CONFLICT(day, model) DO UPDATE SET count = count + 1",
+    )
+    .bind(day)
+    .bind(model)
+    .execute(db)
+    .await;
 }
 
 /// Fetch a page of lightweight overview rows for the all-entries browser.

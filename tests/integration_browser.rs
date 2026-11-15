@@ -74,15 +74,17 @@ async fn test_app_state() -> AppState {
             output_price_per_mtoken: 0.002,
             context_window: 128000,
             rpm_limit: 15,
+            tpm_limit: 250_000,
             rpd_limit: 1000,
             architecture: ModelArchitecture::Gemini,
         },
         ModelOption {
-            name: "gemini-3.5-flash".to_string(),
+            name: "gemini-3.5-flash-lite".to_string(),
             input_price_per_mtoken: 0.10,
             output_price_per_mtoken: 0.40,
             context_window: 1000000,
             rpm_limit: 5,
+            tpm_limit: 250_000,
             rpd_limit: 20,
             architecture: ModelArchitecture::Gemini,
         },
@@ -96,6 +98,9 @@ async fn test_app_state() -> AppState {
         model_options: Arc::new(model_options),
         model_counts: Arc::new(RwLock::new(HashMap::new())),
         last_reset_day: Arc::new(RwLock::new(None)),
+        tpm_tracker: Arc::new(tokio::sync::Mutex::new(
+            rs_summarizer::services::rate_limiter::TpmTracker::new(),
+        )),
         gemini_api_key,
         #[cfg(feature = "nn-mapper")]
         nn_mapper: None,
@@ -239,6 +244,7 @@ async fn test_app_state_with_low_limit() -> AppState {
         output_price_per_mtoken: 0.0,
         context_window: 128_000,
         rpm_limit: 30,
+        tpm_limit: 0,
         rpd_limit: 1,
         architecture: ModelArchitecture::Gemini,
     }];
@@ -251,6 +257,9 @@ async fn test_app_state_with_low_limit() -> AppState {
         model_options: Arc::new(model_options),
         model_counts: Arc::new(RwLock::new(HashMap::new())),
         last_reset_day: Arc::new(RwLock::new(None)),
+        tpm_tracker: Arc::new(tokio::sync::Mutex::new(
+            rs_summarizer::services::rate_limiter::TpmTracker::new(),
+        )),
         gemini_api_key,
         #[cfg(feature = "nn-mapper")]
         nn_mapper: None,
@@ -664,10 +673,10 @@ async fn test_full_summarization_e2e() {
         .await
         .unwrap();
 
-    // Select the free model (gemini-3.5-flash)
+    // Select the cheap fallback model (gemini-3.5-flash-lite)
     let model_select = client.find(Locator::Css("#model")).await.unwrap();
     model_select
-        .select_by_value("gemini-3.5-flash")
+        .select_by_value("gemini-3.5-flash-lite")
         .await
         .unwrap();
 

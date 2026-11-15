@@ -50,7 +50,7 @@
             <label for="model">Model</label>
             <select id="model" name="model">
                 {% for model in models %}
-                <option value="{{ model.name }}" data-architecture="{{ model.architecture.as_str() }}">
+                <option value="{{ model.name }}" data-architecture="{{ model.architecture.as_str() }}" data-thinking-levels="{{ model.thinking_levels_csv() }}" data-default-thinking="{{ model.default_thinking() }}">
                     {% if model.name == "auto" %}Auto ({{ auto_model }}){% else %}{{ model.name }}{% endif %}
                 </option>
                 {% endfor %}
@@ -63,8 +63,9 @@
                 <option value="low">Low</option>
                 <option value="medium">Medium</option>
                 <option value="high" selected>High</option>
+                <option value="xhigh">Extra High (xhigh)</option>
             </select>
-            <small id="thinking-level-help">Gemini 3.* supports named thinking effort. Other models use Auto and do not receive a thinking-level setting.</small>
+            <small id="thinking-level-help">Gemini 4 and Gemini 3 models support named thinking effort. Other models use Auto and do not receive a thinking-level setting.</small>
 
             <details>
                 <summary style="font-weight: bold; cursor: pointer; color: var(--primary);">Advanced Options</summary>
@@ -205,6 +206,37 @@
                     } catch (e) { /* private mode etc.: ignore */ }
                 }
 
+                function supportedThinkingLevels() {
+                    if (!modelSelect) return ['auto'];
+                    const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+                    const csv = selectedOption ? selectedOption.getAttribute('data-thinking-levels') : '';
+                    return (csv || 'auto').split(',').map(function (s) { return s.trim(); });
+                }
+
+                function defaultThinkingLevel() {
+                    if (!modelSelect) return 'auto';
+                    const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+                    return (selectedOption && selectedOption.getAttribute('data-default-thinking')) || 'auto';
+                }
+
+                function restoreThinkingLevel(preferSaved) {
+                    if (!thinkingLevelSelect) return;
+                    const supported = supportedThinkingLevels();
+                    const fallback = defaultThinkingLevel();
+                    let saved = null;
+                    if (preferSaved) {
+                        try {
+                            const parsed = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null');
+                            saved = parsed && typeof parsed.thinking_level === 'string' ? parsed.thinking_level : null;
+                        } catch (e) { saved = null; }
+                    }
+                    if (saved && supported.indexOf(saved) !== -1) {
+                        thinkingLevelSelect.value = saved;
+                    } else if (supported.indexOf(thinkingLevelSelect.value) === -1) {
+                        thinkingLevelSelect.value = fallback;
+                    }
+                }
+
                 function updateOptionsVisibility() {
                     if (!modelSelect) return;
                     const selectedOption = modelSelect.options[modelSelect.selectedIndex];
@@ -231,12 +263,12 @@
                     if (urlContextContainer) urlContextContainer.style.display = showUrlContext ? 'block' : 'none';
                     if (extraOptions) extraOptions.style.display = (showGrounding || showUrlContext) ? 'block' : 'none';
 
-                    const supportsThinking = modelSelect.value.toLowerCase().startsWith('gemini-3.');
+                    const supported = supportedThinkingLevels();
                     if (thinkingLevelSelect) {
                         Array.from(thinkingLevelSelect.options).forEach(function(option) {
-                            option.disabled = option.value !== 'auto' && !supportsThinking;
+                            option.disabled = supported.indexOf(option.value) === -1;
                         });
-                        if (!supportsThinking) thinkingLevelSelect.value = 'auto';
+                        restoreThinkingLevel(false);
                     }
                 }
 
@@ -244,7 +276,11 @@
                     // Restore saved settings first so the visibility update
                     // below normalizes thinking level and feature flags.
                     loadSettings();
+                    restoreThinkingLevel(true);
                     modelSelect.addEventListener('change', function() {
+                        // Explicit model switches always reset to the
+                        // highest supported level of the new model.
+                        if (thinkingLevelSelect) thinkingLevelSelect.value = defaultThinkingLevel();
                         updateOptionsVisibility();
                         saveSettings();
                     });

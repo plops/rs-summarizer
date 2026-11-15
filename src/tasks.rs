@@ -48,7 +48,7 @@ pub async fn process_summary(db_pool: SqlitePool, identifier: i64, app: AppState
 /// Model backing the `auto` selection. `auto` deliberately performs no
 /// heuristic (no transcript-duration or word-count branching); it always
 /// resolves to this model and its regular fallback chain applies.
-pub const AUTO_MODEL: &str = "gemini-3.1-flash-lite";
+pub const AUTO_MODEL: &str = "gemini-3.5-flash-lite";
 
 /// Resolves the `auto` pseudo-model to the concrete model name.
 pub fn resolve_auto_model() -> &'static str {
@@ -88,6 +88,15 @@ pub fn user_facing_error_message(error: &ProcessError) -> String {
             "Das ausgewählte KI-Modell ist momentan ausgelastet. Ein automatischer Neuversuch läuft, oder du kannst ein anderes Modell auswählen."
                 .to_string()
         }
+        ProcessError::Summary(SummaryError::TpmLimitExceeded {
+            estimated,
+            limit,
+            model,
+        }) => {
+            format!(
+                "Das Transkript ist zu groß für das Minuten-Limit von {model} (ca. {estimated} Tokens, Limit: {limit} Tokens pro Minute). Bitte wähle ein Modell mit höherem Minuten-Limit oder kürze das Transkript."
+            )
+        }
         _ => "Die Zusammenfassung konnte nicht erstellt werden. Bitte versuche es später noch einmal oder wähle ein anderes Modell."
             .to_string(),
     }
@@ -110,33 +119,28 @@ fn is_model_overloaded(error: &SummaryError) -> bool {
 }
 
 /// Helper to construct the daily rate limit fallback chain for a starting model.
-fn get_fallback_chain(model_name: &str) -> Vec<&str> {
+///
+/// Invariant: a cheap or free model never falls back onto an expensive-tier
+/// model, and no model ever falls back onto a strictly more expensive one
+/// (see `ModelOption::is_expensive`). Gemma models deliberately appear in no
+/// chain: their 16K TPM cap makes them unsuitable as automatic fallbacks.
+pub(crate) fn get_fallback_chain(model_name: &str) -> Vec<&str> {
     match model_name {
-        "hetzner-qwen-3.6-35b" => vec![
-            "hetzner-qwen-3.6-35b",
-            "hetzner-qwen-3.8-27b",
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
-            "gemini-3.5-flash-lite",
-        ],
-        "hetzner-qwen-3.8-27b" => vec![
-            "hetzner-qwen-3.8-27b",
-            "hetzner-qwen-3.6-35b",
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
-            "gemini-3.5-flash-lite",
-        ],
-        "gemini-3.7-flash" => vec![
-            "gemini-3.7-flash",
+        "gemini-4-hydrogen" => vec![
+            "gemini-4-hydrogen",
             "gemini-3.8-flash",
             "gemini-3.6-flash",
-            "gemini-3.5-flash",
             "gemini-3-flash-preview",
-            "gemini-2.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
+            "hetzner-qwen-3.8-27b",
+            "hetzner-qwen-3.6-35b",
+        ],
+        "gemini-3.8-flash" => vec![
+            "gemini-3.8-flash",
+            "gemini-3.6-flash",
+            "gemini-3-flash-preview",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
@@ -146,10 +150,15 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
         "gemini-3.6-flash" => vec![
             "gemini-3.6-flash",
             "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.5-flash",
             "gemini-3-flash-preview",
-            "gemini-2.5-flash",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
+            "hetzner-qwen-3.8-27b",
+            "hetzner-qwen-3.6-35b",
+        ],
+        "gemini-3-flash-preview" => vec![
+            "gemini-3-flash-preview",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
@@ -160,56 +169,13 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
             "gemini-2.5-flash-lite",
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
-            "hetzner-qwen-3.8-27b",
-            "hetzner-qwen-3.6-35b",
-        ],
-        "gemini-3.5-flash" => vec![
-            "gemini-3.5-flash",
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
-            "gemini-3.8-flash",
-            "gemini-3-flash-preview",
-            "gemini-2.5-flash",
-            "gemini-3.5-flash-lite",
-            "gemini-3.1-flash-lite",
-            "hetzner-qwen-3.8-27b",
-            "hetzner-qwen-3.6-35b",
-        ],
-        "gemini-3-flash-preview" => vec![
-            "gemini-3-flash-preview",
-            "gemini-3.7-flash",
-            "gemini-3.8-flash",
-            "gemini-3.6-flash",
-            "gemini-2.5-flash",
-            "gemini-3.5-flash-lite",
-            "gemini-3.1-flash-lite",
-            "hetzner-qwen-3.8-27b",
-            "hetzner-qwen-3.6-35b",
-        ],
-        "gemini-2.5-flash" => vec![
-            "gemini-2.5-flash",
-            "gemini-3.7-flash",
-            "gemini-3.8-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash-lite",
-            "gemini-3.1-flash-lite",
             "hetzner-qwen-3.8-27b",
             "hetzner-qwen-3.6-35b",
         ],
         "gemini-3.1-flash-lite" => vec![
             "gemini-3.1-flash-lite",
-            "gemini-2.5-flash-lite",
             "gemini-3.5-flash-lite",
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
-            "gemini-3.5-flash",
-            "gemini-3-flash-preview",
-            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
             "hetzner-qwen-3.8-27b",
             "hetzner-qwen-3.6-35b",
         ],
@@ -217,11 +183,22 @@ fn get_fallback_chain(model_name: &str) -> Vec<&str> {
             "gemini-2.5-flash-lite",
             "gemini-3.5-flash-lite",
             "gemini-3.1-flash-lite",
-            "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            "gemini-3.6-flash",
             "hetzner-qwen-3.8-27b",
             "hetzner-qwen-3.6-35b",
+        ],
+        "hetzner-qwen-3.8-27b" => vec![
+            "hetzner-qwen-3.8-27b",
+            "hetzner-qwen-3.6-35b",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
+        ],
+        "hetzner-qwen-3.6-35b" => vec![
+            "hetzner-qwen-3.6-35b",
+            "hetzner-qwen-3.8-27b",
+            "gemini-3.5-flash-lite",
+            "gemini-3.1-flash-lite",
+            "gemini-2.5-flash-lite",
         ],
         other => vec![other],
     }
@@ -555,8 +532,8 @@ fn fallback_downgrades_thinking_level(
 ) -> bool {
     initial_model_name != fallback_model_name
         && preference != crate::models::ThinkingPreference::Auto
-        && crate::services::summary::gemini_3_thinking_level(fallback_model_name, preference)
-            .is_none()
+        && crate::services::summary::effective_thinking_level(initial_model_name, preference)
+            != crate::services::summary::effective_thinking_level(fallback_model_name, preference)
 }
 
 /// Encapsulates model resolution, fallback chain execution, rate limiting, and streaming summary generation.
@@ -582,12 +559,71 @@ pub async fn run_model_pipeline(
 
     let fallback_chain = get_fallback_chain(&model_name);
     let mut last_error = None;
+    let mut tpm_error: Option<ProcessError> = None;
+    let prompt_estimate =
+        crate::services::rate_limiter::RateLimiter::estimate_prompt_tokens(input_text.len());
 
     for candidate_name in fallback_chain {
         let model = match parse_model_option(candidate_name, &app.model_options) {
             Ok(m) => m,
             Err(_) => continue,
         };
+
+        // TPM pre-check: skip candidates whose per-minute budget cannot fit
+        // this prompt even on an empty window; remember the first error in
+        // case no candidate can take the prompt. A temporarily exhausted
+        // window backs off once, then yields to the next fallback candidate.
+        let tpm_decision = crate::services::rate_limiter::RateLimiter::check_tpm_capacity(
+            &app.tpm_tracker,
+            &model.name,
+            model.tpm_limit,
+            prompt_estimate,
+        )
+        .await;
+        let tpm_decision =
+            if let crate::services::rate_limiter::TpmDecision::Wait(wait) = tpm_decision {
+                tracing::info!(
+                    model = %model.name,
+                    wait_secs = wait.as_secs(),
+                    "TPM window temporarily exhausted, waiting for budget"
+                );
+                tokio::time::sleep(wait.min(Duration::from_secs(60))).await;
+                crate::services::rate_limiter::RateLimiter::check_tpm_capacity(
+                    &app.tpm_tracker,
+                    &model.name,
+                    model.tpm_limit,
+                    prompt_estimate,
+                )
+                .await
+            } else {
+                tpm_decision
+            };
+        match tpm_decision {
+            crate::services::rate_limiter::TpmDecision::Allowed => {}
+            crate::services::rate_limiter::TpmDecision::OverLimit => {
+                tracing::warn!(
+                    model = %model.name,
+                    estimated_tokens = prompt_estimate,
+                    tpm_limit = model.tpm_limit,
+                    "Candidate model TPM limit too small for prompt, skipping to next fallback"
+                );
+                if tpm_error.is_none() {
+                    tpm_error = Some(ProcessError::Summary(SummaryError::TpmLimitExceeded {
+                        model: model.name.clone(),
+                        estimated: prompt_estimate,
+                        limit: model.tpm_limit,
+                    }));
+                }
+                continue;
+            }
+            crate::services::rate_limiter::TpmDecision::Wait(_) => {
+                tracing::warn!(
+                    model = %model.name,
+                    "TPM window still exhausted after backoff, skipping to next fallback"
+                );
+                continue;
+            }
+        }
 
         if fallback_downgrades_thinking_level(&model_name, &model.name, thinking_preference) {
             tracing::warn!(
@@ -743,7 +779,9 @@ pub async fn run_model_pipeline(
         }
     }
 
-    Err(last_error.unwrap_or(ProcessError::Summary(SummaryError::RateLimited)))
+    Err(last_error
+        .or(tpm_error)
+        .unwrap_or(ProcessError::Summary(SummaryError::RateLimited)))
 }
 
 /// Saves final summary state to database, converts markdown for YouTube format, and generates vector embeddings.
@@ -1033,11 +1071,11 @@ mod tests {
 
     #[test]
     fn auto_model_always_resolves_to_flash_lite() {
-        assert_eq!(resolve_auto_model(), "gemini-3.1-flash-lite");
+        assert_eq!(resolve_auto_model(), "gemini-3.5-flash-lite");
         assert_eq!(resolve_auto_model(), AUTO_MODEL);
         // The resolved model must be a registered default with a fallback chain.
         let chain = get_fallback_chain(resolve_auto_model());
-        assert_eq!(chain[0], "gemini-3.1-flash-lite");
+        assert_eq!(chain[0], "gemini-3.5-flash-lite");
         assert!(
             crate::state::get_default_models()
                 .iter()
@@ -1137,35 +1175,47 @@ mod tests {
 
     #[test]
     fn test_get_fallback_chain_new_models() {
-        let chain_37_flash = get_fallback_chain("gemini-3.7-flash");
-        assert_eq!(chain_37_flash[0], "gemini-3.7-flash");
-        assert!(chain_37_flash.contains(&"gemini-3.6-flash"));
-        assert!(chain_37_flash.contains(&"gemini-3.5-flash"));
-        assert!(chain_37_flash.contains(&"gemini-3.5-flash-lite"));
-        assert!(chain_37_flash.contains(&"hetzner-qwen-3.8-27b"));
-        assert!(chain_37_flash.contains(&"hetzner-qwen-3.6-35b"));
+        let chain_hydrogen = get_fallback_chain("gemini-4-hydrogen");
+        assert_eq!(
+            chain_hydrogen,
+            vec![
+                "gemini-4-hydrogen",
+                "gemini-3.8-flash",
+                "gemini-3.6-flash",
+                "gemini-3-flash-preview",
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+                "gemini-2.5-flash-lite",
+                "hetzner-qwen-3.8-27b",
+                "hetzner-qwen-3.6-35b",
+            ]
+        );
 
         let chain_36_flash = get_fallback_chain("gemini-3.6-flash");
         assert_eq!(chain_36_flash[0], "gemini-3.6-flash");
-        assert!(chain_36_flash.contains(&"gemini-3.7-flash"));
-        assert!(chain_36_flash.contains(&"gemini-3.5-flash"));
+        assert!(chain_36_flash.contains(&"gemini-3.8-flash"));
+        assert!(chain_36_flash.contains(&"gemini-3-flash-preview"));
         assert!(chain_36_flash.contains(&"gemini-3.5-flash-lite"));
         assert!(chain_36_flash.contains(&"hetzner-qwen-3.8-27b"));
         assert!(chain_36_flash.contains(&"hetzner-qwen-3.6-35b"));
 
         let chain_35_lite = get_fallback_chain("gemini-3.5-flash-lite");
-        assert_eq!(chain_35_lite[0], "gemini-3.5-flash-lite");
-        assert!(chain_35_lite.contains(&"gemini-3.7-flash"));
-        assert!(chain_35_lite.contains(&"gemini-3.1-flash-lite"));
-        assert!(chain_35_lite.contains(&"gemini-2.5-flash-lite"));
-        assert!(chain_35_lite.contains(&"hetzner-qwen-3.8-27b"));
-        assert!(chain_35_lite.contains(&"hetzner-qwen-3.6-35b"));
+        assert_eq!(
+            chain_35_lite,
+            vec![
+                "gemini-3.5-flash-lite",
+                "gemini-3.1-flash-lite",
+                "gemini-2.5-flash-lite",
+                "hetzner-qwen-3.8-27b",
+                "hetzner-qwen-3.6-35b",
+            ]
+        );
 
         let chain_hetzner36 = get_fallback_chain("hetzner-qwen-3.6-35b");
         assert_eq!(chain_hetzner36[0], "hetzner-qwen-3.6-35b");
         assert!(chain_hetzner36.contains(&"hetzner-qwen-3.8-27b"));
-        assert!(chain_hetzner36.contains(&"gemini-3.7-flash"));
-        assert!(chain_hetzner36.contains(&"gemini-3.6-flash"));
+        assert!(chain_hetzner36.contains(&"gemini-3.5-flash-lite"));
+        assert!(chain_hetzner36.contains(&"gemini-3.1-flash-lite"));
     }
 
     #[test]
@@ -1173,14 +1223,18 @@ mod tests {
         let chain = get_fallback_chain("hetzner-qwen-3.8-27b");
         assert_eq!(chain[0], "hetzner-qwen-3.8-27b");
         assert!(chain.contains(&"hetzner-qwen-3.6-35b"));
-        assert!(chain.contains(&"gemini-3.7-flash"));
-        assert!(chain.contains(&"gemini-3.6-flash"));
+        assert!(chain.contains(&"gemini-3.5-flash-lite"));
+        assert!(chain.contains(&"gemini-2.5-flash-lite"));
     }
 
     #[test]
     fn test_gemini_chains_include_all_hetzner_models() {
         let hetzner_models = vec!["hetzner-qwen-3.8-27b", "hetzner-qwen-3.6-35b"];
-        for gemini_model in &["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"] {
+        for gemini_model in &[
+            "gemini-4-hydrogen",
+            "gemini-3.6-flash",
+            "gemini-3-flash-preview",
+        ] {
             let chain = get_fallback_chain(gemini_model);
             for hetzner in &hetzner_models {
                 assert!(
@@ -1191,6 +1245,64 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_fallback_chains_never_escalate_to_expensive_models() {
+        let models = crate::state::get_default_models();
+        let price_of = |name: &str| {
+            models
+                .iter()
+                .find(|m| m.name == name)
+                .unwrap_or_else(|| panic!("fallback chain references unknown model {name}"))
+        };
+        // Every registered concrete model resolves to its own chain head,
+        // and no Gemma model appears in any automatic chain.
+        for model in &models {
+            if model.name == "auto" {
+                continue;
+            }
+            let chain = get_fallback_chain(&model.name);
+            if model.architecture == crate::state::ModelArchitecture::Gemma {
+                assert_eq!(chain, vec![model.name.as_str()]);
+                continue;
+            }
+            assert_eq!(chain[0], model.name.as_str());
+            assert!(
+                chain
+                    .iter()
+                    .all(|name| price_of(name).architecture
+                        != crate::state::ModelArchitecture::Gemma),
+                "chain for {} must not contain Gemma models",
+                model.name
+            );
+            // Once the chain leaves the expensive tier it never re-enters:
+            // a cheap/free model never falls back onto an expensive one.
+            let mut seen_cheap = !price_of(chain[0]).is_expensive();
+            for name in chain.iter().skip(1) {
+                let expensive = price_of(name).is_expensive();
+                assert!(
+                    !(seen_cheap && expensive),
+                    "chain for {} escalates from a cheap model to expensive {}",
+                    model.name,
+                    name
+                );
+                seen_cheap = seen_cheap || !expensive;
+            }
+        }
+    }
+
+    #[test]
+    fn test_user_facing_message_tpm_limit() {
+        let err = ProcessError::Summary(SummaryError::TpmLimitExceeded {
+            model: "gemma-4-31b-it".to_string(),
+            estimated: 25_000,
+            limit: 16_000,
+        });
+        let message = user_facing_error_message(&err);
+        assert!(message.contains("Minuten-Limit"));
+        assert!(message.contains("gemma-4-31b-it"));
+        assert!(!message.contains("tokens/minute"));
     }
 
     #[test]
@@ -1231,17 +1343,23 @@ mod tests {
 
         assert!(fallback_downgrades_thinking_level(
             "gemini-3.8-flash",
-            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
+            ThinkingPreference::High
+        ));
+        // xhigh on hydrogen clamps to high on Gemini 3.x: still a downgrade.
+        assert!(fallback_downgrades_thinking_level(
+            "gemini-4-hydrogen",
+            "gemini-3.6-flash",
+            ThinkingPreference::XHigh
+        ));
+        assert!(!fallback_downgrades_thinking_level(
+            "gemini-3.8-flash",
+            "gemini-3.6-flash",
             ThinkingPreference::High
         ));
         assert!(!fallback_downgrades_thinking_level(
             "gemini-3.8-flash",
-            "gemini-3.7-flash",
-            ThinkingPreference::High
-        ));
-        assert!(!fallback_downgrades_thinking_level(
-            "gemini-3.8-flash",
-            "gemini-2.5-flash",
+            "gemini-2.5-flash-lite",
             ThinkingPreference::Auto
         ));
     }

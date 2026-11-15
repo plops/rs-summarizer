@@ -114,16 +114,7 @@ impl TranscriptService {
         let cmd_str = format!("uvx {}", args.join(" "));
         tracing::info!(cmd = %cmd_str, "Executing yt-dlp to list subtitles");
 
-        let output = Command::new("uvx")
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| {
-                TranscriptError::YtDlpFailed(format!(
-                    "Failed to execute yt-dlp (cmd: `{}`): {}",
-                    cmd_str, e
-                ))
-            })?;
+        let output = run_uvx(&args, "yt-dlp", &cmd_str).await?;
 
         // yt-dlp may exit with non-zero but still produce useful output on stderr/stdout
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -205,16 +196,7 @@ impl TranscriptService {
         let cmd_str = format!("uvx {}", args.join(" "));
         tracing::info!(cmd = %cmd_str, "Executing yt-dlp to fetch video title");
 
-        let output = Command::new("uvx")
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| {
-                TranscriptError::YtDlpFailed(format!(
-                    "Failed to execute yt-dlp title fetch (cmd: `{}`): {}",
-                    cmd_str, e
-                ))
-            })?;
+        let output = run_uvx(&args, "yt-dlp title fetch", &cmd_str).await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -266,16 +248,7 @@ impl TranscriptService {
         let cmd_str = format!("uvx {}", args.join(" "));
         tracing::info!(cmd = %cmd_str, "Executing yt-dlp to download subtitles");
 
-        let output = Command::new("uvx")
-            .args(&args)
-            .output()
-            .await
-            .map_err(|e| {
-                TranscriptError::YtDlpFailed(format!(
-                    "Failed to execute yt-dlp download (cmd: `{}`): {}",
-                    cmd_str, e
-                ))
-            })?;
+        let output = run_uvx(&args, "yt-dlp download", &cmd_str).await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -585,6 +558,51 @@ fn cookie_args() -> Vec<String> {
     Vec::new()
 }
 
+/// Default `yt-dlp` subprocess timeout in seconds (overridable via
+/// `YTDLP_TIMEOUT_SECS`).
+fn ytdlp_timeout_secs() -> u64 {
+    std::env::var("YTDLP_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(90)
+}
+
+/// Runs `uvx` with the given args, killing the child on timeout or abort.
+///
+/// `kill_on_drop(true)` guarantees no zombie `uvx`/`yt-dlp` processes survive
+/// a cancelled future; exceeding the timeout surfaces as
+/// `TranscriptError::Timeout`.
+async fn run_uvx(
+    args: &[String],
+    action: &str,
+    cmd_str: &str,
+) -> Result<std::process::Output, TranscriptError> {
+    let timeout_secs = ytdlp_timeout_secs();
+    let child = Command::new("uvx")
+        .args(args)
+        .kill_on_drop(true)
+        .spawn()
+        .map_err(|e| {
+            TranscriptError::YtDlpFailed(format!(
+                "Failed to execute {} (cmd: `{}`): {}",
+                action, cmd_str, e
+            ))
+        })?;
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        child.wait_with_output(),
+    )
+    .await
+    {
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(e)) => Err(TranscriptError::YtDlpFailed(format!(
+            "Failed to execute {} (cmd: `{}`): {}",
+            action, cmd_str, e
+        ))),
+        Err(_) => Err(TranscriptError::Timeout(timeout_secs)),
+    }
+}
+
 /// RAII guard that cleans up temporary files when dropped.
 struct TempFileGuard {
     paths: Vec<PathBuf>,
@@ -815,6 +833,22 @@ en-orig  English (Original)      vtt, ttml, srv3, srv2, srv1, json3
             std::env::remove_var("POT_PROVIDER_URL");
             std::env::remove_var("YTDLP_PLAYER_CLIENT");
             std::env::remove_var("YTDLP_EXTRACTOR_ARGS");
+        }
+    }
+
+    #[test]
+    fn test_ytdlp_timeout_secs_default_and_env() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        unsafe {
+            std::env::remove_var("YTDLP_TIMEOUT_SECS");
+        }
+        assert_eq!(ytdlp_timeout_secs(), 90);
+        unsafe {
+            std::env::set_var("YTDLP_TIMEOUT_SECS", "30");
+        }
+        assert_eq!(ytdlp_timeout_secs(), 30);
+        unsafe {
+            std::env::remove_var("YTDLP_TIMEOUT_SECS");
         }
     }
 

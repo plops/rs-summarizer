@@ -52,7 +52,7 @@ impl DownloadLimiter {
         let max_yt_dlp = std::env::var("MAX_CONCURRENT_YTDLP")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(2);
+            .unwrap_or(1);
 
         let max_hn = std::env::var("MAX_CONCURRENT_HN")
             .ok()
@@ -62,7 +62,7 @@ impl DownloadLimiter {
         let yt_dlp_delay = std::env::var("YTDLP_DELAY_MS")
             .ok()
             .and_then(|s| s.parse().ok())
-            .unwrap_or(1000);
+            .unwrap_or(2000);
 
         let download_delay = std::env::var("DOWNLOAD_DELAY_MS")
             .ok()
@@ -136,6 +136,21 @@ impl DownloadLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static ENV_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn test_from_env_serial_defaults() {
+        let _guard = ENV_MUTEX.lock().unwrap();
+        unsafe {
+            std::env::remove_var("MAX_CONCURRENT_YTDLP");
+            std::env::remove_var("YTDLP_DELAY_MS");
+        }
+        // Production shape: strictly serial yt-dlp with a 2s gap.
+        let limiter = DownloadLimiter::from_env();
+        assert_eq!(limiter.yt_dlp_semaphore.available_permits(), 1);
+        assert_eq!(limiter.yt_dlp_delay, Duration::from_millis(2000));
+    }
 
     #[tokio::test]
     async fn test_download_limiter_initialization() {

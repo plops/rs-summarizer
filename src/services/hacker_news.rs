@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::net::IpAddr;
 use tracing;
 
 #[derive(Debug, serde::Deserialize)]
@@ -35,6 +36,9 @@ pub struct HnFetchResult {
 
 pub struct HackerNewsService {
     client: reqwest::Client,
+    /// Redirects disabled: external articles go through a manual hop loop
+    /// that re-validates every URL (SSRF protection).
+    article_client: reqwest::Client,
 }
 
 impl Default for HackerNewsService {
@@ -45,12 +49,22 @@ impl Default for HackerNewsService {
 
 impl HackerNewsService {
     pub fn new() -> Self {
+        let user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(12))
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .user_agent(user_agent)
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        Self { client }
+        let article_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(12))
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(user_agent)
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        Self {
+            client,
+            article_client,
+        }
     }
 
     /// Fetch a Hacker News item by ID, its comments, and its linked article (if available).
@@ -258,23 +272,71 @@ impl HackerNewsService {
     }
 
     /// Fetch external article and convert HTML to plain text.
+    ///
+    /// SSRF-hardened: only `http(s)` URLs are fetched, redirects are
+    /// followed manually (max 5 hops) with every hop re-validated, resolved
+    /// IPs must be public, and the body is capped at 5 MiB.
     async fn fetch_external_article(&self, url: &str) -> Result<String, String> {
+        const MAX_BODY_BYTES: usize = 5 * 1024 * 1024;
+        const MAX_REDIRECTS: usize = 5;
         tracing::info!(url = %url, "Downloading external article for Hacker News submission");
-        let res = self
-            .client
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| format!("HTTP GET error: {}", e))?;
+        let mut current = validate_fetch_url(url).await?;
+        let mut hops = 0;
+        let html = loop {
+            let res = self
+                .article_client
+                .get(current.clone())
+                .send()
+                .await
+                .map_err(|e| format!("HTTP GET error: {}", e))?;
 
-        if !res.status().is_success() {
-            return Err(format!("HTTP status {}", res.status()));
-        }
+            if res.status().is_redirection()
+                && let Some(location) = res
+                    .headers()
+                    .get(reqwest::header::LOCATION)
+                    .and_then(|v| v.to_str().ok())
+            {
+                hops += 1;
+                if hops > MAX_REDIRECTS {
+                    return Err("Too many redirects".to_string());
+                }
+                let next = current
+                    .join(location)
+                    .map_err(|e| format!("Invalid redirect target: {}", e))?;
+                current = validate_fetch_url(next.as_str()).await?;
+                continue;
+            }
 
-        let html = res
-            .text()
-            .await
-            .map_err(|e| format!("Failed to read response body: {}", e))?;
+            if !res.status().is_success() {
+                return Err(format!("HTTP status {}", res.status()));
+            }
+
+            if let Some(len) = res.content_length()
+                && len > MAX_BODY_BYTES as u64
+            {
+                return Err(format!(
+                    "Response body too large ({} bytes, max {} bytes)",
+                    len, MAX_BODY_BYTES
+                ));
+            }
+
+            let mut body: Vec<u8> = Vec::new();
+            let mut res = res;
+            while let Some(chunk) = res
+                .chunk()
+                .await
+                .map_err(|e| format!("Failed to read response body: {}", e))?
+            {
+                body.extend_from_slice(&chunk);
+                if body.len() > MAX_BODY_BYTES {
+                    return Err(format!(
+                        "Response body too large (over {} bytes)",
+                        MAX_BODY_BYTES
+                    ));
+                }
+            }
+            break String::from_utf8_lossy(&body).into_owned();
+        };
 
         let clean_text = clean_html_to_text(&html);
         if clean_text.trim().is_empty() {
@@ -294,6 +356,53 @@ impl HackerNewsService {
         let words: Vec<&str> = clean_text.split_whitespace().take(25_000).collect();
         Ok(words.join(" "))
     }
+}
+
+/// Validates an external article URL before any request is made: only
+/// `http`/`https` schemes, and every resolved IP must be public (no
+/// loopback, private, link-local, unspecified, multicast, CGNAT, or
+/// IPv6 unique-local addresses).
+async fn validate_fetch_url(url: &str) -> Result<reqwest::Url, String> {
+    let parsed = reqwest::Url::parse(url).map_err(|e| format!("Invalid article URL: {}", e))?;
+    match parsed.scheme() {
+        "http" | "https" => {}
+        other => return Err(format!("Blocked article URL scheme: {}", other)),
+    }
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "Article URL has no host".to_string())?;
+    let port = parsed.port_or_known_default().unwrap_or(80);
+    let addrs = tokio::net::lookup_host((host, port))
+        .await
+        .map_err(|e| format!("Failed to resolve article host: {}", e))?;
+    let mut any = false;
+    for addr in addrs {
+        any = true;
+        if is_blocked_ip(&addr.ip()) {
+            return Err(format!("Blocked article host address: {}", addr.ip()));
+        }
+    }
+    if !any {
+        return Err("Article host resolves to no address".to_string());
+    }
+    Ok(parsed)
+}
+
+/// Whether an IP address must never be fetched (SSRF blocklist).
+fn is_blocked_ip(ip: &IpAddr) -> bool {
+    if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
+        return true;
+    }
+    match ip {
+        IpAddr::V4(v) => v.is_private() || v.is_link_local() || is_cgnat(v),
+        IpAddr::V6(v) => v.is_unique_local() || v.is_unicast_link_local(),
+    }
+}
+
+/// Carrier-Grade NAT range 100.64.0.0/10 (not covered by `is_private`).
+fn is_cgnat(ip: &std::net::Ipv4Addr) -> bool {
+    let octets = ip.octets();
+    octets[0] == 100 && (64..=127).contains(&octets[1])
 }
 
 /// Helper to strip HTML tags, convert block elements to newlines, and unescape HTML entities.
@@ -369,6 +478,69 @@ fn decode_html_entities(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_blocked_ip_ranges() {
+        // Loopback, private, link-local, unspecified, multicast, CGNAT.
+        for ip in [
+            "127.0.0.1",
+            "10.0.0.5",
+            "172.16.4.2",
+            "172.31.255.255",
+            "192.168.1.1",
+            "169.254.10.20",
+            "0.0.0.0",
+            "224.0.0.1",
+            "100.64.0.1",
+            "100.127.255.255",
+            "::1",
+            "fc00::1",
+            "fd12:3456::1",
+            "fe80::1",
+        ] {
+            assert!(
+                is_blocked_ip(&IpAddr::from_str(ip).unwrap()),
+                "expected blocked: {ip}"
+            );
+        }
+        // Public and documentation ranges pass the IP check.
+        for ip in [
+            "8.8.8.8",
+            "1.1.1.1",
+            "93.184.216.34",
+            "192.0.2.1",
+            "203.0.113.7",
+        ] {
+            assert!(
+                !is_blocked_ip(&IpAddr::from_str(ip).unwrap()),
+                "expected allowed: {ip}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_validate_fetch_url_rejects_wrong_scheme() {
+        assert!(validate_fetch_url("file:///etc/passwd").await.is_err());
+        assert!(validate_fetch_url("ftp://example.com/x").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_fetch_url_rejects_private_ips() {
+        assert!(
+            validate_fetch_url("http://127.0.0.1/article")
+                .await
+                .is_err()
+        );
+        assert!(validate_fetch_url("http://10.1.2.3:8080/x").await.is_err());
+        assert!(validate_fetch_url("http://[::1]/x").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_validate_fetch_url_accepts_public_ip_literal() {
+        // Documentation range (no DNS, no fetch): passes validation.
+        assert!(validate_fetch_url("http://192.0.2.1/article").await.is_ok());
+    }
 
     #[test]
     fn test_clean_html_to_text_basic() {

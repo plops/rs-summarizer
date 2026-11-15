@@ -49,3 +49,29 @@ If the repository is still large on GitHub due to files in the history, you can 
 - `./scripts/release.sh <version>` — Prepare and tag a release (follows the repo's release process).
 
 If anything in the above process fails (patch application, missing third_party content), open an issue or ask in the team chat with the output of the failing command and I will help fix it.
+
+## Release process
+
+Releases are versioned with SemVer tags (`v<version>`) and carry their notes
+from `CHANGELOG.md` directly above the release artifacts on GitHub.
+
+1. Maintain `CHANGELOG.md` (Keep a Changelog, English): add entries under
+   `## [Unreleased]` as you merge changes.
+2. Run the pre-release gates (formatting, clippy, tests, changelog present):
+   `./scripts/release-check.sh` — all checks must pass.
+3. Cut the release: `./scripts/release.sh <version>` (e.g.
+   `./scripts/release.sh 1.11.0`). The script moves a non-empty
+   `## [Unreleased]` section to `## [<version>] - <date>`, validates it with
+   `./scripts/extract-changelog.sh <version>`, bumps `Cargo.toml` /
+   `Cargo.lock`, commits with a `chore(release):` message, tags
+   `v<version>`, and pushes `main` plus the tag to `origin`.
+4. The GitHub workflow (`.github/workflows/release.yml`) builds the release
+   binaries, extracts the version section from `CHANGELOG.md` via
+   `./scripts/extract-changelog.sh`, and publishes it as the release body
+   (`body_path: RELEASE_NOTES.md`) above the artifacts.
+
+The `staging/` packaging also guards the schema contract: the release fails
+if `migrations/006_add_thinking_level.sql`,
+`migrations/010_add_title.sql`, or
+`migrations/011_update_thinking_and_rpd_usage.sql` are missing from the
+archive.

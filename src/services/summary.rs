@@ -94,27 +94,127 @@ impl InteractionAccumulator {
     }
 }
 
+/// Incremental SSE frame parser for the raw `xhigh` Interactions call.
+/// Accumulates bytes across `chunk()` boundaries and yields one
+/// `InteractionEvent` per complete `data:` frame (frames end at a blank
+/// line, `\n\n` or `\r\n\r\n`; multi-line `data:` payloads join with `\n`).
+#[derive(Default)]
+struct SseFrameBuffer {
+    buf: Vec<u8>,
+}
+
+impl SseFrameBuffer {
+    /// Appends bytes and returns the events of all fully received frames.
+    fn push(&mut self, bytes: &[u8]) -> Result<Vec<InteractionEvent>, SummaryError> {
+        self.buf.extend_from_slice(bytes);
+        let mut events = Vec::new();
+        while let Some(end) = sse_frame_end(&self.buf) {
+            let frame: Vec<u8> = self.buf.drain(..end).collect();
+            if let Some(event) = parse_sse_frame(&frame)? {
+                events.push(event);
+            }
+        }
+        Ok(events)
+    }
+
+    /// Parses any trailing bytes after the stream closed.
+    fn finish(mut self) -> Result<Vec<InteractionEvent>, SummaryError> {
+        self.buf.extend_from_slice(b"\n\n");
+        self.push(&[])
+    }
+}
+
+/// Index just past the first blank-line frame delimiter, if present.
+fn sse_frame_end(buf: &[u8]) -> Option<usize> {
+    let lf = buf.windows(2).position(|w| w == b"\n\n").map(|pos| pos + 2);
+    let crlf = buf
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .map(|pos| pos + 4);
+    match (lf, crlf) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
+}
+
+/// Parses one raw SSE frame into an `InteractionEvent`, or `None` for
+/// keep-alives, comments, and `[DONE]` terminators.
+fn parse_sse_frame(frame: &[u8]) -> Result<Option<InteractionEvent>, SummaryError> {
+    let text = String::from_utf8_lossy(frame);
+    let mut data = String::new();
+    for line in text.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.starts_with(':') {
+            continue;
+        }
+        if let Some(payload) = line.strip_prefix("data:") {
+            if !data.is_empty() {
+                data.push('\n');
+            }
+            // SSE strips a single leading space after the colon.
+            data.push_str(payload.strip_prefix(' ').unwrap_or(payload));
+        }
+    }
+    let data = data.trim();
+    if data.is_empty() || data == "[DONE]" {
+        return Ok(None);
+    }
+    serde_json::from_str(data)
+        .map(Some)
+        .map_err(|e| SummaryError::ApiError(format!("bad SSE event: {e}")))
+}
+
 pub struct SummaryService {
     api_key: String,
 }
 
-/// Maps persisted preferences to Gemini 3 request values. `auto` deliberately
-/// returns no level so the provider chooses its own default. Current Gemini
-/// Flash Interactions models reject `minimal`; use their lowest accepted level.
-pub(crate) fn gemini_3_thinking_level(
+/// How a persisted thinking preference is sent to the Interactions API.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum ResolvedThinking {
+    /// Send no `thinking_level` (provider default): `Auto` preferences and
+    /// models whose API rejects the parameter (Gemini 2.5, Gemma, Hetzner).
+    Omitted,
+    /// A level `gemini-rust` can send directly via the builder.
+    Named(InteractionThinkingLevel),
+    /// `xhigh`, which `gemini-rust 2.0.0` cannot express: sent through the
+    /// raw SSE path in `generate_summary_xhigh` (`gemini-4-hydrogen` only).
+    XHigh,
+}
+
+/// Maps persisted preferences to Interactions API values using the
+/// per-model capability table in `state.rs` (never string prefixes).
+/// Unsupported named levels clamp to the closest supported one instead of
+/// failing with HTTP 400 when a fallback moves across model generations
+/// (e.g. `xhigh` from `gemini-4-hydrogen` becomes `high` on Gemini 3.x,
+/// `minimal` becomes `low` where `minimal` is rejected).
+pub(crate) fn effective_thinking_level(
     model_name: &str,
     preference: ThinkingPreference,
-) -> Option<InteractionThinkingLevel> {
-    if !model_name.to_ascii_lowercase().starts_with("gemini-3.") {
-        return None;
-    }
-
+) -> ResolvedThinking {
+    use ThinkingPreference::*;
+    let supported = crate::state::supported_thinking_levels(model_name);
     match preference {
-        ThinkingPreference::Auto => None,
-        ThinkingPreference::Minimal => Some(InteractionThinkingLevel::Low),
-        ThinkingPreference::Low => Some(InteractionThinkingLevel::Low),
-        ThinkingPreference::Medium => Some(InteractionThinkingLevel::Medium),
-        ThinkingPreference::High => Some(InteractionThinkingLevel::High),
+        Auto => ResolvedThinking::Omitted,
+        XHigh if supported.contains(&XHigh) => ResolvedThinking::XHigh,
+        XHigh if supported.contains(&High) => {
+            ResolvedThinking::Named(InteractionThinkingLevel::High)
+        }
+        Minimal if supported.contains(&Minimal) => {
+            ResolvedThinking::Named(InteractionThinkingLevel::Minimal)
+        }
+        Minimal if supported.contains(&Low) => {
+            ResolvedThinking::Named(InteractionThinkingLevel::Low)
+        }
+        Low if supported.contains(&Low) => ResolvedThinking::Named(InteractionThinkingLevel::Low),
+        Medium if supported.contains(&Medium) => {
+            ResolvedThinking::Named(InteractionThinkingLevel::Medium)
+        }
+        High if supported.contains(&High) => {
+            ResolvedThinking::Named(InteractionThinkingLevel::High)
+        }
+        _ => ResolvedThinking::Omitted,
     }
 }
 
@@ -133,6 +233,169 @@ pub(crate) fn gemini_2_5_thinking_budget(model_name: &str) -> Option<i32> {
 impl SummaryService {
     pub fn new(api_key: String) -> Self {
         Self { api_key }
+    }
+
+    /// Feeds one interaction event into the accumulator and persists any
+    /// emitted summary text, guarded by the generation epoch so a stale
+    /// stream from a cancelled attempt cannot corrupt a retry's body.
+    async fn append_observed_chunk(
+        db_pool: &SqlitePool,
+        identifier: i64,
+        epoch: i64,
+        accumulated: &mut InteractionAccumulator,
+        event: InteractionEvent,
+    ) -> Result<(), SummaryError> {
+        if let Some(text) = accumulated.observe(event)?
+            && !db::append_summary_chunk_for_epoch(db_pool, identifier, epoch, &text)
+                .await
+                .map_err(|e| SummaryError::ApiError(format!("DB error: {e}")))?
+        {
+            return Err(SummaryError::ApiError("generation ownership lost".into()));
+        }
+        Ok(())
+    }
+
+    /// Shared terminal validation, token estimation, and cost accounting for
+    /// both Gemini streaming paths (builder-driven and raw `xhigh` SSE).
+    fn finalize_generation(
+        &self,
+        model: &ModelOption,
+        mut accumulated: InteractionAccumulator,
+        prompt_len: usize,
+        start: std::time::Instant,
+    ) -> Result<SummaryResult, SummaryError> {
+        if !accumulated.completed {
+            return Err(SummaryError::ApiError(
+                "provider stream ended without successful terminal event".into(),
+            ));
+        }
+
+        if accumulated.summary_text.is_empty() {
+            return Err(SummaryError::ApiError(
+                "Gemini returned empty response".to_string(),
+            ));
+        }
+        let duration_secs = start.elapsed().as_secs_f64();
+
+        // If token counts weren't provided by the API, estimate them
+        if accumulated.input_tokens == 0 {
+            accumulated.input_tokens = (prompt_len as u64) / 4;
+        }
+        if accumulated.output_tokens == 0 {
+            accumulated.output_tokens = (accumulated.summary_text.len() as u64) / 4;
+        }
+
+        let cost = self.compute_cost(model, accumulated.input_tokens, accumulated.output_tokens);
+
+        tracing::info!(
+            input_tokens = accumulated.input_tokens,
+            output_tokens = accumulated.output_tokens,
+            thinking_tokens = accumulated.thinking_tokens,
+            cost = cost,
+            duration_secs = duration_secs,
+            "Summary generation complete"
+        );
+
+        Ok(SummaryResult {
+            summary_text: accumulated.summary_text,
+            input_tokens: accumulated.input_tokens,
+            output_tokens: accumulated.output_tokens,
+            thinking_text: accumulated.thinking_text,
+            thinking_tokens: accumulated.thinking_tokens,
+            cost,
+            duration_secs,
+        })
+    }
+
+    /// Streams an `xhigh` thinking request over a raw SSE call.
+    ///
+    /// `gemini-rust 2.0.0` cannot express `InteractionThinkingLevel::XHigh`,
+    /// so the caller serializes the fully configured builder request and
+    /// this method patches `"thinking_level": "xhigh"` into
+    /// `generation_config` before POSTing to
+    /// `.../v1beta/interactions?alt=sse` with the same `x-goog-api-key`
+    /// header the SDK uses. Each `data:` frame parses directly into
+    /// `InteractionEvent` and flows through the same accumulator and
+    /// epoch-guarded chunk loop as the SDK path.
+    #[allow(clippy::too_many_arguments)]
+    async fn generate_summary_xhigh(
+        &self,
+        db_pool: &SqlitePool,
+        identifier: i64,
+        epoch: i64,
+        model_name: &str,
+        payload: serde_json::Value,
+        prompt_len: usize,
+        start: std::time::Instant,
+    ) -> Result<SummaryResult, SummaryError> {
+        const INTERACTIONS_SSE_URL: &str =
+            "https://generativelanguage.googleapis.com/v1beta/interactions?alt=sse";
+
+        tracing::info!(
+            identifier = identifier,
+            model = %model_name,
+            "Starting xhigh summary generation via raw Interactions SSE"
+        );
+
+        let client = reqwest::Client::new();
+        let mut response = client
+            .post(INTERACTIONS_SSE_URL)
+            .header("x-goog-api-key", &self.api_key)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| SummaryError::ApiError(format!("xhigh HTTP error: {e}")))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            if status.as_u16() == 429 || is_rate_limit_error(&body) {
+                tracing::warn!(
+                    identifier = identifier,
+                    "Rate limited by Gemini API (xhigh)"
+                );
+                return Err(SummaryError::RateLimited);
+            }
+            tracing::error!(identifier = identifier, status = %status, "Gemini xhigh API error");
+            return Err(SummaryError::ApiError(format!("HTTP {status}: {body}")));
+        }
+
+        let mut frames = SseFrameBuffer::default();
+        let mut accumulated = InteractionAccumulator::default();
+        loop {
+            let chunk = response
+                .chunk()
+                .await
+                .map_err(|e| SummaryError::ApiError(format!("xhigh stream error: {e}")))?;
+            let Some(bytes) = chunk else {
+                break;
+            };
+            for event in frames.push(&bytes)? {
+                Self::append_observed_chunk(db_pool, identifier, epoch, &mut accumulated, event)
+                    .await?;
+            }
+        }
+        for event in frames.finish()? {
+            Self::append_observed_chunk(db_pool, identifier, epoch, &mut accumulated, event)
+                .await?;
+        }
+
+        let model = ModelOption {
+            name: model_name.to_string(),
+            input_price_per_mtoken: 0.0,
+            output_price_per_mtoken: 0.0,
+            context_window: 0,
+            rpm_limit: 0,
+            tpm_limit: 0,
+            rpd_limit: 0,
+            architecture: crate::state::ModelArchitecture::Gemini,
+        };
+        // Price the xhigh flagship run with its real catalog entry.
+        let model = crate::state::get_default_models()
+            .into_iter()
+            .find(|m| m.name == model_name)
+            .unwrap_or(model);
+        self.finalize_generation(&model, accumulated, prompt_len, start)
     }
 
     /// Validates transcript length and generates a summary via Gemini.
@@ -207,16 +470,24 @@ impl SummaryService {
             builder = builder.with_url_context();
         }
 
-        // Gemini 3 uses named levels while Gemini 2.5 retains its separate,
-        // numeric budget API. The builder methods clear each other, so these
-        // branches must remain mutually exclusive.
+        // Named Gemini thinking levels go through the builder, while
+        // `xhigh` on gemini-4-hydrogen needs the raw SSE path below
+        // (gemini-rust 2.0.0 has no XHigh variant). Anything else sends no
+        // level so the provider chooses its own default. Gemini 2.5 retains
+        // its separate, numeric budget API outside the Interactions API.
+        let resolved_thinking = effective_thinking_level(&model.name, thinking_preference);
+        let wants_xhigh = resolved_thinking == ResolvedThinking::XHigh;
         if model.architecture == crate::state::ModelArchitecture::Gemini {
-            if let Some(level) = gemini_3_thinking_level(&model.name, thinking_preference) {
-                builder = builder
-                    .with_thinking_level(level)
-                    .with_thinking_summaries(ThinkingSummaries::Auto);
-            } else if gemini_2_5_thinking_budget(&model.name).is_some() {
-                // Interactions exposes named Gemini 3 thinking only. Keep the provider default for 2.5.
+            match resolved_thinking {
+                ResolvedThinking::Named(level) => {
+                    builder = builder
+                        .with_thinking_level(level)
+                        .with_thinking_summaries(ThinkingSummaries::Auto);
+                }
+                ResolvedThinking::Omitted if gemini_2_5_thinking_budget(&model.name).is_some() => {
+                    // Interactions exposes named Gemini thinking only. Keep the provider default for 2.5.
+                }
+                ResolvedThinking::Omitted | ResolvedThinking::XHigh => {}
             }
         }
 
@@ -253,6 +524,44 @@ impl SummaryService {
             }
         };
 
+        // `xhigh` cannot travel through gemini-rust 2.0.0 (its
+        // InteractionThinkingLevel has no XHigh variant), so the fully
+        // configured builder request is serialized, patched with
+        // `"thinking_level": "xhigh"`, and streamed over a raw SSE call.
+        if wants_xhigh {
+            let request = builder
+                .with_text(&prompt)
+                .build()
+                .map_err(|e| SummaryError::ApiError(e.to_string()))?;
+            let mut payload = serde_json::to_value(&request)
+                .map_err(|e| SummaryError::ApiError(e.to_string()))?;
+            let generation_config = payload
+                .as_object_mut()
+                .and_then(|obj| {
+                    obj.entry("generation_config".to_string())
+                        .or_insert_with(|| serde_json::json!({}))
+                        .as_object_mut()
+                })
+                .ok_or_else(|| SummaryError::ApiError("xhigh payload has no JSON object".into()))?;
+            generation_config.insert("thinking_level".to_string(), serde_json::json!("xhigh"));
+            generation_config.insert("thinking_summaries".to_string(), serde_json::json!("auto"));
+            payload
+                .as_object_mut()
+                .expect("payload is a JSON object")
+                .insert("stream".to_string(), serde_json::json!(true));
+            return self
+                .generate_summary_xhigh(
+                    db_pool,
+                    identifier,
+                    epoch,
+                    &model.name,
+                    payload,
+                    prompt.len(),
+                    start,
+                )
+                .await;
+        }
+
         let mut stream = builder
             .with_text(&prompt)
             .execute_stream()
@@ -274,57 +583,11 @@ impl SummaryService {
             .await
             .map_err(|e| SummaryError::ApiError(e.to_string()))?
         {
-            if let Some(text) = accumulated.observe(event)?
-                && !db::append_summary_chunk_for_epoch(db_pool, identifier, epoch, &text)
-                    .await
-                    .map_err(|e| SummaryError::ApiError(format!("DB error: {e}")))?
-            {
-                return Err(SummaryError::ApiError("generation ownership lost".into()));
-            }
+            Self::append_observed_chunk(db_pool, identifier, epoch, &mut accumulated, event)
+                .await?;
         }
 
-        if !accumulated.completed {
-            return Err(SummaryError::ApiError(
-                "provider stream ended without successful terminal event".into(),
-            ));
-        }
-
-        if accumulated.summary_text.is_empty() {
-            return Err(SummaryError::ApiError(
-                "Gemini returned empty response".to_string(),
-            ));
-        }
-        let duration_secs = start.elapsed().as_secs_f64();
-
-        // If token counts weren't provided by the API, estimate them
-        if accumulated.input_tokens == 0 {
-            accumulated.input_tokens = (prompt.len() as u64) / 4;
-        }
-        if accumulated.output_tokens == 0 {
-            accumulated.output_tokens = (accumulated.summary_text.len() as u64) / 4;
-        }
-
-        let cost = self.compute_cost(model, accumulated.input_tokens, accumulated.output_tokens);
-
-        tracing::info!(
-            identifier = identifier,
-            input_tokens = accumulated.input_tokens,
-            output_tokens = accumulated.output_tokens,
-            thinking_tokens = accumulated.thinking_tokens,
-            cost = cost,
-            duration_secs = duration_secs,
-            "Summary generation complete"
-        );
-
-        Ok(SummaryResult {
-            summary_text: accumulated.summary_text,
-            input_tokens: accumulated.input_tokens,
-            output_tokens: accumulated.output_tokens,
-            thinking_text: accumulated.thinking_text,
-            thinking_tokens: accumulated.thinking_tokens,
-            cost,
-            duration_secs,
-        })
+        Self::finalize_generation(self, model, accumulated, prompt.len(), start)
     }
 
     /// Generates prompt directives for language selection and glossary generation.
@@ -455,6 +718,16 @@ Please provide a summary like they would: \n\
     }
 
     /// Computes the cost based on token counts and model pricing.
+    ///
+    /// `output_tokens` is billed at the output rate as reported by
+    /// `InteractionUsage::total_output_tokens`. Per Google's Gemini billing
+    /// documentation, thinking tokens count toward the output-token total,
+    /// so `total_thought_tokens` (persisted separately for visibility via
+    /// `mark_summary_done`) is deliberately NOT added again here. If a
+    /// future API ever reports output tokens exclusive of thinking, this
+    /// under-counts: compare `total_tokens` against
+    /// `total_input_tokens + total_output_tokens + total_thought_tokens`
+    /// on live usage payloads to re-verify.
     pub fn compute_cost(&self, model: &ModelOption, input_tokens: u64, output_tokens: u64) -> f64 {
         let input_cost = (input_tokens as f64) * model.input_price_per_mtoken / 1_000_000.0;
         let output_cost = (output_tokens as f64) * model.output_price_per_mtoken / 1_000_000.0;
@@ -541,21 +814,54 @@ Please provide a summary like they would: \n\
             }
         })?;
 
+        // Own this generation epoch: chunks from a superseded stream must
+        // not leak into a retry's body.
+        let epoch = db::fetch_summary(db_pool, identifier)
+            .await
+            .map_err(|e| SummaryError::ApiError(format!("DB error: {e}")))?
+            .ok_or_else(|| SummaryError::ApiError("summary row disappeared".into()))?
+            .generation_epoch;
+
         let mut summary_text = String::new();
+        let mut thinking_text = String::new();
+        let mut think_pending = String::new();
+        let mut think_closed = false;
         let mut input_tokens: u64 = 0;
         let mut output_tokens: u64 = 0;
+        let mut saw_finish_reason = false;
 
         while let Some(chunk_result) = stream.next().await {
             match chunk_result {
                 Ok(response) => {
                     for choice in response.choices {
+                        if choice.finish_reason.is_some() {
+                            saw_finish_reason = true;
+                        }
                         if let Some(content) = choice.delta.content
                             && !content.is_empty()
                         {
-                            db::update_summary_chunk(db_pool, identifier, &content)
+                            let (summary_part, think_part) = split_hetzner_content(
+                                &mut think_pending,
+                                &mut think_closed,
+                                &content,
+                            );
+                            thinking_text.push_str(&think_part);
+                            if !summary_part.is_empty() {
+                                if !db::append_summary_chunk_for_epoch(
+                                    db_pool,
+                                    identifier,
+                                    epoch,
+                                    &summary_part,
+                                )
                                 .await
-                                .map_err(|e| SummaryError::ApiError(format!("DB error: {}", e)))?;
-                            summary_text.push_str(&content);
+                                .map_err(|e| SummaryError::ApiError(format!("DB error: {e}")))?
+                                {
+                                    return Err(SummaryError::ApiError(
+                                        "generation ownership lost".into(),
+                                    ));
+                                }
+                                summary_text.push_str(&summary_part);
+                            }
                         }
                     }
                     if let Some(usage) = response.usage {
@@ -578,6 +884,24 @@ Please provide a summary like they would: \n\
             }
         }
 
+        // Fail open: an unclosed think block is summary text, not silence.
+        if !think_pending.is_empty() {
+            let pending = std::mem::take(&mut think_pending);
+            if !db::append_summary_chunk_for_epoch(db_pool, identifier, epoch, &pending)
+                .await
+                .map_err(|e| SummaryError::ApiError(format!("DB error: {e}")))?
+            {
+                return Err(SummaryError::ApiError("generation ownership lost".into()));
+            }
+            summary_text.push_str(&pending);
+        }
+
+        if !saw_finish_reason {
+            return Err(SummaryError::ApiError(
+                "Hetzner provider stream ended without finish reason".to_string(),
+            ));
+        }
+
         if summary_text.is_empty() {
             return Err(SummaryError::ApiError(
                 "Hetzner API returned empty response".to_string(),
@@ -592,6 +916,8 @@ Please provide a summary like they would: \n\
         if output_tokens == 0 {
             output_tokens = (summary_text.len() as u64) / 4;
         }
+        // Qwen usage reports carry no thinking counts; estimate for storage.
+        let thinking_tokens = (thinking_text.len() as u64) / 4;
 
         let cost = self.compute_cost(model, input_tokens, output_tokens);
 
@@ -599,6 +925,7 @@ Please provide a summary like they would: \n\
             identifier = identifier,
             input_tokens = input_tokens,
             output_tokens = output_tokens,
+            thinking_tokens = thinking_tokens,
             cost = cost,
             duration_secs = duration_secs,
             "Hetzner summary generation complete"
@@ -608,19 +935,59 @@ Please provide a summary like they would: \n\
             summary_text,
             input_tokens,
             output_tokens,
-            thinking_text: String::new(),
-            thinking_tokens: 0,
+            thinking_text,
+            thinking_tokens,
             cost,
             duration_secs,
         })
     }
 }
 
+/// Upper bound for a held-back unclosed `<think>` block before failing open
+/// and treating the buffered text as summary content.
+const MAX_HELD_THINK_BYTES: usize = 65_536;
+
+/// Splits one streamed Hetzner content delta into `(summary_part, think_part)`.
+///
+/// Qwen models on the OpenAI-compatible Hetzner endpoint expose reasoning as
+/// a leading `<think>...</think>` block inside `content` (there is no
+/// `reasoning_content` delta field in `async-openai 0.41`). While the block
+/// is unclosed, text is held in `pending` so no raw `<think>` markup reaches
+/// the persisted summary; once `</think>` arrives, the inner text moves to
+/// the thinking accumulator and only the remainder is summary content.
+fn split_hetzner_content(
+    pending: &mut String,
+    think_closed: &mut bool,
+    chunk: &str,
+) -> (String, String) {
+    if *think_closed {
+        return (chunk.to_string(), String::new());
+    }
+    pending.push_str(chunk);
+    let trimmed = pending.trim_start().to_string();
+    if !trimmed.starts_with("<think>") {
+        *think_closed = true;
+        return (std::mem::take(pending), String::new());
+    }
+    if let Some(close) = trimmed.find("</think>") {
+        let inner = trimmed["<think>".len()..close].to_string();
+        let rest = trimmed[close + "</think>".len()..].to_string();
+        *think_closed = true;
+        pending.clear();
+        return (rest, inner);
+    }
+    if pending.len() > MAX_HELD_THINK_BYTES {
+        *think_closed = true;
+        return (std::mem::take(pending), String::new());
+    }
+    (String::new(), String::new())
+}
+
 /// Maps internal Hetzner model names to their API-side model identifiers.
 fn resolve_hetzner_model_name(internal_name: &str) -> &str {
     match internal_name {
         "hetzner-qwen-3.6-35b" => "Qwen/Qwen3.6-35B-A3B-FP8",
-        "hetzner-qwen-3.8-27b" => "Qwen3.8-27B",
+        "hetzner-qwen-3.8-27b" => "Qwen/Qwen3.8-27B",
         other => other, // pass-through for direct API names (e.g. containing '/')
     }
 }
@@ -681,37 +1048,120 @@ mod tests {
 
     #[test]
     fn thinking_levels_map_only_for_gemini_3() {
+        use ResolvedThinking::*;
+        // Auto never sends a level; unknown and non-Gemini models omit it.
         assert_eq!(
-            gemini_3_thinking_level("gemini-3.8-flash", ThinkingPreference::Minimal),
-            Some(InteractionThinkingLevel::Low)
+            effective_thinking_level("gemini-4-hydrogen", ThinkingPreference::Auto),
+            Omitted
         );
         assert_eq!(
-            gemini_3_thinking_level("gemini-3.7-flash", ThinkingPreference::Low),
-            Some(InteractionThinkingLevel::Low)
+            effective_thinking_level("gemini-2.5-flash-lite", ThinkingPreference::High),
+            Omitted
         );
         assert_eq!(
-            gemini_3_thinking_level("gemini-3.6-flash", ThinkingPreference::Medium),
-            Some(InteractionThinkingLevel::Medium)
+            effective_thinking_level("hetzner-qwen-3.8-27b", ThinkingPreference::High),
+            Omitted
         );
         assert_eq!(
-            gemini_3_thinking_level("gemini-3.5-flash", ThinkingPreference::High),
-            Some(InteractionThinkingLevel::High)
+            effective_thinking_level("gemma-4-31b-it", ThinkingPreference::Low),
+            Omitted
+        );
+        // xhigh only survives on hydrogen; Gemini 3.x clamps it to high.
+        assert_eq!(
+            effective_thinking_level("gemini-4-hydrogen", ThinkingPreference::XHigh),
+            XHigh
         );
         assert_eq!(
-            gemini_3_thinking_level("gemini-3.8-flash", ThinkingPreference::Auto),
-            None
+            effective_thinking_level("gemini-3.6-flash", ThinkingPreference::XHigh),
+            Named(InteractionThinkingLevel::High)
+        );
+        // minimal is real on lite models but clamps to low where rejected.
+        assert_eq!(
+            effective_thinking_level("gemini-3.5-flash-lite", ThinkingPreference::Minimal),
+            Named(InteractionThinkingLevel::Minimal)
         );
         assert_eq!(
-            gemini_3_thinking_level("gemini-2.5-flash", ThinkingPreference::High),
-            None
+            effective_thinking_level("gemini-4-hydrogen", ThinkingPreference::Minimal),
+            Named(InteractionThinkingLevel::Low)
         );
         assert_eq!(
-            gemini_3_thinking_level("hetzner-qwen-3.8-27b", ThinkingPreference::High),
-            None
+            effective_thinking_level("gemini-3.8-flash", ThinkingPreference::Minimal),
+            Named(InteractionThinkingLevel::Low)
+        );
+        assert_eq!(
+            effective_thinking_level("gemini-3.8-flash", ThinkingPreference::Medium),
+            Named(InteractionThinkingLevel::Medium)
         );
         assert_eq!(gemini_2_5_thinking_budget("gemini-2.5-flash"), Some(24576));
         assert_eq!(gemini_2_5_thinking_budget("gemini-2.5-pro"), Some(32768));
         assert_eq!(gemini_2_5_thinking_budget("gemini-3.8-flash"), None);
+    }
+
+    #[test]
+    fn sse_frame_buffer_parses_split_chunks() {
+        // One event split across chunk boundaries, plus keep-alive and DONE.
+        let mut frames = SseFrameBuffer::default();
+        let events = frames
+            .push(b": keep-alive\n\ndata: {\"event_type\":\"step.delta\",\"index\":0,")
+            .unwrap();
+        assert!(events.is_empty());
+        let events = frames
+            .push(b"\"delta\":{\"type\":\"text\",\"text\":\"hello\"}}\n\ndata: [DONE]\n\n")
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        let mut accumulated = InteractionAccumulator::default();
+        assert_eq!(
+            accumulated
+                .observe(events.into_iter().next().unwrap())
+                .unwrap(),
+            Some("hello".into())
+        );
+        // Trailing bytes without a terminal blank line still parse.
+        let mut frames = SseFrameBuffer::default();
+        let events = frames
+            .push(b"data: {\"event_type\":\"step.delta\",\"index\":0,\"delta\":{\"type\":\"text\",\"text\":\"tail\"}}")
+            .unwrap();
+        assert!(events.is_empty());
+        let events = frames.finish().unwrap();
+        assert_eq!(events.len(), 1);
+    }
+
+    #[test]
+    fn hetzner_think_block_is_separated_from_summary() {
+        let mut pending = String::new();
+        let mut closed = false;
+        // Opening tag alone is held back.
+        assert_eq!(
+            split_hetzner_content(&mut pending, &mut closed, "<think>"),
+            (String::new(), String::new())
+        );
+        assert!(!closed);
+        // Closing tag releases the thought and the summary remainder.
+        assert_eq!(
+            split_hetzner_content(
+                &mut pending,
+                &mut closed,
+                "reasoning here</think>## Abstract"
+            ),
+            ("## Abstract".to_string(), "reasoning here".to_string())
+        );
+        assert!(closed);
+        // Later chunks pass through untouched.
+        assert_eq!(
+            split_hetzner_content(&mut pending, &mut closed, " more"),
+            (" more".to_string(), String::new())
+        );
+    }
+
+    #[test]
+    fn hetzner_content_without_think_passes_through() {
+        let mut pending = String::new();
+        let mut closed = false;
+        assert_eq!(
+            split_hetzner_content(&mut pending, &mut closed, "## Abstract: foo"),
+            ("## Abstract: foo".to_string(), String::new())
+        );
+        assert!(closed);
     }
 
     fn test_model() -> ModelOption {
@@ -721,6 +1171,7 @@ mod tests {
             output_price_per_mtoken: 0.30,
             context_window: 1_000_000,
             rpm_limit: 10,
+            tpm_limit: 250_000,
             rpd_limit: 1500,
             architecture: ModelArchitecture::Gemini,
         }
@@ -1003,6 +1454,7 @@ mod tests {
             output_price_per_mtoken: 0.0,
             context_window: 262_144,
             rpm_limit: 60,
+            tpm_limit: 0,
             rpd_limit: 14400,
             architecture: ModelArchitecture::Hetzner,
         };
@@ -1024,7 +1476,7 @@ mod tests {
         );
         assert_eq!(
             resolve_hetzner_model_name("hetzner-qwen-3.8-27b"),
-            "Qwen3.8-27B"
+            "Qwen/Qwen3.8-27B"
         );
         // Pass-through for direct API names
         assert_eq!(

@@ -88,18 +88,15 @@ fn youtube_clipboard_text(
     format!("{body}\n\n{footer}")
 }
 
-fn supports_named_thinking_levels(model_name: &str) -> bool {
-    model_name.to_ascii_lowercase().starts_with("gemini-3.")
-}
-
 fn validate_thinking_preference(
     model_name: &str,
     preference: ThinkingPreference,
 ) -> Result<(), &'static str> {
-    if preference != ThinkingPreference::Auto && !supports_named_thinking_levels(model_name) {
-        return Err("Named thinking levels are only supported by Gemini 3.* models.");
+    if crate::state::supported_thinking_levels(model_name).contains(&preference) {
+        Ok(())
+    } else {
+        Err("This model does not support the selected thinking level.")
     }
-    Ok(())
 }
 
 /// GET / — renders the index page with the submission form.
@@ -130,9 +127,26 @@ pub async fn process_transcript(
         return Html(format!("<p>Invalid thinking preference: {message}</p>"));
     }
 
-    // Check rate limit
-    let allowed =
-        RateLimiter::check_rate_limit(&model, &app.model_counts, &app.last_reset_day).await;
+    // Resolve `auto` before quota checks so the effective model is rated.
+    let mut effective_model = model.clone();
+    if effective_model.name == "auto" {
+        let resolved = crate::tasks::resolve_auto_model().to_string();
+        if let Some(concrete) = app.model_options.iter().find(|m| m.name == resolved) {
+            effective_model = concrete.clone();
+        }
+    }
+
+    // Check the whole fallback chain: reject only when every candidate
+    // model exhausted its daily quota, not at the first tired primary.
+    let chain = crate::tasks::get_fallback_chain(&effective_model.name);
+    let allowed = RateLimiter::check_chain_available(
+        &chain,
+        &app.model_options,
+        &app.db,
+        &app.model_counts,
+        &app.last_reset_day,
+    )
+    .await;
     if !allowed {
         return Html(
             "<p>Rate limit exceeded for this model. Please try again later.</p>".to_string(),
@@ -304,7 +318,7 @@ pub async fn retry_generation(
     }
 }
 
-/// GET /browse — paginated browse page showing summaries from the metadata cache.
+/// GET /browse — paginated browse page showing summaries from the database.
 pub async fn browse_summaries(
     State(app): State<AppState>,
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
@@ -615,12 +629,13 @@ mod tests {
             .expect("Failed to init in-memory DB for route tests");
 
         let model = crate::state::ModelOption {
-            name: "gemini-3.5-flash".to_string(),
-            input_price_per_mtoken: 0.10,
-            output_price_per_mtoken: 0.40,
-            context_window: 1_000_000,
-            rpm_limit: 5,
-            rpd_limit: 20,
+            name: "gemini-3.5-flash-lite".to_string(),
+            input_price_per_mtoken: 0.30,
+            output_price_per_mtoken: 2.50,
+            context_window: 1_048_576,
+            rpm_limit: 15,
+            tpm_limit: 250_000,
+            rpd_limit: 500,
             architecture: crate::state::ModelArchitecture::Gemini,
         };
 
@@ -630,6 +645,9 @@ mod tests {
             model_options: Arc::new(vec![model]),
             model_counts: Arc::new(RwLock::new(HashMap::new())),
             last_reset_day: Arc::new(RwLock::new(None)),
+            tpm_tracker: Arc::new(tokio::sync::Mutex::new(
+                crate::services::rate_limiter::TpmTracker::new(),
+            )),
             gemini_api_key: "dummy_key".to_string(),
             #[cfg(feature = "nn-mapper")]
             nn_mapper: None,
@@ -651,7 +669,7 @@ mod tests {
         let input = SubmitForm {
             original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ https://news.ycombinator.com/item?id=40000000".to_string(),
             transcript: None,
-            model: "gemini-3.5-flash".to_string(),
+            model: "gemini-3.5-flash-lite".to_string(),
             google_search_grounding: false,
             url_context: false,
             include_glossary: false,
@@ -702,7 +720,7 @@ mod tests {
         let input1 = SubmitForm {
             original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
             transcript: None,
-            model: "gemini-3.5-flash".to_string(),
+            model: "gemini-3.5-flash-lite".to_string(),
             google_search_grounding: false,
             url_context: false,
             include_glossary: false,
@@ -715,7 +733,7 @@ mod tests {
         let input2 = SubmitForm {
             original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ https://news.ycombinator.com/item?id=40000000".to_string(),
             transcript: None,
-            model: "gemini-3.5-flash".to_string(),
+            model: "gemini-3.5-flash-lite".to_string(),
             google_search_grounding: false,
             url_context: false,
             include_glossary: false,
@@ -749,7 +767,7 @@ mod tests {
         let input = SubmitForm {
             original_source_link: "not_a_valid_link".to_string(),
             transcript: None,
-            model: "gemini-3.5-flash".to_string(),
+            model: "gemini-3.5-flash-lite".to_string(),
             google_search_grounding: false,
             url_context: false,
             include_glossary: false,
@@ -773,16 +791,24 @@ mod tests {
 
     #[test]
     fn named_thinking_levels_are_limited_to_gemini_3() {
-        assert!(
-            validate_thinking_preference("gemini-3.8-flash", ThinkingPreference::Medium).is_ok()
-        );
-        assert!(
-            validate_thinking_preference("gemini-2.5-flash", ThinkingPreference::Medium).is_err()
-        );
-        assert!(
-            validate_thinking_preference("hetzner-qwen-3.8-27b", ThinkingPreference::High).is_err()
-        );
-        assert!(validate_thinking_preference("gemini-2.5-flash", ThinkingPreference::Auto).is_ok());
+        use ThinkingPreference::*;
+        // Gemini 3.x supports its documented matrix, including xhigh clamps.
+        assert!(validate_thinking_preference("gemini-3.8-flash", Medium).is_ok());
+        assert!(validate_thinking_preference("gemini-3.8-flash", Minimal).is_err());
+        assert!(validate_thinking_preference("gemini-3.6-flash", Minimal).is_ok());
+        assert!(validate_thinking_preference("gemini-3-flash-preview", XHigh).is_err());
+        // Hydrogen is the only model accepting xhigh.
+        assert!(validate_thinking_preference("gemini-4-hydrogen", XHigh).is_ok());
+        assert!(validate_thinking_preference("gemini-4-hydrogen", Minimal).is_err());
+        // "auto" delegates to the AUTO_MODEL matrix.
+        assert!(validate_thinking_preference("auto", High).is_ok());
+        assert!(validate_thinking_preference("auto", XHigh).is_err());
+        assert!(validate_thinking_preference("auto", Auto).is_ok());
+        // Gemini 2.5, Gemma, and Hetzner only accept auto.
+        assert!(validate_thinking_preference("gemini-2.5-flash-lite", Medium).is_err());
+        assert!(validate_thinking_preference("hetzner-qwen-3.8-27b", High).is_err());
+        assert!(validate_thinking_preference("gemma-4-31b-it", Low).is_err());
+        assert!(validate_thinking_preference("gemini-2.5-flash-lite", Auto).is_ok());
     }
 
     #[tokio::test]
@@ -792,7 +818,7 @@ mod tests {
         let input = SubmitForm {
             original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ https://news.ycombinator.com/item?id=40000000".to_string(),
             transcript: None,
-            model: "gemini-3.5-flash".to_string(),
+            model: "gemini-3.5-flash-lite".to_string(),
             google_search_grounding: false,
             url_context: false,
             include_glossary: false,
@@ -826,7 +852,7 @@ mod tests {
         let input = SubmitForm {
             original_source_link: "https://www.youtube.com/watch?v=dQw4w9WgXcQ".to_string(),
             transcript: None,
-            model: "gemini-3.5-flash".to_string(),
+            model: "gemini-3.5-flash-lite".to_string(),
             google_search_grounding: false,
             url_context: false,
             include_glossary: false,
@@ -834,11 +860,12 @@ mod tests {
             thinking_level: ThinkingPreference::Medium,
         };
         state.model_options = Arc::new(vec![crate::state::ModelOption {
-            name: "gemini-2.5-flash".to_string(),
+            name: "gemini-2.5-flash-lite".to_string(),
             input_price_per_mtoken: 0.10,
             output_price_per_mtoken: 0.40,
-            context_window: 1_000_000,
-            rpm_limit: 5,
+            context_window: 1_048_576,
+            rpm_limit: 10,
+            tpm_limit: 250_000,
             rpd_limit: 20,
             architecture: crate::state::ModelArchitecture::Gemini,
         }]);
@@ -847,7 +874,7 @@ mod tests {
             State(state.clone()),
             ConnectInfo(addr),
             Form(SubmitForm {
-                model: "gemini-2.5-flash".to_string(),
+                model: "gemini-2.5-flash-lite".to_string(),
                 ..input
             }),
         )
@@ -875,11 +902,16 @@ mod tests {
         .unwrap();
         assert!(html.contains("<label for=\"thinking_level\">Thinking effort</label>"));
         assert!(html.contains("id=\"thinking-level-help\""));
-        for value in ["auto", "minimal", "low", "medium", "high"] {
+        for value in ["auto", "minimal", "low", "medium", "high", "xhigh"] {
             assert!(html.contains(&format!("value=\"{value}\"")));
         }
         assert!(html.contains("value=\"high\" selected"));
-        assert!(html.contains("startsWith('gemini-3.')"));
+        // Capability attributes drive the thinking UI; no prefix sniffing.
+        assert!(!html.contains("startsWith('gemini-3.')"));
+        assert!(html.contains("data-thinking-levels=\"auto,low,medium,high,xhigh\""));
+        assert!(html.contains("data-default-thinking=\"xhigh\""));
+        assert!(html.contains("data-thinking-levels=\"auto,minimal,low,medium,high\""));
+        assert!(html.contains("Auto (gemini-3.5-flash-lite)"));
         assert!(html.contains(&format!("rs-summarizer v{}", crate::APP_VERSION)));
     }
 

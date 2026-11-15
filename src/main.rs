@@ -46,13 +46,24 @@ async fn main() -> anyhow::Result<()> {
     // Configure model options
     let model_options = rs_summarizer::state::load_models_config(None);
 
+    // Restore today's persistent RPD counters so a restart does not
+    // reset (or double-spend) the daily quotas.
+    let today_la = rs_summarizer::services::rate_limiter::RateLimiter::today_la();
+    let model_counts = Arc::new(RwLock::new(
+        rs_summarizer::db::load_model_daily_usage(&db, &today_la.format("%Y-%m-%d").to_string())
+            .await,
+    ));
+
     // Build application state
     let state = AppState {
         app_version: APP_VERSION,
         db: db.clone(),
         model_options: Arc::new(model_options),
-        model_counts: Arc::new(RwLock::new(HashMap::new())),
-        last_reset_day: Arc::new(RwLock::new(None)),
+        model_counts,
+        last_reset_day: Arc::new(RwLock::new(Some(today_la))),
+        tpm_tracker: Arc::new(tokio::sync::Mutex::new(
+            rs_summarizer::services::rate_limiter::TpmTracker::new(),
+        )),
         gemini_api_key,
         #[cfg(feature = "nn-mapper")]
         nn_mapper,

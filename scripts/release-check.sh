@@ -3,6 +3,8 @@
 # Run this before releasing to verify everything is in order.
 #
 # Usage: ./scripts/release-check.sh
+#
+# All checks must print ✓ before ./scripts/release.sh <version> is run.
 
 set -euo pipefail
 
@@ -43,28 +45,36 @@ else
     echo "✗ (local and remote differ)"
 fi
 
-# Build check
-echo -n "Cargo check: "
-if cargo check 2>/dev/null; then
+# Format check
+echo -n "Cargo fmt: "
+if cargo fmt --check 2>/dev/null; then
     echo "✓"
 else
     echo "✗"
 fi
 
-# Clippy
+# Clippy (all targets, all features, warnings denied)
 echo -n "Clippy: "
-if cargo clippy -- -W clippy::all 2>/dev/null; then
+if cargo clippy --all-targets --all-features -- -D warnings 2>/dev/null; then
     echo "✓"
 else
     echo "✗ (warnings or errors)"
 fi
 
 # Tests
-echo -n "Unit tests: "
+echo -n "Tests: "
 if cargo test 2>/dev/null; then
     echo "✓"
 else
     echo "✗"
+fi
+
+# CHANGELOG.md must exist and be non-empty
+echo -n "CHANGELOG.md present: "
+if [ -s CHANGELOG.md ]; then
+    echo "✓"
+else
+    echo "✗ (missing or empty)"
 fi
 
 echo ""

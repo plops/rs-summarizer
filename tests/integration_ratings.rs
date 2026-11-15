@@ -21,6 +21,9 @@ async fn setup_test_app() -> (axum::Router, SqlitePool) {
         model_options,
         model_counts: Arc::new(RwLock::new(HashMap::new())),
         last_reset_day: Arc::new(RwLock::new(None)),
+        tpm_tracker: Arc::new(tokio::sync::Mutex::new(
+            rs_summarizer::services::rate_limiter::TpmTracker::new(),
+        )),
         gemini_api_key: "test_key".to_string(),
         #[cfg(feature = "nn-mapper")]
         nn_mapper: None,

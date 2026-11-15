@@ -25,12 +25,13 @@ fn get_api_key() -> String {
 
 fn test_model() -> ModelOption {
     ModelOption {
-        name: "gemini-3.5-flash".to_string(),
-        input_price_per_mtoken: 0.10,
-        output_price_per_mtoken: 0.40,
-        context_window: 1_000_000,
-        rpm_limit: 5,
-        rpd_limit: 20,
+        name: "gemini-3.5-flash-lite".to_string(),
+        input_price_per_mtoken: 0.30,
+        output_price_per_mtoken: 2.50,
+        context_window: 1_048_576,
+        rpm_limit: 15,
+        tpm_limit: 250_000,
+        rpd_limit: 500,
         architecture: ModelArchitecture::Gemini,
     }
 }
@@ -407,6 +408,9 @@ async fn build_test_app_state() -> AppState {
         model_options,
         model_counts,
         last_reset_day,
+        tpm_tracker: Arc::new(tokio::sync::Mutex::new(
+            rs_summarizer::services::rate_limiter::TpmTracker::new(),
+        )),
         gemini_api_key: api_key,
         #[cfg(feature = "nn-mapper")]
         nn_mapper: None,

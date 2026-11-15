@@ -24,6 +24,14 @@ pub enum SummaryError {
     TranscriptTooShort,
     #[error("Transcript too long ({0} words, max {1})")]
     TranscriptTooLong(usize, usize),
+    #[error(
+        "prompt of ~{estimated} tokens exceeds the {limit} tokens/minute limit of model {model}"
+    )]
+    TpmLimitExceeded {
+        model: String,
+        estimated: u64,
+        limit: u32,
+    },
 }
 
 #[derive(Debug, Error)]

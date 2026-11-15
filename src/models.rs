@@ -17,15 +17,17 @@ pub enum ThinkingPreference {
     Medium,
     #[default]
     High,
+    XHigh,
 }
 
 impl ThinkingPreference {
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::Auto,
         Self::Minimal,
         Self::Low,
         Self::Medium,
         Self::High,
+        Self::XHigh,
     ];
 
     pub const fn as_str(self) -> &'static str {
@@ -35,6 +37,7 @@ impl ThinkingPreference {
             Self::Low => "low",
             Self::Medium => "medium",
             Self::High => "high",
+            Self::XHigh => "xhigh",
         }
     }
 }
@@ -55,7 +58,8 @@ impl FromStr for ThinkingPreference {
             "low" => Ok(Self::Low),
             "medium" => Ok(Self::Medium),
             "high" => Ok(Self::High),
-            _ => Err("thinking preference must be auto, minimal, low, medium, or high"),
+            "xhigh" => Ok(Self::XHigh),
+            _ => Err("thinking preference must be auto, minimal, low, medium, high, or xhigh"),
         }
     }
 }
