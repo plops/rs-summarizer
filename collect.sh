@@ -30,7 +30,9 @@ angepasst und dokumentiert werden.
 ich habe die folgende tabelle von hier bezogen: 
 https://aistudio.google.com/rate-limit?timeRange=last-1-day&project=noted-processor-418406
 
-Hier ist die gefilterte Markdown-Tabelle mit allen Modellen der Kategorie **Text-out models**, die ein tägliches Quota (`RPD > 0`) haben:
+Hier ist die gefilterte Markdown-Tabelle mit allen Modellen der
+Kategorie **Text-out models**, die ein tägliches Quota (`RPD > 0`)
+haben:
 
 | Model | Category | RPM | TPM | RPD |
 | :--- | :--- | :--- | :--- | :--- |
@@ -43,7 +45,8 @@ Hier ist die gefilterte Markdown-Tabelle mit allen Modellen der Kategorie **Text
 | Gemini 3.8 Flash | Text-out models | 0 / 5 | 0 / 250K | 0 / 20 |
 | Gemini 4 Hydrogen | Text-out models | 0 / 5 | 0 / 250K | 0 / 20 |
 
-Hier sind alle übrigen Modelle (außer *Text-out models*) aus der Tabelle, die ein tägliches Quota (`RPD > 0` oder `Unlimited`) haben:
+Hier sind alle übrigen Modelle (außer *Text-out models*) aus der
+Tabelle, die ein tägliches Quota (`RPD > 0` oder `Unlimited`) haben:
 
 ### Übrige Modelle
 
