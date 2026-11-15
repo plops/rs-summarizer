@@ -6,13 +6,49 @@ for i in Cargo.toml \
 	     migrations/*.sql \
 	     tests/*.rs \
 	     doc/rate*.md \
-	     R*.md
+	     R*.md \
+	     templates/*.html
 do
     echo "// start of "$i
     cat $i
 done
 
-cat <<EOF
+cat <<'EOF'
+kiel@e14:~/stage/rs-summarizer$ ls scripts/
+apply_submodule_patches.sh  migrate.py
+build_extension.py          release-check.sh
+create_synthetic_db.py      release.sh
+export_viewer               run_release_gpu_gui.sh
+install_po_provider.sh      sqlite-backup.sh
+kiel@e14:~/stage/rs-summarizer$ ls static/
+htmx.min.js  pico.min.css  ratings.css
+kiel@e14:~/stage/rs-summarizer$ ls extension/
+README.md  images  manifest.json  popup.html  popup.js
+kiel@e14:~/stage/rs-summarizer$ ls doc
+api_experiments.md  rate_limiting_error_handling_architecture.md
+qwen_eval.md        subtitles.md
+kiel@e14:~/stage/rs-summarizer$ ls plan
+20260513_01_port_from_python  20260817_01_more_hetzner_models
+20260619_01_review_vps        20260818_01_po_provider
+20260720_01_hn                20260822_01_hetzner_reduce
+20260721_01_gemini36          20260830_01_archify
+20260722_01_hn_batch          20260904_01_thinking_level
+20260722_02_code_review       20260904_02_aborts
+20260723_01_improve_prompt    20260904_03_version
+20260724_01_star_rating       20260920_01_doc
+20260724_02_split_multi       20261006_01_review
+20260726_01_hetzner           20261008_01_local_storage
+20260726_02_loadbalance       20261023_01_all_entries_browser
+20260801_01_glossary          20261024_01_titles
+20260813_01_gemini37
+kiel@e14:~/stage/rs-summarizer$ ls prompts
+collect_project_info.sh  example_output_abstract.txt
+example_input.txt        system_instruction.txt
+example_output.txt       visual.txt
+kiel@e14:~/stage/rs-summarizer$ ls templates/
+browse.html        generation_partial.html  search_results.html
+entries.html       index.html
+entry_detail.html  rating_partial.html
 
 schreibe plan/20261115_01_update/plan.md um eine (duemmere) AI zu
 instruieren, den quellcode von rs-summarizer upzudaten. im folgenden
@@ -87,6 +123,11 @@ Hier sind die zur zeit auf dem hetzner experiment gehosteten modelle:
 In der Webanwendung `rs-summarizer` (Produktivinstanz: https://rocketrecap.com)
 sollen die verfuegbaren modelle entsprechend upgedated werden
 
+
+Ich habe einen backup der datenbank vom produktivsystem abgezogen und
+unter /workspace/src/rs-summarizer/summaries_20261115.db.zst
+abgelegt. eine weitere aufgabe fuer den agenten ist die anzahl der
+bisher nachgetragenen youtube video titel zu bestimmen
 
 ---
 
