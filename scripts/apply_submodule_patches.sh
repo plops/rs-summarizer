@@ -31,6 +31,14 @@ fi
 echo "Applying fast-umap patch to third_party/fast-umap..."
 
 pushd third_party/fast-umap > /dev/null
+# The vendored tree already contains the patch content (it was committed
+# upstream of this script). Detect that first so re-running never fails.
+if git apply --check -R "$PATCH_FAST_UMAP" 2>/dev/null; then
+  echo "Patch content already present in third_party/fast-umap; nothing to do."
+  popd > /dev/null
+  echo "Patch application complete."
+  exit 0
+fi
 # Try git apply; fallback to patch if necessary
 if git apply --check "$PATCH_FAST_UMAP" 2>/dev/null; then
   git apply "$PATCH_FAST_UMAP"
